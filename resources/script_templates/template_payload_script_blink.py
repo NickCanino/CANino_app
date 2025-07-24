@@ -4,6 +4,7 @@
 # Variabili di stato opzionali (es. per tenere traccia del tempo o del contatore)
 counter = 0
 
+
 def get_payload(dlc: int = 8) -> bytes:
     global counter
     counter += 1  # utile per variare i byte nel tempo, se vuoi

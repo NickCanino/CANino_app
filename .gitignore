@@ -18,6 +18,9 @@ dist/
 # VSCode
 .vscode/
 
+# Ruff
+.ruff_cache/
+
 # System
 .DS_Store
 Thumbs.db

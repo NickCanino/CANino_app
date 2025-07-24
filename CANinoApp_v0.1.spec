@@ -5,7 +5,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[('resources/PCANBasic.dll', '.')],
-    datas=[('src/gui.py', '.'), ('src/dbc_loader.py', '.'), ('src/received_frames_class.py', '.'), ('src/can_interface.py', '.'), ('src/xmetro_class.py', '.'), ('src/logger.py', '.'), ('src/PCANBasic.py', '.')],
+    datas=[('src/gui.py', '.'), ('src/dbc_loader.py', '.'), ('src/received_frames_class.py', '.'), ('src/can_interface.py', '.'), ('src/xmetro_class.py', '.'), ('src/exceptions_logger.py', '.'), ('src/PCANBasic.py', '.')],
     hiddenimports=['can.interfaces.pcan'],
     hookspath=[],
     hooksconfig={},

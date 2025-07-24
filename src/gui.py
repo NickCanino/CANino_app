@@ -1,8 +1,25 @@
 from PyQt6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
-    QComboBox, QLabel, QGroupBox, QTreeWidget, QTreeWidgetItem, QSpinBox,
-    QFileDialog, QMessageBox, QInputDialog, QSplitter,
-    QStyle, QMenuBar, QMenu, QSlider, QScrollArea
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QPushButton,
+    QComboBox,
+    QLabel,
+    QGroupBox,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QSpinBox,
+    QFileDialog,
+    QMessageBox,
+    QInputDialog,
+    QSplitter,
+    QStyle,
+    QMenuBar,
+    QMenu,
+    QSlider,
+    QScrollArea,
 )
 from PyQt6.QtGui import QAction
 from PyQt6.QtCore import Qt, QTimer
@@ -11,18 +28,39 @@ import os
 
 from src.dbc_loader import load_dbc
 from src.can_interface import CANInterface
-from src.logger import log_exception
+from src.exceptions_logger import log_exception
 from src.xmetro_class import XMetroWindow
 from src.received_frames_class import ReceivedFramesWindow
 from src.PCANBasic import (
-    PCAN_BAUD_1M, PCAN_BAUD_800K, PCAN_BAUD_500K, PCAN_BAUD_250K, PCAN_BAUD_125K,
-    PCAN_BAUD_100K, PCAN_BAUD_95K, PCAN_BAUD_83K, PCAN_BAUD_50K, PCAN_BAUD_47K,
-    PCAN_BAUD_33K, PCAN_BAUD_20K, PCAN_BAUD_10K, PCAN_BAUD_5K
+    PCAN_BAUD_1M,
+    PCAN_BAUD_800K,
+    PCAN_BAUD_500K,
+    PCAN_BAUD_250K,
+    PCAN_BAUD_125K,
+    PCAN_BAUD_100K,
+    PCAN_BAUD_95K,
+    PCAN_BAUD_83K,
+    PCAN_BAUD_50K,
+    PCAN_BAUD_47K,
+    PCAN_BAUD_33K,
+    PCAN_BAUD_20K,
+    PCAN_BAUD_10K,
+    PCAN_BAUD_5K,
 )
 
+
 class SliderMeta:
-    def __init__(self, msg_name: str, signal_name: str, frame_id: int,
-                 min_val: float, max_val: float, step: float, unit: str, value_index: int):
+    def __init__(
+        self,
+        msg_name: str,
+        signal_name: str,
+        frame_id: int,
+        min_val: float,
+        max_val: float,
+        step: float,
+        unit: str,
+        value_index: int,
+    ):
         self.msg_name = msg_name
         self.signal_name = signal_name
         self.frame_id = frame_id
@@ -31,6 +69,7 @@ class SliderMeta:
         self.step = step
         self.unit = unit
         self.value_index = value_index  # posizione dello slider
+
 
 class MainWindow(QMainWindow):
     CONFIG_FILE = "resources/workspace_config_files/default_config_file.json"
@@ -48,7 +87,8 @@ class MainWindow(QMainWindow):
 
         # --- MENU ---
         menubar = QMenuBar(self)
-        menubar.setStyleSheet("""
+        menubar.setStyleSheet(
+            """
             QMenuBar {
                 background-color: #444444;
                 color: white;
@@ -67,7 +107,8 @@ class MainWindow(QMainWindow):
             QMenu::item:selected {
                 background: #666666;
             }
-        """)
+        """
+        )
         file_menu = QMenu("&File", self)
         action_save = QAction("Salva", self)
         action_save_as = QAction("Salva con nome...", self)
@@ -77,9 +118,15 @@ class MainWindow(QMainWindow):
         action_save_as.triggered.connect(self.save_config_as)
         action_load.triggered.connect(self.load_config)
         # Set icons for actions
-        action_save.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
-        action_save_as.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton))
-        action_load.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton))
+        action_save.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+        )
+        action_save_as.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
+        )
+        action_load.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogOpenButton)
+        )
         # Add actions to the file menu
         file_menu.addAction(action_save)
         file_menu.addAction(action_save_as)
@@ -93,9 +140,11 @@ class MainWindow(QMainWindow):
         top_controls.setLayout(top_layout)
         top_controls.setFixedHeight(50)  # Imposta l'altezza fissa del box superiore
 
-        #--- PULSANTI E COMBOBOX IN ALTO ---
+        # --- PULSANTI E COMBOBOX IN ALTO ---
         self.btn_load_dbc = QPushButton("  Carica DBC")
-        self.btn_load_dbc.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView))
+        self.btn_load_dbc.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
+        )
         self.btn_load_dbc.setFixedSize(120, 30)
         self.btn_load_dbc.clicked.connect(self.load_dbc_file)
         top_layout.addWidget(self.btn_load_dbc)
@@ -110,7 +159,9 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.cb_bus_tx)
 
         self.btn_refresh_bus = QPushButton()
-        self.btn_refresh_bus.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload))
+        self.btn_refresh_bus.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
+        )
         self.btn_refresh_bus.setFixedSize(30, 30)
         self.btn_refresh_bus.clicked.connect(self.refresh_bus_list)
         top_layout.addWidget(self.btn_refresh_bus)
@@ -146,22 +197,30 @@ class MainWindow(QMainWindow):
         self.btn_connect.setCheckable(True)
         self.btn_connect.clicked.connect(self.toggle_connection)
         self.btn_connect.setFixedSize(100, 30)
-        self.btn_connect.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
+        self.btn_connect.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+        )
         top_layout.addWidget(self.btn_connect)
 
         self.btn_add_id = QPushButton("Aggiungi ID")
-        self.btn_add_id.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown))
+        self.btn_add_id.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
+        )
         self.btn_add_id.setFixedSize(120, 30)
         self.btn_add_id.clicked.connect(self.add_manual_id)
 
         self.btn_start_tx = QPushButton("Start TX")
-        self.btn_start_tx.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.btn_start_tx.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
+        )
         self.btn_start_tx.setFixedSize(100, 30)
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
-        self.btn_start_tx.setEnabled(False) # Disabilita il pulsante all'inizio
+        self.btn_start_tx.setEnabled(False)  # Disabilita il pulsante all'inizio
 
         self.btn_add_xmetro = QPushButton("Aggiungi XMetro TX")
-        self.btn_add_xmetro.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+        self.btn_add_xmetro.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        )
         self.btn_add_xmetro.setFixedSize(180, 30)
         self.btn_add_xmetro.clicked.connect(self.open_xmetro_window)
 
@@ -171,12 +230,16 @@ class MainWindow(QMainWindow):
         tx_buttons_layout = QHBoxLayout()
         tx_buttons_layout.addWidget(self.btn_add_id)
         tx_buttons_layout.addWidget(self.btn_start_tx)
-        tx_buttons_layout.addWidget(self.btn_add_xmetro, alignment=Qt.AlignmentFlag.AlignRight)
+        tx_buttons_layout.addWidget(
+            self.btn_add_xmetro, alignment=Qt.AlignmentFlag.AlignRight
+        )
         tx_buttons_layout.addStretch(1)
 
         # --- ALBERO DEI SEGNALI ---
         self.signal_tree = QTreeWidget()
-        self.signal_tree.setHeaderLabels(["", "Abilita", "ID", "Nome", "Periodo (ms)", "Payload (0 - 7)", ""])
+        self.signal_tree.setHeaderLabels(
+            ["", "Abilita", "ID", "Nome", "Periodo (ms)", "Payload (0 - 7)", ""]
+        )
         self.signal_tree.setColumnWidth(0, 50)
         self.signal_tree.setColumnWidth(1, 50)
         self.signal_tree.setColumnWidth(2, 50)
@@ -186,11 +249,15 @@ class MainWindow(QMainWindow):
         self.signal_tree.setColumnWidth(6, 70)
         self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
 
-        self.signal_tree.setSortingEnabled(True) # Abilita l'ordinamento della tabella dei segnali
+        self.signal_tree.setSortingEnabled(
+            True
+        )  # Abilita l'ordinamento della tabella dei segnali
 
         # Groupbox per i controlli di trasmissione
         tx_group = QGroupBox()
-        tx_group.setStyleSheet("QGroupBox { border: 2px solid #4CAF50; border-radius: 5px; }")
+        tx_group.setStyleSheet(
+            "QGroupBox { border: 2px solid #4CAF50; border-radius: 5px; }"
+        )
         # Crea il layout verticale per il gruppo di trasmissione
         tx_layout = QVBoxLayout()
         tx_group.setLayout(tx_layout)
@@ -204,7 +271,9 @@ class MainWindow(QMainWindow):
         # Aggiungi il layout dei controlli di ricezione al layout principale
         self.rx_window = ReceivedFramesWindow(self.dbc)
         rx_group = QGroupBox()
-        rx_group.setStyleSheet("QGroupBox { border: 2px solid #2196F3; border-radius: 5px; }")
+        rx_group.setStyleSheet(
+            "QGroupBox { border: 2px solid #2196F3; border-radius: 5px; }"
+        )
         # Crea il layout verticale per il gruppo di ricezione
         rx_layout = QVBoxLayout()
         rx_group.setLayout(rx_layout)
@@ -216,7 +285,9 @@ class MainWindow(QMainWindow):
 
         # --- GRUPPO DEGLI SLIDER ---
         slider_group = QGroupBox()
-        slider_group.setStyleSheet("QGroupBox { border: 2px solid #FF9800; border-radius: 5px; }")
+        slider_group.setStyleSheet(
+            "QGroupBox { border: 2px solid #FF9800; border-radius: 5px; }"
+        )
         slider_group.setMinimumWidth(300)
 
         slider_layout = QVBoxLayout()
@@ -228,7 +299,9 @@ class MainWindow(QMainWindow):
         slider_layout.addWidget(slider_title)
 
         self.btn_add_slider = QPushButton("Aggiungi Slider")
-        self.btn_add_slider.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown))
+        self.btn_add_slider.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
+        )
         self.btn_add_slider.setFixedSize(150, 30)
         slider_layout.addWidget(self.btn_add_slider)
 
@@ -244,7 +317,7 @@ class MainWindow(QMainWindow):
         # Contenitore per gli slider dinamici
         self.slider_container = QVBoxLayout()
         slider_layout.addLayout(self.slider_container)
-        
+
         self.added_sliders = set()
         self.slider_widgets = []
 
@@ -253,28 +326,35 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "DBC", "Carica prima un file DBC!")
                 return
             msg_names = [msg.name for msg in self.dbc.messages]
-            msg_idx, ok = QInputDialog.getItem(self, "Seleziona messaggio", "Messaggio:", msg_names, 0, False)
+            msg_idx, ok = QInputDialog.getItem(
+                self, "Seleziona messaggio", "Messaggio:", msg_names, 0, False
+            )
             if not ok:
                 return
             msg = next(m for m in self.dbc.messages if m.name == msg_idx)
             sig_names = [sig.name for sig in msg.signals]
-            sig_idx, ok = QInputDialog.getItem(self, "Seleziona segnale", "Segnale:", sig_names, 0, False)
+            sig_idx, ok = QInputDialog.getItem(
+                self, "Seleziona segnale", "Segnale:", sig_names, 0, False
+            )
             if not ok:
                 return
             sig = next(s for s in msg.signals if s.name == sig_idx)
 
             key = (msg.name, sig.name)
             if key in self.added_sliders:
-                QMessageBox.warning(self, "Slider già esistente", f"Esiste già uno slider per {msg.name} (0x{msg.frame_id:03X}) → {sig.name}")
+                QMessageBox.warning(
+                    self,
+                    "Slider già esistente",
+                    f"Esiste già uno slider per {msg.name} (0x{msg.frame_id:03X}) → {sig.name}",
+                )
                 return
             self.added_sliders.add(key)
 
-
             # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
-            factor = getattr(sig, 'factor', getattr(sig, 'scale', 1.0)) or 1.0
-            offset = getattr(sig, 'offset', 0.0)
-            bit_length = getattr(sig, 'length', 8)
-            is_signed = getattr(sig, 'is_signed', False)
+            factor = getattr(sig, "factor", getattr(sig, "scale", 1.0)) or 1.0
+            offset = getattr(sig, "offset", 0.0)
+            bit_length = getattr(sig, "length", 8)
+            is_signed = getattr(sig, "is_signed", False)
             # endianess non influisce su min/max, ma la includo per completezza
             # byte_order = getattr(sig, 'byte_order', 'little_endian')
             if is_signed:
@@ -282,7 +362,7 @@ class MainWindow(QMainWindow):
                 raw_max = 2 ** (bit_length - 1) - 1
             else:
                 raw_min = 0
-                raw_max = 2 ** bit_length - 1
+                raw_max = 2**bit_length - 1
             min_val = raw_min * factor + offset
             max_val = raw_max * factor + offset
             step = factor
@@ -290,16 +370,20 @@ class MainWindow(QMainWindow):
             # Crea il widget per lo slider
             slider_widget = QGroupBox()
             slider_widget.setFixedHeight(100)  # Altezza fissa
-            slider_widget.setStyleSheet("QGroupBox { margin-top: 10px; border: 1px solid gray; border-radius: 5px; }")
+            slider_widget.setStyleSheet(
+                "QGroupBox { margin-top: 10px; border: 1px solid gray; border-radius: 5px; }"
+            )
             slider_layout_inner = QVBoxLayout()
             slider_widget.setLayout(slider_layout_inner)
 
             # Aggiungi il widget dello slider alla lista
-            if not hasattr(self, "slider_widgets"): # Ensure slider_widgets is initialized
+            if not hasattr(
+                self, "slider_widgets"
+            ):  # Ensure slider_widgets is initialized
                 self.slider_widgets = []
 
-            self.slider_widgets.append(slider_widget) # Store the widget for later use
-
+            slider_widget.key = key  # Store the key for later reference
+            self.slider_widgets.append(slider_widget)  # Store the widget for later use
 
             label = QLabel(f"{msg.name} (0x{msg.frame_id:03X}) → {sig.name}")
             slider_layout_inner.addWidget(label)
@@ -328,7 +412,9 @@ class MainWindow(QMainWindow):
             lbl_max = QLabel(f"Max: {max_val}")
             lbl_value = QLabel(f"Val: {min_val} [{sig.unit}]")
             btn_remove = QPushButton()
-            btn_remove.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+            btn_remove.setIcon(
+                self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+            )
             btn_remove.setFixedWidth(30)
 
             def update_value_label(step_index):
@@ -349,8 +435,12 @@ class MainWindow(QMainWindow):
                         # Rimuovi il widget dalla lista slider_widgets
                         if hasattr(self, "slider_widgets"):
                             self.slider_widgets = [
-                                w for w in self.slider_widgets
-                                if not (w.frame_id == msg.frame_id and w.signal.name == sig.name)
+                                w
+                                for w in self.slider_widgets
+                                if not (
+                                    w.frame_id == msg.frame_id
+                                    and w.signal.name == sig.name
+                                )
                             ]
 
                         # Riavvia la trasmissione per aggiornare il comportamento
@@ -406,19 +496,19 @@ class MainWindow(QMainWindow):
         self._save_config_to_file(self.CONFIG_FILE)
 
     def save_config_as(self):
-        filename, _ = QFileDialog.getSaveFileName(self, "Salva configurazione con nome", "", "File JSON (*.json)")
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Salva configurazione con nome", "", "File JSON (*.json)"
+        )
         if filename:
             self._save_config_to_file(filename)
             self.CONFIG_FILE = filename  # Aggiorna il file di default
 
     def _save_config_to_file(self, filename):
-        dbc_path = os.path.relpath(self.dbc.dbc_filename, start=self.project_root) # percorso relativo del file DBC
+        dbc_path = os.path.relpath(
+            self.dbc.dbc_filename, start=self.project_root
+        )  # percorso relativo del file DBC
 
-        config = {
-            "dbc_file": dbc_path,
-            "signals": [],
-            "sliders": []
-        }
+        config = {"dbc_file": dbc_path, "signals": [], "sliders": []}
 
         for widget in getattr(self, "slider_widgets", []):
             meta = SliderMeta(
@@ -429,7 +519,7 @@ class MainWindow(QMainWindow):
                 max_val=widget.max_val,
                 step=widget.step,
                 unit=widget.unit,
-                value_index=widget.slider.value()
+                value_index=widget.slider.value(),
             )
             config["sliders"].append(meta.__dict__)
 
@@ -439,18 +529,30 @@ class MainWindow(QMainWindow):
                 "enabled": item.checkState(1) == Qt.CheckState.Checked,
                 "id": item.text(2),
                 "name": item.text(3),
-                "period": self.signal_tree.itemWidget(item, 4).value() if self.signal_tree.itemWidget(item, 4) else 100,
+                "period": (
+                    self.signal_tree.itemWidget(item, 4).value()
+                    if self.signal_tree.itemWidget(item, 4)
+                    else 100
+                ),
                 "payload": item.text(5),
                 "dlc": item.data(2, Qt.ItemDataRole.UserRole + 1) or 8,
-                "script_path": item.data(6, Qt.ItemDataRole.UserRole)  # salva anche lo script per l'ID
+                "script_path": item.data(
+                    6, Qt.ItemDataRole.UserRole
+                ),  # salva anche lo script per l'ID
             }
             config["signals"].append(signal)
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
-            QMessageBox.information(self, "Configurazione", f"Configurazione salvata con successo in:\n{filename}")
+            QMessageBox.information(
+                self,
+                "Configurazione",
+                f"Configurazione salvata con successo in:\n{filename}",
+            )
         except Exception as e:
-            QMessageBox.critical(self, "Errore", f"Errore salvataggio configurazione: {e}")
+            QMessageBox.critical(
+                self, "Errore", f"Errore salvataggio configurazione: {e}"
+            )
             log_exception(e)
 
     def load_config(self, auto=False):
@@ -459,23 +561,31 @@ class MainWindow(QMainWindow):
             if not os.path.exists(filename):
                 return
         else:
-            filename, _ = QFileDialog.getOpenFileName(self, "Carica configurazione", "", "File JSON (*.json)")
+            filename, _ = QFileDialog.getOpenFileName(
+                self, "Carica configurazione", "", "File JSON (*.json)"
+            )
             if not filename:
                 return
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 config = json.load(f)
-                
+
             # Carica DBC se presente
             dbc_file = config.get("dbc_file")
             if dbc_file:
-                absolute_path = os.path.abspath(os.path.join(self.project_root, dbc_file))
+                absolute_path = os.path.abspath(
+                    os.path.join(self.project_root, dbc_file)
+                )
                 if os.path.exists(absolute_path):
                     self.dbc = load_dbc(absolute_path)
                     self.populate_signal_tree()
                     self.rx_window.set_dbc(self.dbc)
                 else:
-                    QMessageBox.warning(self, "DBC", f"Impossibile trovare il file DBC:\n{absolute_path}")
+                    QMessageBox.warning(
+                        self,
+                        "DBC",
+                        f"Impossibile trovare il file DBC:\n{absolute_path}",
+                    )
 
             # Carica segnali solo se presenti nella configurazione
             if "signals" in config:
@@ -497,10 +607,13 @@ class MainWindow(QMainWindow):
                     # Se è già stato caricato dal DBC (populate_signal_tree), collega solo lo script
                     if frame_id in loaded_ids:
                         item = next(
-                            (self.signal_tree.topLevelItem(i)
-                            for i in range(self.signal_tree.topLevelItemCount())
-                            if int(self.signal_tree.topLevelItem(i).text(2), 16) == frame_id),
-                            None
+                            (
+                                self.signal_tree.topLevelItem(i)
+                                for i in range(self.signal_tree.topLevelItemCount())
+                                if int(self.signal_tree.topLevelItem(i).text(2), 16)
+                                == frame_id
+                            ),
+                            None,
                         )
                         if item and sig.get("script_path"):
                             script_path = sig["script_path"]
@@ -508,15 +621,30 @@ class MainWindow(QMainWindow):
                             payload_btn = self.signal_tree.itemWidget(item, 6)
                             if payload_btn and isinstance(payload_btn, QPushButton):
                                 payload_btn.setChecked(True)
-                                payload_btn.setStyleSheet("background-color: #4CAF50; color: white;")
-                                payload_btn.setToolTip(f"Script: {os.path.relpath(script_path, start=self.project_root)}")
+                                payload_btn.setStyleSheet(
+                                    "background-color: #4CAF50; color: white;"
+                                )
+                                payload_btn.setToolTip(
+                                    f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                                )
                                 payload_btn.setText(os.path.basename(script_path))
                         continue  # salta l'aggiunta dell'intero messaggio: già caricato
 
                     # Messaggio non caricato: aggiungilo manualmente
                     msg_item = QTreeWidgetItem(self.signal_tree)
-                    msg_item.setFlags(msg_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEditable)
-                    msg_item.setCheckState(1, Qt.CheckState.Checked if sig.get("enabled") else Qt.CheckState.Unchecked)
+                    msg_item.setFlags(
+                        msg_item.flags()
+                        | Qt.ItemFlag.ItemIsUserCheckable
+                        | Qt.ItemFlag.ItemIsEditable
+                    )
+                    msg_item.setCheckState(
+                        1,
+                        (
+                            Qt.CheckState.Checked
+                            if sig.get("enabled")
+                            else Qt.CheckState.Unchecked
+                        ),
+                    )
                     msg_item.setText(2, sig.get("id", ""))
                     msg_item.setText(3, sig.get("name", ""))
 
@@ -530,40 +658,65 @@ class MainWindow(QMainWindow):
                     raw_payload = sig.get("payload", "")
                     dlc = sig.get("dlc", 8)
                     payload_parts = raw_payload.strip().split()
-                    if len(payload_parts) != dlc or any(len(p) != 2 for p in payload_parts):
-                        raw_payload = ' '.join(['00'] * dlc)
+                    if len(payload_parts) != dlc or any(
+                        len(p) != 2 for p in payload_parts
+                    ):
+                        raw_payload = " ".join(["00"] * dlc)
                     msg_item.setText(5, raw_payload)
                     msg_item.setData(2, Qt.ItemDataRole.UserRole + 1, dlc)
 
                     # Pulsanti standard
                     btn_delete_id = QPushButton()
-                    btn_delete_id.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+                    btn_delete_id.setIcon(
+                        self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+                    )
                     btn_delete_id.setToolTip("Elimina")
-                    btn_delete_id.clicked.connect(lambda _, item=msg_item: self.delete_signal_row(item))
+                    btn_delete_id.clicked.connect(
+                        lambda _, item=msg_item: self.delete_signal_row(item)
+                    )
                     self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
 
                     payload_btn = QPushButton("Link Script")
                     payload_btn.setCheckable(True)
-                    payload_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+                    payload_btn.setIcon(
+                        self.style().standardIcon(
+                            QStyle.StandardPixmap.SP_FileDialogDetailedView
+                        )
+                    )
                     # payload_btn.setToolTip("Script Payload")
-                    payload_btn.clicked.connect(lambda _, item=msg_item: self.modify_payload_script(item))
+                    payload_btn.clicked.connect(
+                        lambda _, item=msg_item: self.modify_payload_script(item)
+                    )
                     self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
 
                     if sig.get("script_path"):
                         script_path = sig["script_path"]
                         msg_item.setData(6, Qt.ItemDataRole.UserRole, script_path)
                         payload_btn.setChecked(True)
-                        payload_btn.setStyleSheet("background-color: #4CAF50; color: white;")
-                        payload_btn.setToolTip(f"Script: {os.path.relpath(script_path, start=self.project_root)}")
+                        payload_btn.setStyleSheet(
+                            "background-color: #4CAF50; color: white;"
+                        )
+                        payload_btn.setToolTip(
+                            f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                        )
                         payload_btn.setText(os.path.basename(script_path))
-            
+
             # Carica sliders
             if "sliders" in config:
                 for meta in config["sliders"]:
-                    msg = next((m for m in self.dbc.messages if m.frame_id == meta["frame_id"]), None)
+                    msg = next(
+                        (
+                            m
+                            for m in self.dbc.messages
+                            if m.frame_id == meta["frame_id"]
+                        ),
+                        None,
+                    )
                     if not msg:
                         continue
-                    sig = next((s for s in msg.signals if s.name == meta["signal_name"]), None)
+                    sig = next(
+                        (s for s in msg.signals if s.name == meta["signal_name"]), None
+                    )
                     if not sig:
                         continue
 
@@ -574,21 +727,21 @@ class MainWindow(QMainWindow):
                     self.added_sliders.add(key)
 
                     # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
-                    factor = getattr(sig, 'factor', getattr(sig, 'scale', 1.0)) or 1.0
-                    offset = getattr(sig, 'offset', 0.0)
-                    bit_length = getattr(sig, 'length', 8)
-                    is_signed = getattr(sig, 'is_signed', False)
+                    factor = getattr(sig, "factor", getattr(sig, "scale", 1.0)) or 1.0
+                    offset = getattr(sig, "offset", 0.0)
+                    bit_length = getattr(sig, "length", 8)
+                    is_signed = getattr(sig, "is_signed", False)
                     if is_signed:
                         raw_min = -(2 ** (bit_length - 1))
                         raw_max = 2 ** (bit_length - 1) - 1
                     else:
                         raw_min = 0
-                        raw_max = 2 ** bit_length - 1
+                        raw_max = 2**bit_length - 1
                     min_val = raw_min * factor + offset
                     max_val = raw_max * factor + offset
                     step = factor
                     value_index = meta["value_index"]
-                    unit = sig.unit if hasattr(sig, 'unit') and sig.unit else ""
+                    unit = sig.unit if hasattr(sig, "unit") and sig.unit else ""
 
                     # costruttore slider come da add_slider()
                     slider_widget = QGroupBox()
@@ -621,12 +774,22 @@ class MainWindow(QMainWindow):
                     lbl_max = QLabel(f"Max: {max_val}")
                     lbl_value = QLabel(f"Val: {min_val} [{unit}]")
                     btn_remove = QPushButton()
-                    btn_remove.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+                    btn_remove.setIcon(
+                        self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+                    )
                     btn_remove.setFixedWidth(30)
 
-                    def update_value_label(step_index, min_val=min_val, step=step, lbl_value=lbl_value, unit=unit):
+                    def update_value_label(
+                        step_index,
+                        min_val=min_val,
+                        step=step,
+                        lbl_value=lbl_value,
+                        unit=unit,
+                    ):
                         real_value = min_val + step_index * step
-                        formatted = f"{real_value:.2f}" if step < 1.0 else f"{int(real_value)}"
+                        formatted = (
+                            f"{real_value:.2f}" if step < 1.0 else f"{int(real_value)}"
+                        )
                         lbl_value.setText(f"Val: {formatted} {unit}")
 
                     def remove_slider():
@@ -637,8 +800,12 @@ class MainWindow(QMainWindow):
                                 self.added_sliders.discard(key)
                                 if hasattr(self, "slider_widgets"):
                                     self.slider_widgets = [
-                                        w for w in self.slider_widgets
-                                        if not (w.frame_id == msg.frame_id and w.signal.name == sig.name)
+                                        w
+                                        for w in self.slider_widgets
+                                        if not (
+                                            w.frame_id == msg.frame_id
+                                            and w.signal.name == sig.name
+                                        )
                                     ]
                                 if self.tx_running:
                                     self.stop_tx()
@@ -658,19 +825,27 @@ class MainWindow(QMainWindow):
 
                     if not hasattr(self, "slider_widgets"):
                         self.slider_widgets = []
+
                     self.slider_container.addWidget(slider_widget)
+                    slider_widget.key = key  # Unico identificatore per lo slider
                     self.slider_widgets.append(slider_widget)
-                    
+
             if not auto:
-                QMessageBox.information(self, "Configurazione", "Configurazione caricata con successo.")
+                QMessageBox.information(
+                    self, "Configurazione", "Configurazione caricata con successo."
+                )
         except Exception as e:
-            QMessageBox.critical(self, "Errore", f"Errore caricamento configurazione: {e}")
+            QMessageBox.critical(
+                self, "Errore", f"Errore caricamento configurazione: {e}"
+            )
             log_exception(e)
 
     def remove_slider_widget(self, widget):
+        # Rimuove il widget dallo slider_container e aggiorna la lista degli slider
         widget.setParent(None)
-        slider_widget.key = key
-        self.added_sliders.discard(widget.key)
+        if hasattr(widget, "key"):
+            self.added_sliders.discard(widget.key)
+
         self.slider_widgets = [w for w in self.slider_widgets if w != widget]
         if self.tx_running:
             self.stop_tx()
@@ -693,9 +868,17 @@ class MainWindow(QMainWindow):
                 print(f"bitrate value {bitrate} bps")
                 self.can_if = CANInterface(channel, bitrate=bitrate)
                 self.can_if.set_receive_callback(self.process_received_frame)
-                QMessageBox.information(self, "Info", f"Connesso a USB {channel & 0x00F} - BR: {bitrate} bps")
+                QMessageBox.information(
+                    self,
+                    "Info",
+                    f"Connesso a USB {channel & 0x00F} - BR: {bitrate} bps",
+                )
                 self.btn_connect.setText("Disconnetti")
-                self.btn_connect.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton))
+                self.btn_connect.setIcon(
+                    self.style().standardIcon(
+                        QStyle.StandardPixmap.SP_DialogCancelButton
+                    )
+                )
                 self.cb_baudrate.setEnabled(False)
                 self.cb_bus_tx.setEnabled(False)
                 self.btn_refresh_bus.setEnabled(False)
@@ -711,7 +894,9 @@ class MainWindow(QMainWindow):
                 self.can_if.close()
                 self.can_if = None
             self.btn_connect.setText("Connetti")
-            self.btn_connect.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton))
+            self.btn_connect.setIcon(
+                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+            )
             self.cb_baudrate.setEnabled(True)
             self.cb_bus_tx.setEnabled(True)
             self.btn_refresh_bus.setEnabled(True)
@@ -721,19 +906,27 @@ class MainWindow(QMainWindow):
                 self.stop_tx()  # <--- Ferma la trasmissione se attiva
 
     def load_dbc_file(self):
-        filename, _ = QFileDialog.getOpenFileName(self, "Apri file DBC", "", "DBC Files (*.dbc)")
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Apri file DBC", "", "DBC Files (*.dbc)"
+        )
         if filename:
             self.dbc = load_dbc(filename)
             self.populate_signal_tree()
             self.rx_window.set_dbc(self.dbc)
 
-    def populate_signal_tree(self): # Popola l'albero dei segnali con i messaggi del DBC
+    def populate_signal_tree(
+        self,
+    ):  # Popola l'albero dei segnali con i messaggi del DBC
         self.signal_tree.clear()
         if not self.dbc:
             return
         for msg in self.dbc.messages:
             msg_item = QTreeWidgetItem(self.signal_tree)
-            msg_item.setFlags(msg_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEditable)
+            msg_item.setFlags(
+                msg_item.flags()
+                | Qt.ItemFlag.ItemIsUserCheckable
+                | Qt.ItemFlag.ItemIsEditable
+            )
             msg_item.setCheckState(1, Qt.CheckState.Checked)
             msg_item.setText(2, f"0x{msg.frame_id:03X}")
             msg_item.setText(3, msg.name)
@@ -743,31 +936,48 @@ class MainWindow(QMainWindow):
             period_spin.setValue(msg.cycle_time if msg.cycle_time else 100)
 
             self.signal_tree.setItemWidget(msg_item, 4, period_spin)
-            msg_item.setData(4, Qt.ItemDataRole.UserRole, period_spin) # Store period spinbox in user data
-            msg_item.setData(2, Qt.ItemDataRole.UserRole + 1, msg.payload_length) # Store DLC in user data
-            msg_item.setText(5, ' '.join(['00'] * msg.payload_length)) # Set default payload
+            msg_item.setData(
+                4, Qt.ItemDataRole.UserRole, period_spin
+            )  # Store period spinbox in user data
+            msg_item.setData(
+                2, Qt.ItemDataRole.UserRole + 1, msg.payload_length
+            )  # Store DLC in user data
+            msg_item.setText(
+                5, " ".join(["00"] * msg.payload_length)
+            )  # Set default payload
 
             # Add delete button as first column
             btn_delete_id = QPushButton()
-            btn_delete_id.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+            btn_delete_id.setIcon(
+                self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+            )
             btn_delete_id.setToolTip("Elimina")
-            btn_delete_id.clicked.connect(lambda _, item=msg_item: self.delete_signal_row(item))
+            btn_delete_id.clicked.connect(
+                lambda _, item=msg_item: self.delete_signal_row(item)
+            )
             self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
 
             # Add custom payload button in 5th column
             payload_btn = QPushButton("Link Script")
             payload_btn.setCheckable(True)
-            payload_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+            payload_btn.setIcon(
+                self.style().standardIcon(
+                    QStyle.StandardPixmap.SP_FileDialogDetailedView
+                )
+            )
             payload_btn.setToolTip("No Script Linked")
-            payload_btn.clicked.connect(lambda _, item=msg_item: self.modify_payload_script(item))
+            payload_btn.clicked.connect(
+                lambda _, item=msg_item: self.modify_payload_script(item)
+            )
             self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
 
             # Ascending sort by ID (column 2)
             self.signal_tree.sortItems(2, Qt.SortOrder.AscendingOrder)
 
-
     def add_manual_id(self):
-        id_text, ok = QInputDialog.getText(self, "Aggiungi ID manuale", "Inserisci ID esadecimale (es. 100):")
+        id_text, ok = QInputDialog.getText(
+            self, "Aggiungi ID manuale", "Inserisci ID esadecimale (es. 100):"
+        )
         if not ok or not id_text:
             return
         try:
@@ -778,15 +988,23 @@ class MainWindow(QMainWindow):
         name, ok = QInputDialog.getText(self, "Aggiungi ID manuale", "Inserisci nome:")
         if not ok or not name:
             return
-        period, ok = QInputDialog.getInt(self, "Aggiungi ID manuale", "Inserisci periodo (ms):", min=1, max=10000)
+        period, ok = QInputDialog.getInt(
+            self, "Aggiungi ID manuale", "Inserisci periodo (ms):", min=1, max=10000
+        )
         if not ok:
             return
-        dlc, ok = QInputDialog.getInt(self, "Aggiungi ID manuale", "Inserisci DLC (1-8):", min=1, max=8)
+        dlc, ok = QInputDialog.getInt(
+            self, "Aggiungi ID manuale", "Inserisci DLC (1-8):", min=1, max=8
+        )
         if not ok:
             return
 
         msg_item = QTreeWidgetItem(self.signal_tree)
-        msg_item.setFlags(msg_item.flags() | Qt.ItemFlag.ItemIsUserCheckable | Qt.ItemFlag.ItemIsEditable)
+        msg_item.setFlags(
+            msg_item.flags()
+            | Qt.ItemFlag.ItemIsUserCheckable
+            | Qt.ItemFlag.ItemIsEditable
+        )
         msg_item.setCheckState(1, Qt.CheckState.Checked)
         msg_item.setText(2, f"0x{frame_id:03X}")
         msg_item.setText(3, name)
@@ -800,21 +1018,29 @@ class MainWindow(QMainWindow):
         self.signal_tree.setItemWidget(msg_item, 4, period_spin)
         msg_item.setData(4, Qt.ItemDataRole.UserRole, period_spin)
 
-        msg_item.setText(5, ' '.join(['00'] * dlc))
+        msg_item.setText(5, " ".join(["00"] * dlc))
 
         # Pulsanti standard
         btn_delete_id = QPushButton()
-        btn_delete_id.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon))
+        btn_delete_id.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+        )
         btn_delete_id.setToolTip("Elimina")
-        btn_delete_id.clicked.connect(lambda _, item=msg_item: self.delete_signal_row(item))
+        btn_delete_id.clicked.connect(
+            lambda _, item=msg_item: self.delete_signal_row(item)
+        )
         self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
 
         # Pulsante per linkare lo script del payload
         payload_btn = QPushButton("Link Script")
         payload_btn.setCheckable(True)
-        payload_btn.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView))
+        payload_btn.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
         payload_btn.setToolTip("No Script Linked")
-        payload_btn.clicked.connect(lambda _, item=msg_item: self.modify_payload_script(item))
+        payload_btn.clicked.connect(
+            lambda _, item=msg_item: self.modify_payload_script(item)
+        )
         self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
 
         # Ascending sort by ID (column 2)
@@ -836,13 +1062,20 @@ class MainWindow(QMainWindow):
             dlc = item.data(2, Qt.ItemDataRole.UserRole + 1) or 8
 
             if len(parts) != dlc or any(len(p) != 2 for p in parts):
-                QMessageBox.warning(self, "Errore Payload",
-                    f"Payload deve contenere esattamente {dlc} byte in esadecimale, es. {' '.join(['00'] * dlc)}")
-                item.setText(5, ' '.join(['00'] * dlc))
+                QMessageBox.warning(
+                    self,
+                    "Errore Payload",
+                    f"Payload deve contenere esattamente {dlc} byte in esadecimale, es. {' '.join(['00'] * dlc)}",
+                )
+                item.setText(5, " ".join(["00"] * dlc))
 
     def modify_payload_script(self, item):
-        file_path, _ = QFileDialog.getOpenFileName(self, "Seleziona script Python", "", "Python Files (*.py)")
-        rel_file_path = os.path.relpath(file_path, start=self.project_root) if file_path else None
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Seleziona script Python", "", "Python Files (*.py)"
+        )
+        rel_file_path = (
+            os.path.relpath(file_path, start=self.project_root) if file_path else None
+        )
         if rel_file_path:
             item.setData(6, Qt.ItemDataRole.UserRole, rel_file_path)
             widget = self.signal_tree.itemWidget(item, 6)
@@ -851,10 +1084,16 @@ class MainWindow(QMainWindow):
                 widget.setStyleSheet("background-color: #4CAF50; color: white;")
                 widget.setToolTip(f"Script: {rel_file_path}")
                 widget.setText(os.path.basename(rel_file_path))
-            QMessageBox.information(self, "Script selezionato", f"Script associato all’ID {item.text(2)}:\n{rel_file_path}")
+            QMessageBox.information(
+                self,
+                "Script selezionato",
+                f"Script associato all’ID {item.text(2)}:\n{rel_file_path}",
+            )
 
     # Aggiorna il payload di un singolo segnale nel messaggio CAN
-    def insert_value_in_payload(self, frame_id: int, signal_name: str, value: int, current_payload: bytes) -> bytes:
+    def insert_value_in_payload(
+        self, frame_id: int, signal_name: str, value: int, current_payload: bytes
+    ) -> bytes:
         """
         Usa cantools per aggiornare un singolo segnale nel payload esistente.
         """
@@ -876,7 +1115,11 @@ class MainWindow(QMainWindow):
     def start_stop_transmission(self) -> None:
         if not self.tx_running:
             if not self.can_if:
-                QMessageBox.warning(self, "Attenzione", "Devi connetterti al CAN prima di iniziare la trasmissione")
+                QMessageBox.warning(
+                    self,
+                    "Attenzione",
+                    "Devi connetterti al CAN prima di iniziare la trasmissione",
+                )
                 return
             self.start_tx()
         else:
@@ -915,7 +1158,9 @@ class MainWindow(QMainWindow):
             script_cache = {}
 
             def callback(frame_id=frame_id, item=item, script_path=script_path):
-                dlc = item.data(2, Qt.ItemDataRole.UserRole + 1) or 8 # se il payload viene da testo manuale
+                dlc = (
+                    item.data(2, Qt.ItemDataRole.UserRole + 1) or 8
+                )  # se il payload viene da testo manuale
                 if not isinstance(dlc, int) or not (1 <= dlc <= 8):
                     dlc = 8
 
@@ -928,14 +1173,18 @@ class MainWindow(QMainWindow):
                                 exec(f.read(), script_globals)
                             get_payload_fn = script_globals.get("get_payload")
                             if not callable(get_payload_fn):
-                                raise RuntimeError("Il file selezionato non contiene una funzione get_payload()")
+                                raise RuntimeError(
+                                    "Il file selezionato non contiene una funzione get_payload()"
+                                )
                             script_cache[script_path] = get_payload_fn
                         else:
                             get_payload_fn = script_cache[script_path]
 
                         payload = get_payload_fn(dlc)
                         if not isinstance(payload, bytes) or len(payload) != dlc:
-                            raise ValueError(f"get_payload(dlc) deve restituire esattamente {dlc} byte")
+                            raise ValueError(
+                                f"get_payload(dlc) deve restituire esattamente {dlc} byte"
+                            )
                     else:
                         payload_text = item.text(5).strip()
 
@@ -947,37 +1196,50 @@ class MainWindow(QMainWindow):
 
                         # Se lo script restituisce un payload, usa solo i primi DLC byte
                         if isinstance(payload, bytes):
-                            payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
+                            payload = payload[:dlc] + bytes(
+                                [0x00] * max(0, dlc - len(payload))
+                            )
 
                     # oppure se arriva da uno script, taglia i byte in eccesso
                     # payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
-                    
+
                     payload_list = list(payload)
                     if frame_id in slider_overrides:
                         for sig, slider in slider_overrides[frame_id]:
                             val_index = slider.value()
-                            real_value = slider.parent().min_val + val_index * slider.parent().step
-                            result = self.insert_value_in_payload(frame_id, sig.name, real_value, bytes(payload_list))
+                            real_value = (
+                                slider.parent().min_val
+                                + val_index * slider.parent().step
+                            )
+                            result = self.insert_value_in_payload(
+                                frame_id, sig.name, real_value, bytes(payload_list)
+                            )
                             if isinstance(result, int):
                                 result = bytes([result])
                             payload_list = list(result)
                     final_payload = bytes(payload_list)
                     if len(final_payload) != dlc:
-                        final_payload = final_payload[:dlc] + bytes([0x00] * max(0, dlc - len(final_payload)))
+                        final_payload = final_payload[:dlc] + bytes(
+                            [0x00] * max(0, dlc - len(final_payload))
+                        )
                     # print(f"[DEBUG] final_payload type: {type(final_payload)}, value: {final_payload}")
 
                     # Invia il frame e aggiorna il payload nella finestra TX
                     self.send_can_message(frame_id, final_payload, dlc)
-                    item.setText(5, ' '.join(f"{b:02X}" for b in final_payload))
+                    item.setText(5, " ".join(f"{b:02X}" for b in final_payload))
 
                     # 🧭 Update live gauges (XMetro)
                     for gauge in getattr(self, "xmetro_windows", []):
                         if gauge.cb_messages.currentData() == frame_id:
-                            if not isinstance(final_payload, bytes): # Converti in bytes se necessario
+                            if not isinstance(
+                                final_payload, bytes
+                            ):  # Converti in bytes se necessario
                                 try:
                                     final_payload = bytes(final_payload)
                                 except Exception:
-                                    print(f"[XMetro] Payload non convertibile: {type(final_payload)}, valore {final_payload}")
+                                    print(
+                                        f"[XMetro] Payload non convertibile: {type(final_payload)}, valore {final_payload}"
+                                    )
                                     continue
                             # Aggiorna il gauge con il payload finale
                             gauge.update_gauge(final_payload)
@@ -987,7 +1249,6 @@ class MainWindow(QMainWindow):
                     print(f"[Errore TX ID {frame_id:03X}]: {e}")
                     log_exception(e)
 
-
             timer = QTimer(self)
             timer.timeout.connect(callback)
             timer.start(period)
@@ -995,9 +1256,9 @@ class MainWindow(QMainWindow):
 
         self.tx_running = True
         self.btn_start_tx.setText("Stop TX")
-        self.btn_start_tx.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop))
-
-
+        self.btn_start_tx.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
+        )
 
     def stop_tx(self):
         for t in self.timers:
@@ -1005,13 +1266,16 @@ class MainWindow(QMainWindow):
         self.timers.clear()
         self.tx_running = False
         self.btn_start_tx.setText("Start TX")
-        self.btn_start_tx.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay))
+        self.btn_start_tx.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
+        )
 
-    def make_timer_callback(self, frame_id, data, item=None):
+    def make_timer_callback(self, frame_id, data, dlc, item=None):
         def callback():
             self.send_can_message(frame_id, data, dlc)
             if item:
-                item.setText(5, ' '.join(f"{b:02X}" for b in data))
+                item.setText(5, " ".join(f"{b:02X}" for b in data))
+
         return callback
 
     def send_can_message(self, frame_id, data, dlc=None):
@@ -1048,8 +1312,10 @@ class MainWindow(QMainWindow):
         # Tiene traccia di quelle eliminate
         xmetro.destroyed.connect(lambda: self.xmetro_windows.remove(xmetro))
 
+
 if __name__ == "__main__":
     import sys
+
     app = QApplication(sys.argv)
     window = MainWindow()
     window.show()

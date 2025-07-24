@@ -1,8 +1,10 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QComboBox, QHBoxLayout
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont
-from PyQt6.QtCore import Qt, QRectF, QPointF
+from PyQt6.QtCore import Qt, QPointF
 import math
 from cantools.database.can.signal import NamedSignalValue
+from src.exceptions_logger import log_exception
+
 
 class XMetroWindow(QWidget):
     def __init__(self, dbc_loader, tx_items):
@@ -15,9 +17,9 @@ class XMetroWindow(QWidget):
 
         top_layout = QHBoxLayout()
         self.cb_messages = QComboBox()
-        self.cb_messages.setFixedSize(180,30)
+        self.cb_messages.setFixedSize(180, 30)
         self.cb_signals = QComboBox()
-        self.cb_signals.setFixedSize(180,30)
+        self.cb_signals.setFixedSize(180, 30)
 
         for item in tx_items:
             frame_id = int(item.text(2), 16)
@@ -25,15 +27,19 @@ class XMetroWindow(QWidget):
             label = f"{name} (0x{frame_id:X})"
             self.cb_messages.addItem(label, frame_id)
 
-        self.last_payload = bytes([0x00] * 8)  # Inizializza con un payload di 8 byte a zero
+        self.last_payload = bytes(
+            [0x00] * 8
+        )  # Inizializza con un payload di 8 byte a zero
         self.cb_messages.currentIndexChanged.connect(self.populate_signals)
-        self.cb_signals.currentIndexChanged.connect(lambda _: self.update_gauge(self.last_payload))
+        self.cb_signals.currentIndexChanged.connect(
+            lambda _: self.update_gauge(self.last_payload)
+        )
 
         top_layout.addWidget(QLabel("Messaggio:"), alignment=Qt.AlignmentFlag.AlignLeft)
-        top_layout.addWidget(self.cb_messages,     alignment=Qt.AlignmentFlag.AlignLeft)
-        
+        top_layout.addWidget(self.cb_messages, alignment=Qt.AlignmentFlag.AlignLeft)
+
         top_layout.addWidget(QLabel("Segnale:"), alignment=Qt.AlignmentFlag.AlignRight)
-        top_layout.addWidget(self.cb_signals,    alignment=Qt.AlignmentFlag.AlignRight)
+        top_layout.addWidget(self.cb_signals, alignment=Qt.AlignmentFlag.AlignRight)
         layout.addLayout(top_layout)
 
         self.gauge = SemiCircularGauge()
@@ -96,10 +102,10 @@ class XMetroWindow(QWidget):
             physical_val = 0
 
         # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
-        factor = getattr(sig, 'factor', getattr(sig, 'scale', 1.0)) or 1.0
-        offset = getattr(sig, 'offset', 0.0)
-        bit_length = getattr(sig, 'length', 8)
-        is_signed = getattr(sig, 'is_signed', False)
+        factor = getattr(sig, "factor", getattr(sig, "scale", 1.0)) or 1.0
+        offset = getattr(sig, "offset", 0.0)
+        bit_length = getattr(sig, "length", 8)
+        is_signed = getattr(sig, "is_signed", False)
         # endianess non influisce su min/max, ma la includo per completezza
         # byte_order = getattr(sig, 'byte_order', 'little_endian')
         if is_signed:
@@ -107,11 +113,12 @@ class XMetroWindow(QWidget):
             raw_max = 2 ** (bit_length - 1) - 1
         else:
             raw_min = 0
-            raw_max = 2 ** bit_length - 1
+            raw_max = 2**bit_length - 1
         min_val = raw_min * factor + offset
         max_val = raw_max * factor + offset
         self.gauge.setRange(min_val, max_val)
         self.gauge.setValue(physical_val, unit=getattr(sig, "unit", ""))
+
 
 class SemiCircularGauge(QWidget):
     def __init__(self):
@@ -148,7 +155,7 @@ class SemiCircularGauge(QWidget):
             int(center.x() - radius),
             int(center.y() - radius),
             int(2 * radius),
-            int(2 * radius)
+            int(2 * radius),
         )
         painter.drawArc(*arc_rect, 0 * 16, 180 * 16)
 
@@ -172,7 +179,7 @@ class SemiCircularGauge(QWidget):
 
             # Calcoli per posizionamento label nei tick
             label_distance = radius - 25  # distanza dal centro
-            offset_towards_center = 15    # quanto rientrare in direzione del centro
+            offset_towards_center = 15  # quanto rientrare in direzione del centro
             # Calcola la posizione base della label
             label_x = center.x() + label_distance * math.cos(angle_rad)
             label_y = center.y() - label_distance * math.sin(angle_rad)
@@ -190,7 +197,9 @@ class SemiCircularGauge(QWidget):
             text_width = metrics.horizontalAdvance(text)
             text_height = metrics.height()
             # Aggiunge il testo effettivamente
-            painter.drawText(QPointF(label_x - text_width / 2, label_y + text_height / 4), text)
+            painter.drawText(
+                QPointF(label_x - text_width / 2, label_y + text_height / 4), text
+            )
 
         # Sub-tick: 4 tra ogni coppia principale
         for i in range(tick_count):

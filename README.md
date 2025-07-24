@@ -58,8 +58,8 @@ pyinstaller CANinoApp_v0.1.spec
 
 CANino_app/
 │
-├── [main.py]
-├── [requirements.txt]
+├── main.py
+├── requirements.txt
 ├── README.md
 ├── src/
 │   └── ... (Python files of the project)

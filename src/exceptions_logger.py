@@ -8,8 +8,9 @@ log_filename = f"canino_app_{log_time}.log"
 logging.basicConfig(
     filename=log_filename,
     level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s"
+    format="%(asctime)s [%(levelname)s] %(message)s",
 )
+
 
 def log_exception(e):
     logging.error("Exception occurred", exc_info=e)

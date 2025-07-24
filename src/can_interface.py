@@ -1,8 +1,9 @@
 import can
 import threading
 from typing import Callable, Optional
-from src.PCANBasic import PCANBasic, PCAN_ERROR_OK, PCAN_ATTACHED_CHANNELS, TPCANChannelInformation, PCAN_NONEBUS
-from src.logger import log_exception
+from src.PCANBasic import PCANBasic, PCAN_ERROR_OK, PCAN_ATTACHED_CHANNELS, PCAN_NONEBUS
+from src.exceptions_logger import log_exception
+
 
 class CANInterface:
     def __init__(self, channel: str, bitrate: int = 500000):
@@ -18,19 +19,21 @@ class CANInterface:
     def open_bus(self):
         try:
             self.bus = can.interface.Bus(
-                channel=self.channel,
-                bustype='pcan',
-                bitrate=self.bitrate
+                channel=self.channel, bustype="pcan", bitrate=self.bitrate
             )
             self.running = True
-            self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+            self.receive_thread = threading.Thread(
+                target=self._receive_loop, daemon=True
+            )
             self.receive_thread.start()
         except Exception as e:
             log_exception(e)
 
     def send_frame(self, frame_id, data, dlc=None):
         try:
-            msg = can.Message(arbitration_id=frame_id, data=data, is_extended_id=False, dlc=dlc)
+            msg = can.Message(
+                arbitration_id=frame_id, data=data, is_extended_id=False, dlc=dlc
+            )
             self.bus.send(msg)
         except Exception as e:
             log_exception(e)
