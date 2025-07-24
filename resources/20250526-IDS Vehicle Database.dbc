@@ -1,0 +1,462 @@
+VERSION ""
+
+
+NS_ :
+
+BS_:
+
+BU_: Vector__XXX
+
+BO_ 16 ENG_Data01: 8 Vector__XXX
+SG_ ENG_Data01_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ENG_Data01_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0_speed : 7|8@0+ (0.25,0) [0|63.75] "kmh" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 128 ENG_Data02: 8 Vector__XXX
+SG_ ENG_Data02_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ENG_Data02_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 256 ENG_Data03: 8 Vector__XXX
+SG_ ENG_Data03_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ENG_Data03_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 768 ENG_Data04: 8 Vector__XXX
+SG_ ENG_Data04_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ENG_Data04_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 1024 ENG_Data05: 8 Vector__XXX
+SG_ ENG_Data05_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ENG_Data05_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 32 ABS_Data01: 8 Vector__XXX
+SG_ ABS_Data01_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ABS_Data01_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 144 ABS_Data02: 8 Vector__XXX
+SG_ ABS_Data02_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ABS_Data02_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 272 ABS_Data03: 8 Vector__XXX
+SG_ ABS_Data03_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ABS_Data03_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 784 ABS_Data04: 8 Vector__XXX
+SG_ ABS_Data04_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ABS_Data04_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 1040 ABS_Data05: 8 Vector__XXX
+SG_ ABS_Data05_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ ABS_Data05_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 48 IDS_Data01: 8 Vector__XXX
+SG_ IDS_Data01_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ IDS_Data01_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 160 IDS_Data02: 8 Vector__XXX
+SG_ IDS_Data02_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ IDS_Data02_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 288 IDS_Data03: 8 Vector__XXX
+SG_ IDS_Data03_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ IDS_Data03_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 800 IDS_Data04: 8 Vector__XXX
+SG_ IDS_Data04_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ IDS_Data04_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 1056 IDS_Data05: 8 Vector__XXX
+SG_ IDS_Data05_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ IDS_Data05_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 64 BDY_Data01: 8 Vector__XXX
+SG_ BDY_Data01_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ BDY_Data01_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 176 BDY_Data02: 8 Vector__XXX
+SG_ BDY_Data02_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ BDY_Data02_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 304 BDY_Data03: 8 Vector__XXX
+SG_ BDY_Data03_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ BDY_Data03_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 816 BDY_Data04: 8 Vector__XXX
+SG_ BDY_Data04_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ BDY_Data04_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BO_ 1072 BDY_Data05: 8 Vector__XXX
+SG_ BDY_Data05_COUNTER : 51|4@0+ (1,0) [0|15] "" Vector__XXX
+SG_ BDY_Data05_CRC : 63|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte0 : 7|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte1 : 15|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte2 : 23|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte3 : 31|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte4 : 39|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte5 : 47|8@0+ (1,0) [0|255] "" Vector__XXX
+SG_ byte6 : 55|4@0+ (1,0) [0|15] "" Vector__XXX
+
+
+BA_DEF_  "BusType" STRING ;
+BA_DEF_ BO_  "GenMsgCycleTime" INT 0 65535;
+BA_DEF_ SG_  "GenSigStartValue" INT 0 65535;
+
+BA_DEF_DEF_  "BusType" "CAN";
+BA_DEF_DEF_  "GenMsgCycleTime" 0;
+BA_DEF_DEF_  "GenSigStartValue" 0;
+
+BA_ "BusType" "CAN";
+
+BA_ "GenMsgCycleTime" BO_ 16 10;
+BA_ "GenMsgCycleTime" BO_ 128 10;
+BA_ "GenMsgCycleTime" BO_ 256 100;
+BA_ "GenMsgCycleTime" BO_ 768 100;
+BA_ "GenMsgCycleTime" BO_ 1024 500;
+BA_ "GenMsgCycleTime" BO_ 32 10;
+BA_ "GenMsgCycleTime" BO_ 144 10;
+BA_ "GenMsgCycleTime" BO_ 272 100;
+BA_ "GenMsgCycleTime" BO_ 784 100;
+BA_ "GenMsgCycleTime" BO_ 1040 500;
+BA_ "GenMsgCycleTime" BO_ 48 10;
+BA_ "GenMsgCycleTime" BO_ 160 10;
+BA_ "GenMsgCycleTime" BO_ 288 100;
+BA_ "GenMsgCycleTime" BO_ 800 100;
+BA_ "GenMsgCycleTime" BO_ 1056 500;
+BA_ "GenMsgCycleTime" BO_ 64 10;
+BA_ "GenMsgCycleTime" BO_ 176 10;
+BA_ "GenMsgCycleTime" BO_ 304 100;
+BA_ "GenMsgCycleTime" BO_ 816 100;
+BA_ "GenMsgCycleTime" BO_ 1072 500;
+
+BA_ "GenSigStartValue" SG_ 16 ENG_Data01_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 16 ENG_Data01_CRC 0;
+BA_ "GenSigStartValue" SG_ 16 byte0_speed 0;
+BA_ "GenSigStartValue" SG_ 16 byte1 0;
+BA_ "GenSigStartValue" SG_ 16 byte2 0;
+BA_ "GenSigStartValue" SG_ 16 byte3 0;
+BA_ "GenSigStartValue" SG_ 16 byte4 0;
+BA_ "GenSigStartValue" SG_ 16 byte5 0;
+BA_ "GenSigStartValue" SG_ 16 byte6 0;
+BA_ "GenSigStartValue" SG_ 128 ENG_Data02_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 128 ENG_Data02_CRC 0;
+BA_ "GenSigStartValue" SG_ 128 byte0 0;
+BA_ "GenSigStartValue" SG_ 128 byte1 0;
+BA_ "GenSigStartValue" SG_ 128 byte2 0;
+BA_ "GenSigStartValue" SG_ 128 byte3 0;
+BA_ "GenSigStartValue" SG_ 128 byte4 0;
+BA_ "GenSigStartValue" SG_ 128 byte5 0;
+BA_ "GenSigStartValue" SG_ 128 byte6 0;
+BA_ "GenSigStartValue" SG_ 256 ENG_Data03_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 256 ENG_Data03_CRC 0;
+BA_ "GenSigStartValue" SG_ 256 byte0 0;
+BA_ "GenSigStartValue" SG_ 256 byte1 0;
+BA_ "GenSigStartValue" SG_ 256 byte2 0;
+BA_ "GenSigStartValue" SG_ 256 byte3 0;
+BA_ "GenSigStartValue" SG_ 256 byte4 0;
+BA_ "GenSigStartValue" SG_ 256 byte5 0;
+BA_ "GenSigStartValue" SG_ 256 byte6 0;
+BA_ "GenSigStartValue" SG_ 768 ENG_Data04_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 768 ENG_Data04_CRC 0;
+BA_ "GenSigStartValue" SG_ 768 byte0 0;
+BA_ "GenSigStartValue" SG_ 768 byte1 0;
+BA_ "GenSigStartValue" SG_ 768 byte2 0;
+BA_ "GenSigStartValue" SG_ 768 byte3 0;
+BA_ "GenSigStartValue" SG_ 768 byte4 0;
+BA_ "GenSigStartValue" SG_ 768 byte5 0;
+BA_ "GenSigStartValue" SG_ 768 byte6 0;
+BA_ "GenSigStartValue" SG_ 1024 ENG_Data05_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 1024 ENG_Data05_CRC 0;
+BA_ "GenSigStartValue" SG_ 1024 byte0 0;
+BA_ "GenSigStartValue" SG_ 1024 byte1 0;
+BA_ "GenSigStartValue" SG_ 1024 byte2 0;
+BA_ "GenSigStartValue" SG_ 1024 byte3 0;
+BA_ "GenSigStartValue" SG_ 1024 byte4 0;
+BA_ "GenSigStartValue" SG_ 1024 byte5 0;
+BA_ "GenSigStartValue" SG_ 1024 byte6 0;
+BA_ "GenSigStartValue" SG_ 32 ABS_Data01_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 32 ABS_Data01_CRC 0;
+BA_ "GenSigStartValue" SG_ 32 byte0 0;
+BA_ "GenSigStartValue" SG_ 32 byte1 0;
+BA_ "GenSigStartValue" SG_ 32 byte2 0;
+BA_ "GenSigStartValue" SG_ 32 byte3 0;
+BA_ "GenSigStartValue" SG_ 32 byte4 0;
+BA_ "GenSigStartValue" SG_ 32 byte5 0;
+BA_ "GenSigStartValue" SG_ 32 byte6 0;
+BA_ "GenSigStartValue" SG_ 144 ABS_Data02_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 144 ABS_Data02_CRC 0;
+BA_ "GenSigStartValue" SG_ 144 byte0 0;
+BA_ "GenSigStartValue" SG_ 144 byte1 0;
+BA_ "GenSigStartValue" SG_ 144 byte2 0;
+BA_ "GenSigStartValue" SG_ 144 byte3 0;
+BA_ "GenSigStartValue" SG_ 144 byte4 0;
+BA_ "GenSigStartValue" SG_ 144 byte5 0;
+BA_ "GenSigStartValue" SG_ 144 byte6 0;
+BA_ "GenSigStartValue" SG_ 272 ABS_Data03_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 272 ABS_Data03_CRC 0;
+BA_ "GenSigStartValue" SG_ 272 byte0 0;
+BA_ "GenSigStartValue" SG_ 272 byte1 0;
+BA_ "GenSigStartValue" SG_ 272 byte2 0;
+BA_ "GenSigStartValue" SG_ 272 byte3 0;
+BA_ "GenSigStartValue" SG_ 272 byte4 0;
+BA_ "GenSigStartValue" SG_ 272 byte5 0;
+BA_ "GenSigStartValue" SG_ 272 byte6 0;
+BA_ "GenSigStartValue" SG_ 784 ABS_Data04_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 784 ABS_Data04_CRC 0;
+BA_ "GenSigStartValue" SG_ 784 byte0 0;
+BA_ "GenSigStartValue" SG_ 784 byte1 0;
+BA_ "GenSigStartValue" SG_ 784 byte2 0;
+BA_ "GenSigStartValue" SG_ 784 byte3 0;
+BA_ "GenSigStartValue" SG_ 784 byte4 0;
+BA_ "GenSigStartValue" SG_ 784 byte5 0;
+BA_ "GenSigStartValue" SG_ 784 byte6 0;
+BA_ "GenSigStartValue" SG_ 1040 ABS_Data05_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 1040 ABS_Data05_CRC 0;
+BA_ "GenSigStartValue" SG_ 1040 byte0 0;
+BA_ "GenSigStartValue" SG_ 1040 byte1 0;
+BA_ "GenSigStartValue" SG_ 1040 byte2 0;
+BA_ "GenSigStartValue" SG_ 1040 byte3 0;
+BA_ "GenSigStartValue" SG_ 1040 byte4 0;
+BA_ "GenSigStartValue" SG_ 1040 byte5 0;
+BA_ "GenSigStartValue" SG_ 1040 byte6 0;
+BA_ "GenSigStartValue" SG_ 48 IDS_Data01_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 48 IDS_Data01_CRC 0;
+BA_ "GenSigStartValue" SG_ 48 byte0 0;
+BA_ "GenSigStartValue" SG_ 48 byte1 0;
+BA_ "GenSigStartValue" SG_ 48 byte2 0;
+BA_ "GenSigStartValue" SG_ 48 byte3 0;
+BA_ "GenSigStartValue" SG_ 48 byte4 0;
+BA_ "GenSigStartValue" SG_ 48 byte5 0;
+BA_ "GenSigStartValue" SG_ 48 byte6 0;
+BA_ "GenSigStartValue" SG_ 160 IDS_Data02_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 160 IDS_Data02_CRC 0;
+BA_ "GenSigStartValue" SG_ 160 byte0 0;
+BA_ "GenSigStartValue" SG_ 160 byte1 0;
+BA_ "GenSigStartValue" SG_ 160 byte2 0;
+BA_ "GenSigStartValue" SG_ 160 byte3 0;
+BA_ "GenSigStartValue" SG_ 160 byte4 0;
+BA_ "GenSigStartValue" SG_ 160 byte5 0;
+BA_ "GenSigStartValue" SG_ 160 byte6 0;
+BA_ "GenSigStartValue" SG_ 288 IDS_Data03_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 288 IDS_Data03_CRC 0;
+BA_ "GenSigStartValue" SG_ 288 byte0 0;
+BA_ "GenSigStartValue" SG_ 288 byte1 0;
+BA_ "GenSigStartValue" SG_ 288 byte2 0;
+BA_ "GenSigStartValue" SG_ 288 byte3 0;
+BA_ "GenSigStartValue" SG_ 288 byte4 0;
+BA_ "GenSigStartValue" SG_ 288 byte5 0;
+BA_ "GenSigStartValue" SG_ 288 byte6 0;
+BA_ "GenSigStartValue" SG_ 800 IDS_Data04_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 800 IDS_Data04_CRC 0;
+BA_ "GenSigStartValue" SG_ 800 byte0 0;
+BA_ "GenSigStartValue" SG_ 800 byte1 0;
+BA_ "GenSigStartValue" SG_ 800 byte2 0;
+BA_ "GenSigStartValue" SG_ 800 byte3 0;
+BA_ "GenSigStartValue" SG_ 800 byte4 0;
+BA_ "GenSigStartValue" SG_ 800 byte5 0;
+BA_ "GenSigStartValue" SG_ 800 byte6 0;
+BA_ "GenSigStartValue" SG_ 1056 IDS_Data05_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 1056 IDS_Data05_CRC 0;
+BA_ "GenSigStartValue" SG_ 1056 byte0 0;
+BA_ "GenSigStartValue" SG_ 1056 byte1 0;
+BA_ "GenSigStartValue" SG_ 1056 byte2 0;
+BA_ "GenSigStartValue" SG_ 1056 byte3 0;
+BA_ "GenSigStartValue" SG_ 1056 byte4 0;
+BA_ "GenSigStartValue" SG_ 1056 byte5 0;
+BA_ "GenSigStartValue" SG_ 1056 byte6 0;
+BA_ "GenSigStartValue" SG_ 64 BDY_Data01_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 64 BDY_Data01_CRC 0;
+BA_ "GenSigStartValue" SG_ 64 byte0 0;
+BA_ "GenSigStartValue" SG_ 64 byte1 0;
+BA_ "GenSigStartValue" SG_ 64 byte2 0;
+BA_ "GenSigStartValue" SG_ 64 byte3 0;
+BA_ "GenSigStartValue" SG_ 64 byte4 0;
+BA_ "GenSigStartValue" SG_ 64 byte5 0;
+BA_ "GenSigStartValue" SG_ 64 byte6 0;
+BA_ "GenSigStartValue" SG_ 176 BDY_Data02_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 176 BDY_Data02_CRC 0;
+BA_ "GenSigStartValue" SG_ 176 byte0 0;
+BA_ "GenSigStartValue" SG_ 176 byte1 0;
+BA_ "GenSigStartValue" SG_ 176 byte2 0;
+BA_ "GenSigStartValue" SG_ 176 byte3 0;
+BA_ "GenSigStartValue" SG_ 176 byte4 0;
+BA_ "GenSigStartValue" SG_ 176 byte5 0;
+BA_ "GenSigStartValue" SG_ 176 byte6 0;
+BA_ "GenSigStartValue" SG_ 304 BDY_Data03_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 304 BDY_Data03_CRC 0;
+BA_ "GenSigStartValue" SG_ 304 byte0 0;
+BA_ "GenSigStartValue" SG_ 304 byte1 0;
+BA_ "GenSigStartValue" SG_ 304 byte2 0;
+BA_ "GenSigStartValue" SG_ 304 byte3 0;
+BA_ "GenSigStartValue" SG_ 304 byte4 0;
+BA_ "GenSigStartValue" SG_ 304 byte5 0;
+BA_ "GenSigStartValue" SG_ 304 byte6 0;
+BA_ "GenSigStartValue" SG_ 816 BDY_Data04_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 816 BDY_Data04_CRC 0;
+BA_ "GenSigStartValue" SG_ 816 byte0 0;
+BA_ "GenSigStartValue" SG_ 816 byte1 0;
+BA_ "GenSigStartValue" SG_ 816 byte2 0;
+BA_ "GenSigStartValue" SG_ 816 byte3 0;
+BA_ "GenSigStartValue" SG_ 816 byte4 0;
+BA_ "GenSigStartValue" SG_ 816 byte5 0;
+BA_ "GenSigStartValue" SG_ 816 byte6 0;
+BA_ "GenSigStartValue" SG_ 1072 BDY_Data05_COUNTER 0;
+BA_ "GenSigStartValue" SG_ 1072 BDY_Data05_CRC 0;
+BA_ "GenSigStartValue" SG_ 1072 byte0 0;
+BA_ "GenSigStartValue" SG_ 1072 byte1 0;
+BA_ "GenSigStartValue" SG_ 1072 byte2 0;
+BA_ "GenSigStartValue" SG_ 1072 byte3 0;
+BA_ "GenSigStartValue" SG_ 1072 byte4 0;
+BA_ "GenSigStartValue" SG_ 1072 byte5 0;
+BA_ "GenSigStartValue" SG_ 1072 byte6 0;
+
+

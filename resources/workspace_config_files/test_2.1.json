@@ -1,0 +1,332 @@
+{
+  "dbc_file": "..\\opendbc\\cadillac_ct6_powertrain.dbc",
+  "signals": [
+    {
+      "enabled": true,
+      "id": "0x2CD",
+      "name": "ASCM_2CD",
+      "period": 100,
+      "payload": "00 00 00 00 00",
+      "dlc": 5,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x365",
+      "name": "ASCM_365",
+      "period": 100,
+      "payload": "FF FF FF 3F",
+      "dlc": 4,
+      "script_path": "script_templates\\template_payload_script_sawtooth.py"
+    },
+    {
+      "enabled": true,
+      "id": "0x40A",
+      "name": "ASCM_40A",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00",
+      "dlc": 7,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x510",
+      "name": "ASCM_510",
+      "period": 100,
+      "payload": "00 FF FF FF",
+      "dlc": 4,
+      "script_path": "script_templates\\template_payload_script_blink.py"
+    },
+    {
+      "enabled": true,
+      "id": "0x78A",
+      "name": "ASCM_78A",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00",
+      "dlc": 7,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0xBE",
+      "name": "ECMAcceleratorPos",
+      "period": 100,
+      "payload": "00 00 00 00 00 00",
+      "dlc": 6,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0xC9",
+      "name": "ECMEngineStatus",
+      "period": 100,
+      "payload": "FF FF FF FF FF FF FF 40",
+      "dlc": 8,
+      "script_path": "script_templates\\template_payload_script_sawtooth.py"
+    },
+    {
+      "enabled": true,
+      "id": "0xD1",
+      "name": "EBCMBrakePedalSensors",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00",
+      "dlc": 7,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0xF1",
+      "name": "EBCMBrakePedalPosition",
+      "period": 100,
+      "payload": "00 00 00 00 00 00",
+      "dlc": 6,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x12A",
+      "name": "BCMDoorBeltStatus",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x135",
+      "name": "ECMPRDNL",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x140",
+      "name": "BCMTurnSignals",
+      "period": 100,
+      "payload": "00 00 00",
+      "dlc": 3,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x150",
+      "name": "ASCMLKASStatus",
+      "period": 100,
+      "payload": "00",
+      "dlc": 1,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x152",
+      "name": "ASCMLKASteeringCmd",
+      "period": 100,
+      "payload": "00 00 00 00 00 00",
+      "dlc": 6,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x154",
+      "name": "ASCMBLKASteeringCmd",
+      "period": 100,
+      "payload": "00 00 00 00 00 00",
+      "dlc": 6,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x17D",
+      "name": "MSG_17D",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x164",
+      "name": "PSCMStatus",
+      "period": 100,
+      "payload": "04 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x1A1",
+      "name": "AcceleratorPedal",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00",
+      "dlc": 7,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x1C3",
+      "name": "GasAndAcc",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x1C4",
+      "name": "AcceleratorPedal2",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x1E1",
+      "name": "ASCMSteeringButton",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00",
+      "dlc": 7,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x1E5",
+      "name": "PSCMSteeringAngle",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x1E9",
+      "name": "EBCMVehicleDynamic",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x2C7",
+      "name": "BECMBatteryVoltageCurrent",
+      "period": 100,
+      "payload": "00 00 00 00 00 00",
+      "dlc": 6,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x2CB",
+      "name": "ASCMGasRegenCmd",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x32A",
+      "name": "TCICOnStarGPSPosition",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x348",
+      "name": "EBCMWheelSpdFront",
+      "period": 100,
+      "payload": "00 00 00 00",
+      "dlc": 4,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x34A",
+      "name": "EBCMWheelSpdRear",
+      "period": 100,
+      "payload": "00 00 00 00",
+      "dlc": 4,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x370",
+      "name": "ASCMActiveCruiseControlStatus",
+      "period": 100,
+      "payload": "00 00 00 00 00 00",
+      "dlc": 6,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x3E9",
+      "name": "ECMVehicleSpeed",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x409",
+      "name": "ASCMKeepAlive",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00",
+      "dlc": 7,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x4C1",
+      "name": "ECMEngineCoolantTemp",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x4E1",
+      "name": "VIN_Part2",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x514",
+      "name": "VIN_Part1",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    },
+    {
+      "enabled": true,
+      "id": "0x778",
+      "name": "PSCM_778",
+      "period": 100,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": null
+    }
+  ],
+  "sliders": [
+    {
+      "msg_name": "LKADriverAppldTrq",
+      "signal_name": "LKADriverAppldTrq",
+      "frame_id": 356,
+      "min_val": -10.24,
+      "max_val": 10.23,
+      "step": 0.01,
+      "unit": "Nm",
+      "value_index": 0
+    }
+  ]
+}
