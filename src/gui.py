@@ -21,11 +21,13 @@ from PyQt6.QtWidgets import (
     QSlider,
     QScrollArea,
 )
-from PyQt6.QtGui import QAction
+from PyQt6.QtGui import QAction, QIcon, QPixmap
 from PyQt6.QtCore import Qt, QTimer
 import json
 import os
+import sys
 
+from src.version import __version__
 from src.dbc_loader import load_dbc
 from src.can_interface import CANInterface
 from src.exceptions_logger import log_exception
@@ -48,6 +50,12 @@ from src.PCANBasic import (
     PCAN_BAUD_5K,
 )
 
+# Funzione per ottenere il percorso assoluto delle risorse, compatibile con PyInstaller
+def resource_path(relative_path):
+    """Restituisce il percorso assoluto alla risorsa, compatibile con PyInstaller."""
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return os.path.join(os.getcwd(), relative_path)
 
 class SliderMeta:
     def __init__(
@@ -76,7 +84,8 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("CANino App - CAN Traffic Generator")
+        self.setWindowTitle(f"CANino App - CAN Traffic Generator v{__version__}")
+        self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo_1.ico")))
         self.setGeometry(100, 100, 1100, 700)
         self.dbc = None
         self.can_if = None
@@ -198,7 +207,7 @@ class MainWindow(QMainWindow):
         self.btn_connect.clicked.connect(self.toggle_connection)
         self.btn_connect.setFixedSize(100, 30)
         self.btn_connect.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon)
         )
         top_layout.addWidget(self.btn_connect)
 
@@ -479,10 +488,47 @@ class MainWindow(QMainWindow):
         main_splitter.setStretchFactor(0, 5)
         main_splitter.setStretchFactor(1, 2)
 
+        # --- BARRA IN FONDO CON IMMAGINE ---
+        footer_widget = QWidget()
+        footer_widget.setFixedHeight(35)  # Altezza fissa, puoi cambiare il valore
+
+        footer_bar = QHBoxLayout(footer_widget)
+        footer_bar.setContentsMargins(0, 0, 0, 0)
+        footer_bar.setSpacing(0)
+
+        footer_label_banner = QLabel()
+        footer_label_banner.setAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom
+        )
+
+        footer_label_dii = QLabel()
+        footer_label_dii.setAlignment(
+            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom
+        )
+
+        # Scala la figura in base all'altezza fissa
+        footer_height = footer_widget.height()
+
+        pixmap_banner_app = QPixmap(resource_path("resources/figures/CANinoApp_banner.png"))
+        scaled_pixmap_banner_app = pixmap_banner_app.scaledToHeight(
+            footer_height, Qt.TransformationMode.SmoothTransformation
+        )
+        footer_label_banner.setPixmap(scaled_pixmap_banner_app)
+
+        pixmap_dii = QPixmap(resource_path("resources/figures/dii_logo.png"))
+        scaled_pixmap_dii = pixmap_dii.scaledToHeight(
+            footer_height, Qt.TransformationMode.SmoothTransformation
+        )
+        footer_label_dii.setPixmap(scaled_pixmap_dii)
+
+        footer_bar.addWidget(footer_label_banner)
+        footer_bar.addWidget(footer_label_dii)
+
         # Layout principale
         main_layout = QVBoxLayout()
         main_layout.addWidget(top_controls)
         main_layout.addWidget(main_splitter)
+        main_layout.addWidget(footer_widget)
 
         container = QWidget()
         container.setLayout(main_layout)
@@ -875,9 +921,7 @@ class MainWindow(QMainWindow):
                 )
                 self.btn_connect.setText("Disconnetti")
                 self.btn_connect.setIcon(
-                    self.style().standardIcon(
-                        QStyle.StandardPixmap.SP_DialogCancelButton
-                    )
+                    self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserStop)
                 )
                 self.cb_baudrate.setEnabled(False)
                 self.cb_bus_tx.setEnabled(False)
@@ -895,7 +939,7 @@ class MainWindow(QMainWindow):
                 self.can_if = None
             self.btn_connect.setText("Connetti")
             self.btn_connect.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+                self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon)
             )
             self.cb_baudrate.setEnabled(True)
             self.cb_bus_tx.setEnabled(True)

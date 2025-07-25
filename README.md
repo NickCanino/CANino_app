@@ -47,10 +47,11 @@ pip install -r requirements.txt
 .venv\Scripts\python.exe
 ```
 
-6. **In CMD create the .EXE of the application, modify the .SPEC file if additional files should be included in the project**
-
+6. **Create the .EXE of the application**
+Modify the .SPEC file if additional files should be included in the project.
+Modify the src\version.py file to modify the version label in the EXE.
 ```sh
-pyinstaller CANinoApp_v0.1.spec
+pyinstaller CANinoApp_exe_setup.spec
 ```
 
 

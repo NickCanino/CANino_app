@@ -12,6 +12,7 @@ from PyQt6.QtCore import Qt, QTimer, QDateTime
 import time
 import csv
 import statistics
+from datetime import datetime
 
 from src.exceptions_logger import log_exception
 
@@ -30,6 +31,7 @@ class ReceivedFramesWindow(QWidget):
 
         # --- Barra pulsanti log ---
         log_btn_layout = QHBoxLayout()
+        # Pulsante per collegare il file CSV
         self.btn_link_csv = QPushButton(" Link file CSV")
         self.btn_link_csv.setToolTip("Collega un file CSV per il logging")
         self.btn_link_csv.setIcon(
@@ -38,41 +40,102 @@ class ReceivedFramesWindow(QWidget):
         self.btn_link_csv.setFixedSize(120, 30)
         self.btn_link_csv.setCheckable(True)
 
+        # Pulsante per avviare il log
         self.btn_start_log = QPushButton(" Start LOG")
         self.btn_start_log.setToolTip("Avvia il logging su CSV")
         self.btn_start_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
         self.btn_start_log.setFixedSize(120, 30)
-        # self.btn_start_log.setCheckable(True)
 
+        # Pulsante per mettere in pausa il log
         self.btn_pause_log = QPushButton(" Pausa LOG")
         self.btn_pause_log.setToolTip("Pausa il logging su CSV")
         self.btn_pause_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause)
         )
         self.btn_pause_log.setFixedSize(120, 30)
-        # self.btn_pause_log.setCheckable(True)
 
+        # Pulsante per fermare il log
         self.btn_stop_log = QPushButton(" Stop LOG")
         self.btn_stop_log.setToolTip("Ferma il logging su CSV")
         self.btn_stop_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
         self.btn_stop_log.setFixedSize(120, 30)
-        # self.btn_stop_log.setCheckable(True)
+
+        # Pulsante per pulire tabella RX
+        self.btn_clear_table = QPushButton("")
+        self.btn_clear_table.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
+        )
+        self.btn_clear_table.setToolTip("Ripulisci tabella RX")
+        self.btn_clear_table.setFixedSize(30, 30)
+
+        # Stili per i pulsanti
+        self.btn_start_log.setStyleSheet(
+            """
+            QPushButton {
+                border: none; border-radius: 6px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #8C8C8C;
+            }
+            QPushButton:disabled {
+                background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
+            }
+        """
+        )  # Bordo verde
+        self.btn_pause_log.setStyleSheet(
+            """
+            QPushButton {
+                border: none; border-radius: 6px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #8C8C8C;
+            }
+            QPushButton:disabled {
+                background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
+            }
+        """
+        )  # Bordo azzurro
+        self.btn_stop_log.setStyleSheet(
+            """
+            QPushButton {
+                border: none; border-radius: 6px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #8C8C8C;
+            }
+            QPushButton:disabled {
+                background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
+            }
+        """
+        )  # Bordo rosso
 
         self.btn_start_log.setEnabled(False)
         self.btn_pause_log.setEnabled(False)
         self.btn_stop_log.setEnabled(False)
 
-        log_btn_layout.addWidget(self.btn_link_csv)
-        log_btn_layout.addWidget(self.btn_start_log)
-        log_btn_layout.addWidget(self.btn_pause_log)
-        log_btn_layout.addWidget(self.btn_stop_log)
+        log_btn_layout.addWidget(
+            self.btn_clear_table, alignment=Qt.AlignmentFlag.AlignLeft
+        )
+        log_btn_layout.addWidget(
+            self.btn_link_csv, alignment=Qt.AlignmentFlag.AlignRight
+        )
+        log_btn_layout.addWidget(
+            self.btn_start_log, alignment=Qt.AlignmentFlag.AlignRight
+        )
+        log_btn_layout.addWidget(
+            self.btn_pause_log, alignment=Qt.AlignmentFlag.AlignRight
+        )
+        log_btn_layout.addWidget(
+            self.btn_stop_log, alignment=Qt.AlignmentFlag.AlignRight
+        )
         layout.addLayout(log_btn_layout)
 
         # Connect buttons
+        self.btn_clear_table.clicked.connect(self.clear_rx_table)
         self.btn_link_csv.clicked.connect(self.link_csv_file)
         self.btn_start_log.clicked.connect(self.start_log)
         self.btn_pause_log.clicked.connect(self.pause_log)
@@ -119,6 +182,10 @@ class ReceivedFramesWindow(QWidget):
         self.refresh_timer.timeout.connect(self.refresh_table)
         self.refresh_timer.start(500)  # ogni 500 ms
 
+    def clear_rx_table(self):
+        self.table.setRowCount(0)
+        self._rx_buffer.clear()
+
     def update_frame(self, frame_id: int, data: bytes, dlc: int = None):
         # Aggiorna solo il buffer, non la tabella direttamente
         now = time.time()
@@ -133,6 +200,16 @@ class ReceivedFramesWindow(QWidget):
             }
         else:  # Frame già esistente
             f = self._rx_buffer[frame_id]
+
+            self.log_frame_to_csv(
+                frame_id=frame_id,
+                data=f["data"],
+                dlc=f["dlc"],
+                count=f["count"],
+                avg_period=f["avg_period"],
+                periods=f["periods"],
+            )
+
             f["count"] += 1
             period = (now - f["last_time"]) * 1000
             f["last_time"] = now
@@ -194,39 +271,6 @@ class ReceivedFramesWindow(QWidget):
                 row, 7, QTableWidgetItem(f"{std_dev:.1f}" if std_dev else "-")
             )
 
-        # Logging su CSV
-        if self.log_active and not self.log_paused and self.csv_writer:
-            try:
-                timestamp = QDateTime.currentDateTime().toString(Qt.DateFormat.ISODate)
-                id_str = f"0x{frame_id:03X}"
-                msg_name = ""
-                if self.dbc and hasattr(self.dbc, "db"):
-                    try:
-                        msg = self.dbc.db.get_message_by_frame_id(frame_id)
-                        if msg:
-                            msg_name = msg.name
-                    except Exception:
-                        pass
-                payload_str = " ".join(f"{b:02X}" for b in f["data"])
-                std_dev = (
-                    statistics.stdev(f["periods"]) if len(f["periods"]) > 1 else 0.0
-                )
-                self.csv_writer.writerow(
-                    [
-                        timestamp,
-                        id_str,
-                        msg_name,
-                        f["dlc"],
-                        payload_str,
-                        f["count"],
-                        f"{f['avg_period']:.1f}" if f["avg_period"] else "-",
-                        f"{std_dev:.1f}" if std_dev else "-",
-                    ]
-                )
-                self.csv_file.flush()
-            except Exception as e:
-                log_exception(e)
-
     def set_dbc(self, dbc):
         self.dbc = dbc
         # Aggiorna i nomi dei messaggi già presenti in tabella
@@ -251,8 +295,68 @@ class ReceivedFramesWindow(QWidget):
             self.btn_start_log.setEnabled(True)
             self.btn_pause_log.setEnabled(False)
             self.btn_stop_log.setEnabled(False)
+
+            self.btn_start_log.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #3C3C3C; color: white; border: 2px solid #388E3C; border-radius: 6px;
+                }
+                QPushButton:hover:enabled {
+                    background-color: #8C8C8C;
+                }
+            """
+            )  # Bordo verde
+            self.btn_pause_log.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
+                }
+            """
+            )  # Bordo azzurro
+            self.btn_stop_log.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
+                }
+            """
+            )  # Bordo rosso
+
             self.log_active = False
             self.log_paused = False
+
+    def log_frame_to_csv(self, frame_id, data, dlc, count, avg_period, periods):
+        """
+        Logga un singolo frame CAN su CSV, se il log è attivo e non in pausa.
+        """
+        if self.log_active and not self.log_paused and self.csv_writer:
+            try:
+                timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
+                id_str = f"0x{frame_id:03X}"
+                msg_name = ""
+                if self.dbc and hasattr(self.dbc, "db"):
+                    try:
+                        msg = self.dbc.db.get_message_by_frame_id(frame_id)
+                        if msg:
+                            msg_name = msg.name
+                    except Exception:
+                        pass
+                payload_str = " ".join(f"{b:02X}" for b in data)
+                std_dev = statistics.stdev(periods) if len(periods) > 1 else 0.0
+                self.csv_writer.writerow(
+                    [
+                        timestamp,
+                        id_str,
+                        msg_name,
+                        dlc,
+                        payload_str,
+                        count,
+                        f"{avg_period:.1f}" if avg_period else "-",
+                        f"{std_dev:.1f}" if std_dev else "-",
+                    ]
+                )
+                self.csv_file.flush()
+            except Exception as e:
+                log_exception(e)
 
     def start_log(self):  # metodo per avviare il log e aprire il file CSV
         if not self.csv_path:
@@ -276,28 +380,109 @@ class ReceivedFramesWindow(QWidget):
 
         self.log_active = True
         self.log_paused = False
+
         self.btn_start_log.setEnabled(False)
+        self.btn_start_log.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #488E3C; color: white; border: 2px solid #388E3C; border-radius: 6px;
+            }
+        """
+        )  # Bordo verde
 
         self.btn_pause_log.setEnabled(True)
+        self.btn_pause_log.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #3C3C3C; color: white; border: 2px solid #1565C0; border-radius: 6px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #8C8C8C;
+            }
+        """
+        )  # Bordo azzurro
 
         self.btn_stop_log.setEnabled(True)
+        self.btn_stop_log.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #3C3C3C; color: white; border: 2px solid #B71C1C; border-radius: 6px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #8C8C8C;
+            }
+        """
+        )  # Bordo rosso
 
     def pause_log(self):  # metodo per mettere in pausa il log e non chiudere il file
         if self.log_active:
             self.log_paused = True
             self.btn_start_log.setEnabled(True)
+            self.btn_start_log.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #3C3C3C; color: white; border: 2px solid #388E3C; border-radius: 6px;
+                }
+                QPushButton:hover:enabled {
+                    background-color: #8C8C8C;
+                }
+            """
+            )  # Bordo verde
 
             self.btn_pause_log.setEnabled(False)
+            self.btn_pause_log.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #1565C0; color: white; border: 2px solid #1565C0; border-radius: 6px;
+                }
+            """
+            )  # Bordo e interno azzurro
+
+            self.btn_stop_log.setEnabled(True)
+            self.btn_stop_log.setStyleSheet(
+                """
+                QPushButton {
+                    background-color: #3C3C3C; color: white; border: 2px solid #B71C1C; border-radius: 6px;
+                }
+                QPushButton:hover:enabled {
+                    background-color: #8C8C8C;
+                }
+            """
+            )
             # Non chiudere il file, solo mettere in pausa
 
     def stop_log(self):  # metodo per fermare il log e chiudere il file
         self.log_active = False
         self.log_paused = False
         self.btn_start_log.setEnabled(True)
+        self.btn_start_log.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #3C3C3C; color: white; border: 2px solid #388E3C; border-radius: 6px;
+            }
+            QPushButton:hover:enabled {
+                background-color: #8C8C8C;
+            }
+        """
+        )  # Bordo verde
 
         self.btn_pause_log.setEnabled(False)
+        self.btn_pause_log.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
+            }
+        """
+        )  # Bordo azzurro
 
         self.btn_stop_log.setEnabled(False)
+        self.btn_stop_log.setStyleSheet(
+            """
+            QPushButton {
+                background-color: #B71C1C; color: white; border: 2px solid #B71C1C; border-radius: 6px;
+            }
+        """
+        )  # Bordo e interno rosso
 
         if self.csv_file:
             self.csv_file.close()
