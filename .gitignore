@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 *.pyo
 *.pyd
-*.log
 
 # Virtual env
 .venv/
@@ -28,3 +27,6 @@ Thumbs.db
 # Output, temp, logs
 *.csv
 *.tmp
+*.log
+*.json
+*.dbc

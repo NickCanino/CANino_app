@@ -169,6 +169,9 @@ class ReceivedFramesWindow(QWidget):
 
         # Abilita l'ordinamento delle colonne
         self.table.setSortingEnabled(True)
+        self.table.horizontalHeader().sectionClicked.connect(
+            lambda _: self.frames.clear()
+        )  # Pulisci il mapping quando si riordinano le righe della tabella
         # self.table.sortItems(0, Qt.SortOrder.AscendingOrder)
 
         # Aggiungi un menu contestuale per rimuovere le righe
@@ -222,14 +225,16 @@ class ReceivedFramesWindow(QWidget):
             else:  # aggiorna l'EMA
                 f["avg_period"] = 0.1 * period + 0.9 * f["avg_period"]
 
-            if len(f["periods"]) > 100:  # Limita a 100 periodi per evitare overflow
-                f["periods"].pop(0)
+            if (
+                len(f["periods"]) > 20 or f["count"] < 5
+            ):  # Limita a 20 periodi per evitare overflow butta i primi 5 per calcolare la deviazione standard
+                f["periods"].pop(0)  # rimuovi il più vecchio
 
     def refresh_table(self):
         for frame_id, f in self._rx_buffer.items():
-            # Trova la riga con l'ID giusto (colonna 0)
-            row = None
             id_str = f"0x{frame_id:03X}"
+            row = None
+            # Cerca la riga con l'ID giusto (colonna 0)
             for r in range(self.table.rowCount()):
                 item = self.table.item(r, 0)
                 if item and item.text() == id_str:
@@ -240,19 +245,19 @@ class ReceivedFramesWindow(QWidget):
                 row = self.table.rowCount()
                 self.table.insertRow(row)
                 self.table.setItem(row, 0, QTableWidgetItem(id_str))
-                # Nome messaggio dal DBC
-                msg_name = ""
-                if self.dbc and hasattr(self.dbc, "db"):
-                    try:
-                        msg = self.dbc.db.get_message_by_frame_id(frame_id)
-                        if msg:
-                            msg_name = msg.name
-                    except Exception:
-                        pass
-                self.table.setItem(row, 1, QTableWidgetItem(msg_name))
+            # Aggiorna sempre il nome dalla DBC (anche se già presente)
+            msg_name = ""
+            if self.dbc and hasattr(self.dbc, "db"):
+                try:
+                    msg = self.dbc.db.get_message_by_frame_id(frame_id)
+                    if msg:
+                        msg_name = msg.name
+                except Exception:
+                    pass
+            self.table.setItem(row, 1, QTableWidgetItem(msg_name))
 
-            # Aggiorna sempre la riga trovata
-            std_dev = statistics.stdev(f["periods"]) if len(f["periods"]) > 1 else 0.0
+            std_dev = statistics.pstdev(f["periods"]) if len(f["periods"]) > 1 else 0.0
+
             self.table.setItem(row, 2, QTableWidgetItem(str(f["dlc"])))
             self.table.setItem(
                 row, 3, QTableWidgetItem(" ".join(f"{b:02X}" for b in f["data"]))
@@ -341,7 +346,7 @@ class ReceivedFramesWindow(QWidget):
                     except Exception:
                         pass
                 payload_str = " ".join(f"{b:02X}" for b in data)
-                std_dev = statistics.stdev(periods) if len(periods) > 1 else 0.0
+                std_dev = statistics.pstdev(periods) if len(periods) > 1 else 0.0
                 self.csv_writer.writerow(
                     [
                         timestamp,

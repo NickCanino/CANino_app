@@ -26,6 +26,7 @@ from PyQt6.QtCore import Qt, QTimer
 import json
 import os
 import sys
+import time
 
 from src.version import __version__
 from src.dbc_loader import load_dbc
@@ -50,12 +51,14 @@ from src.PCANBasic import (
     PCAN_BAUD_5K,
 )
 
+
 # Funzione per ottenere il percorso assoluto delle risorse, compatibile con PyInstaller
 def resource_path(relative_path):
     """Restituisce il percorso assoluto alla risorsa, compatibile con PyInstaller."""
-    if hasattr(sys, '_MEIPASS'):
+    if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.getcwd(), relative_path)
+
 
 class SliderMeta:
     def __init__(
@@ -85,7 +88,7 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle(f"CANino App - CAN Traffic Generator v{__version__}")
-        self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo_1.ico")))
+        self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo.ico")))
         self.setGeometry(100, 100, 1100, 700)
         self.dbc = None
         self.can_if = None
@@ -490,7 +493,7 @@ class MainWindow(QMainWindow):
 
         # --- BARRA IN FONDO CON IMMAGINE ---
         footer_widget = QWidget()
-        footer_widget.setFixedHeight(35)  # Altezza fissa, puoi cambiare il valore
+        footer_widget.setFixedHeight(40)  # Altezza fissa, puoi cambiare il valore
 
         footer_bar = QHBoxLayout(footer_widget)
         footer_bar.setContentsMargins(0, 0, 0, 0)
@@ -509,7 +512,9 @@ class MainWindow(QMainWindow):
         # Scala la figura in base all'altezza fissa
         footer_height = footer_widget.height()
 
-        pixmap_banner_app = QPixmap(resource_path("resources/figures/CANinoApp_banner.png"))
+        pixmap_banner_app = QPixmap(
+            resource_path("resources/figures/CANinoApp_banner_background.png")
+        )
         scaled_pixmap_banner_app = pixmap_banner_app.scaledToHeight(
             footer_height, Qt.TransformationMode.SmoothTransformation
         )
@@ -550,9 +555,12 @@ class MainWindow(QMainWindow):
             self.CONFIG_FILE = filename  # Aggiorna il file di default
 
     def _save_config_to_file(self, filename):
-        dbc_path = os.path.relpath(
-            self.dbc.dbc_filename, start=self.project_root
-        )  # percorso relativo del file DBC
+        if hasattr(self, "dbc") and self.dbc is not None:  # Verifica se dbc è caricato
+            dbc_path = os.path.relpath(
+                self.dbc.dbc_filename, start=self.project_root
+            )  # percorso relativo del file DBC
+        else:
+            dbc_path = None
 
         config = {"dbc_file": dbc_path, "signals": [], "sliders": []}
 
@@ -602,29 +610,33 @@ class MainWindow(QMainWindow):
             log_exception(e)
 
     def load_config(self, auto=False):
-        if auto:
+        if auto:  # Carica automaticamente il file di configurazione predefinito
             filename = self.CONFIG_FILE
             if not os.path.exists(filename):
                 return
-        else:
+        else:  # Carica tramite dialogo
             filename, _ = QFileDialog.getOpenFileName(
                 self, "Carica configurazione", "", "File JSON (*.json)"
             )
             if not filename:
                 return
-        try:
+
+        try:  # Prova a caricare il file di configurazione
+            self.CONFIG_FILE = filename  # Aggoiorna il percorso di default
+
             with open(filename, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
             # Carica DBC se presente
             dbc_file = config.get("dbc_file")
-            if dbc_file:
+            if dbc_file is not None:
+                print(f"[DEBUG] Caricamento DBC da: {dbc_file}")
                 absolute_path = os.path.abspath(
                     os.path.join(self.project_root, dbc_file)
                 )
                 if os.path.exists(absolute_path):
                     self.dbc = load_dbc(absolute_path)
-                    self.populate_signal_tree()
+                    # self.populate_signal_tree()
                     self.rx_window.set_dbc(self.dbc)
                 else:
                     QMessageBox.warning(
@@ -635,6 +647,7 @@ class MainWindow(QMainWindow):
 
             # Carica segnali solo se presenti nella configurazione
             if "signals" in config:
+                print("[DEBUG] Caricamento segnali da configurazione...")
                 loaded_ids = set()  # Tieni traccia degli ID già caricati
                 for i in range(self.signal_tree.topLevelItemCount()):
                     item = self.signal_tree.topLevelItem(i)
@@ -660,8 +673,11 @@ class MainWindow(QMainWindow):
                                 == frame_id
                             ),
                             None,
-                        )
-                        if item and sig.get("script_path"):
+                        )  # trova l'item corrispondente all'ID
+
+                        if item and sig.get(
+                            "script_path"
+                        ):  # se l'item esiste e ha uno script
                             script_path = sig["script_path"]
                             item.setData(6, Qt.ItemDataRole.UserRole, script_path)
                             payload_btn = self.signal_tree.itemWidget(item, 6)
@@ -708,8 +724,8 @@ class MainWindow(QMainWindow):
                         len(p) != 2 for p in payload_parts
                     ):
                         raw_payload = " ".join(["00"] * dlc)
-                    msg_item.setText(5, raw_payload)
                     msg_item.setData(2, Qt.ItemDataRole.UserRole + 1, dlc)
+                    msg_item.setText(5, raw_payload)
 
                     # Pulsanti standard
                     btn_delete_id = QPushButton()
@@ -748,7 +764,8 @@ class MainWindow(QMainWindow):
                         payload_btn.setText(os.path.basename(script_path))
 
             # Carica sliders
-            if "sliders" in config:
+            if "sliders" in config and len(config["sliders"]) > 0:
+                print("[DEBUG] Caricamento sliders da configurazione...")
                 for meta in config["sliders"]:
                     msg = next(
                         (
@@ -1024,19 +1041,23 @@ class MainWindow(QMainWindow):
         )
         if not ok or not id_text:
             return
+
         try:
             frame_id = int(id_text, 16)
         except ValueError:
             QMessageBox.warning(self, "Errore", "ID non valido")
             return
+
         name, ok = QInputDialog.getText(self, "Aggiungi ID manuale", "Inserisci nome:")
         if not ok or not name:
             return
+
         period, ok = QInputDialog.getInt(
             self, "Aggiungi ID manuale", "Inserisci periodo (ms):", min=1, max=10000
         )
         if not ok:
             return
+
         dlc, ok = QInputDialog.getInt(
             self, "Aggiungi ID manuale", "Inserisci DLC (1-8):", min=1, max=8
         )
@@ -1090,9 +1111,29 @@ class MainWindow(QMainWindow):
         # Ascending sort by ID (column 2)
         self.signal_tree.sortItems(2, Qt.SortOrder.AscendingOrder)
 
+        # Se la trasmissione è attiva, riavvia per includere il nuovo ID
+        if self.tx_running:
+            self.stop_tx()
+            self.start_tx()
+
     def delete_signal_row(self, item):
         idx = self.signal_tree.indexOfTopLevelItem(item)
         if idx != -1:
+            # Se la trasmissione è attiva, ferma e rimuovi il timer relativo all'ID
+            if self.tx_running:
+                try:
+                    frame_id = int(item.text(2), 16)
+                    timers_to_remove = []
+                    for t in self.timers:
+                        if hasattr(t, "frame_id") and t.frame_id == frame_id:
+                            t.stop()
+                            timers_to_remove.append(t)
+                    for t in timers_to_remove:
+                        self.timers.remove(t)
+                    if hasattr(self, "tx_periods") and frame_id in self.tx_periods:
+                        del self.tx_periods[frame_id]
+                except Exception:
+                    pass
             self.signal_tree.takeTopLevelItem(idx)
 
     def on_signal_tree_item_changed(self, item, column):
@@ -1100,10 +1141,28 @@ class MainWindow(QMainWindow):
             if self.tx_running:
                 self.stop_tx()
                 self.start_tx()
+        elif column == 4:  # Periodo (ms) column changed
+            # Update the timer for this item if TX is running
+            if self.tx_running:
+                frame_id = None
+                try:
+                    frame_id = int(item.text(2), 16)
+                except Exception:
+                    return
+                # Find and update the timer for this frame_id
+                for t in getattr(self, "timers", []):
+                    if hasattr(t, "frame_id") and t.frame_id == frame_id:
+                        period_spin = self.signal_tree.itemWidget(item, 4)
+                        new_period = period_spin.value() if period_spin else 1000
+                        t.stop()
+                        t.start(new_period)
+                        if hasattr(self, "tx_periods") and frame_id in self.tx_periods:
+                            self.tx_periods[frame_id]["nominal"] = new_period
+                        break
         elif column == 5:
             text = item.text(5).strip()
             parts = text.split()
-            dlc = item.data(2, Qt.ItemDataRole.UserRole + 1) or 8
+            dlc = item.data(2, Qt.ItemDataRole.UserRole + 1) or None
 
             if len(parts) != dlc or any(len(p) != 2 for p in parts):
                 QMessageBox.warning(
@@ -1172,8 +1231,11 @@ class MainWindow(QMainWindow):
     def start_tx(self):
         """Avvia la trasmissione periodica dei messaggi CAN abilitati in ordine crescente di ID."""
         self.timers.clear()
+        self.tx_periods = (
+            {}
+        )  # frame_id: {'nominal': period, 'offset': 0, 'samples': [], 'last_time': None}
         items_to_send = []
-        for i in range(self.signal_tree.topLevelItemCount()):
+        for i in range(self.signal_tree.topLevelItemCount()):  # Itera su tutti gli ID
             item = self.signal_tree.topLevelItem(i)
             if item.checkState(1) == Qt.CheckState.Checked:
                 try:
@@ -1185,7 +1247,9 @@ class MainWindow(QMainWindow):
 
         # Prepara gli slider per i frame
         slider_overrides = {}
-        if hasattr(self, "slider_widgets"):
+        if hasattr(
+            self, "slider_widgets"
+        ):  # Controlla se gli slider sono stati aggiunti
             for w in self.slider_widgets:
                 fid = w.frame_id
                 sig = w.signal
@@ -1193,108 +1257,196 @@ class MainWindow(QMainWindow):
                     slider_overrides[fid] = []
                 slider_overrides[fid].append((sig, w.slider))
 
-        # Inizializza i timer per ogni frame
+        # Inizializza i timer ed il dizionario per la cache degli script
         for frame_id, item in items_to_send:
             period_spin = self.signal_tree.itemWidget(item, 4)
             period = period_spin.value() if period_spin else 1000
-            script_path = item.data(6, Qt.ItemDataRole.UserRole)
+            self.tx_periods[frame_id] = {
+                "nominal": period,
+                "offset": 0,
+                "samples": [],
+                "last_time": None,
+            }
+            # Connect live update for period spinbox
+            if period_spin is not None:
 
+                def make_period_handler(fid=frame_id, spin=period_spin, tree_item=item):
+                    def handler(new_period):
+                        if self.tx_running:
+                            # Update timer and tx_periods
+                            for t in self.timers:
+                                if hasattr(t, "frame_id") and t.frame_id == fid:
+                                    t.stop()
+                                    t.start(new_period)
+                                    self.tx_periods[fid]["nominal"] = new_period
+                                    break
+
+                    return handler
+
+                period_spin.valueChanged.connect(make_period_handler())
+
+            script_path = item.data(6, Qt.ItemDataRole.UserRole)
             script_cache = {}
 
-            def callback(frame_id=frame_id, item=item, script_path=script_path):
-                dlc = (
-                    item.data(2, Qt.ItemDataRole.UserRole + 1) or 8
-                )  # se il payload viene da testo manuale
-                if not isinstance(dlc, int) or not (1 <= dlc <= 8):
-                    dlc = 8
+            def make_callback(frame_id=frame_id, item=item, script_path=script_path):
+                def callback():
+                    now_time = time.time() * 1000  # ms
+                    txp = self.tx_periods[frame_id]
 
-                # Se il payload è stato specificato come script, lo esegue
-                try:
-                    if script_path and os.path.exists(script_path):
-                        if script_path not in script_cache:
-                            script_globals = {}
-                            with open(script_path, "r", encoding="utf-8") as f:
-                                exec(f.read(), script_globals)
-                            get_payload_fn = script_globals.get("get_payload")
-                            if not callable(get_payload_fn):
-                                raise RuntimeError(
-                                    "Il file selezionato non contiene una funzione get_payload()"
+                    # Monitor period
+                    if txp["last_time"] is not None:
+                        real_period = now_time - txp["last_time"]
+                        txp["samples"].append(real_period)
+                        # if len(txp["samples"]) > 10:
+                        #     txp["samples"].pop(0)
+
+                        # Calculate mean and check hysteresis
+                        if len(txp["samples"]) == 10:
+                            # Calcola la media attuale dei periodi e poi ripulisce la lista
+                            real_mean_period = sum(txp["samples"]) / 10
+                            txp["samples"].pop(0)
+
+                            ref_period = txp["nominal"]
+                            p_factor = 0.0  # Fattore di proporzione
+                            i_factor = 0.002  # Fattore di integrazione
+
+                            error_period = float(ref_period) - real_mean_period
+
+                            # --- INTEGRALE: accumula l'errore nel tempo ---
+                            if "integral" not in txp:
+                                txp["integral"] = 0.0
+                            txp["integral"] += error_period
+
+                            # --- PI controller ---
+                            new_period = (
+                                int(
+                                    error_period * p_factor + txp["integral"] * i_factor
                                 )
-                            script_cache[script_path] = get_payload_fn
-                        else:
-                            get_payload_fn = script_cache[script_path]
-
-                        payload = get_payload_fn(dlc)
-                        if not isinstance(payload, bytes) or len(payload) != dlc:
-                            raise ValueError(
-                                f"get_payload(dlc) deve restituire esattamente {dlc} byte"
+                                + ref_period
                             )
-                    else:
-                        payload_text = item.text(5).strip()
+                            # if frame_id == 0x050:
+                            #     print(
+                            #             f"[DEBUG] ID 0x{frame_id:03X}: (err*P: {error_period*p_factor:02f} ms, err*I: {txp['integral']*i_factor:02f} ms) ref:{ref_period} -> new:{new_period} ms"
+                            #         )
 
-                        if payload_text:
-                            payload_parts = payload_text.split()
-                            payload = bytes(int(b, 16) for b in payload_parts[:dlc])
-                        else:
-                            payload = bytes([0x00] * dlc)
+                            # Aggiorna il periodo del timer se necessario
+                            if new_period != ref_period + txp["offset"]:
+                                txp["offset"] = new_period - ref_period
+                                print(
+                                    f"[DEBUG] Aggiornamento periodo ID 0x{frame_id:03X}: (Ierr: {txp['integral']:02f} ms, corr: {new_period - ref_period:02f} ms) ref:{ref_period} -> new:{new_period} ms"
+                                )
 
-                        # Se lo script restituisce un payload, usa solo i primi DLC byte
-                        if isinstance(payload, bytes):
-                            payload = payload[:dlc] + bytes(
-                                [0x00] * max(0, dlc - len(payload))
-                            )
+                                for t in self.timers:
+                                    if (
+                                        hasattr(t, "frame_id")
+                                        and t.frame_id == frame_id
+                                    ):
+                                        t.stop()
+                                        t.start(max(5, new_period))
+                                        break
 
-                    # oppure se arriva da uno script, taglia i byte in eccesso
-                    # payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
+                    txp["last_time"] = (
+                        now_time  # Aggiorna l'ultimo tempo di trasmissione
+                    )
 
-                    payload_list = list(payload)
-                    if frame_id in slider_overrides:
-                        for sig, slider in slider_overrides[frame_id]:
-                            val_index = slider.value()
-                            real_value = (
-                                slider.parent().min_val
-                                + val_index * slider.parent().step
-                            )
-                            result = self.insert_value_in_payload(
-                                frame_id, sig.name, real_value, bytes(payload_list)
-                            )
-                            if isinstance(result, int):
-                                result = bytes([result])
-                            payload_list = list(result)
-                    final_payload = bytes(payload_list)
-                    if len(final_payload) != dlc:
-                        final_payload = final_payload[:dlc] + bytes(
-                            [0x00] * max(0, dlc - len(final_payload))
-                        )
-                    # print(f"[DEBUG] final_payload type: {type(final_payload)}, value: {final_payload}")
+                    dlc = (
+                        item.data(2, Qt.ItemDataRole.UserRole + 1) or 8
+                    )  # se il payload viene da testo manuale
+                    if not isinstance(dlc, int) or not (1 <= dlc <= 8):
+                        dlc = 8
 
-                    # Invia il frame e aggiorna il payload nella finestra TX
-                    self.send_can_message(frame_id, final_payload, dlc)
-                    item.setText(5, " ".join(f"{b:02X}" for b in final_payload))
-
-                    # 🧭 Update live gauges (XMetro)
-                    for gauge in getattr(self, "xmetro_windows", []):
-                        if gauge.cb_messages.currentData() == frame_id:
-                            if not isinstance(
-                                final_payload, bytes
-                            ):  # Converti in bytes se necessario
-                                try:
-                                    final_payload = bytes(final_payload)
-                                except Exception:
-                                    print(
-                                        f"[XMetro] Payload non convertibile: {type(final_payload)}, valore {final_payload}"
+                    # Se il payload è stato specificato come script, lo esegue
+                    try:
+                        if script_path and os.path.exists(script_path):
+                            if script_path not in script_cache:
+                                script_globals = {}
+                                with open(script_path, "r", encoding="utf-8") as f:
+                                    exec(f.read(), script_globals)
+                                get_payload_fn = script_globals.get("get_payload")
+                                if not callable(get_payload_fn):
+                                    raise RuntimeError(
+                                        "Il file selezionato non contiene una funzione get_payload()"
                                     )
-                                    continue
-                            # Aggiorna il gauge con il payload finale
-                            gauge.update_gauge(final_payload)
-                            # print(f"[XMetro] Payload passato al gauge: {type(final_payload)}, valore {final_payload}")
+                                script_cache[script_path] = get_payload_fn
+                            else:
+                                get_payload_fn = script_cache[script_path]
 
-                except Exception as e:
-                    print(f"[Errore TX ID {frame_id:03X}]: {e}")
-                    log_exception(e)
+                            payload = get_payload_fn(dlc)
+                            if not isinstance(payload, bytes) or len(payload) != dlc:
+                                raise ValueError(
+                                    f"get_payload(dlc) deve restituire esattamente {dlc} byte"
+                                )
+                        else:
+                            payload_text = item.text(5).strip()
+
+                            if payload_text:
+                                payload_parts = payload_text.split()
+                                payload = bytes(int(b, 16) for b in payload_parts[:dlc])
+                            else:
+                                payload = bytes([0x00] * dlc)
+
+                            # Se lo script restituisce un payload, usa solo i primi DLC byte
+                            if isinstance(payload, bytes):
+                                payload = payload[:dlc] + bytes(
+                                    [0x00] * max(0, dlc - len(payload))
+                                )
+
+                        # oppure se arriva da uno script, taglia i byte in eccesso
+                        # payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
+
+                        payload_list = list(payload)
+                        if frame_id in slider_overrides:
+                            for sig, slider in slider_overrides[frame_id]:
+                                val_index = slider.value()
+                                real_value = (
+                                    slider.parent().min_val
+                                    + val_index * slider.parent().step
+                                )
+                                result = self.insert_value_in_payload(
+                                    frame_id, sig.name, real_value, bytes(payload_list)
+                                )
+                                if isinstance(result, int):
+                                    result = bytes([result])
+                                payload_list = list(result)
+                        final_payload = bytes(payload_list)
+                        if len(final_payload) != dlc:
+                            final_payload = final_payload[:dlc] + bytes(
+                                [0x00] * max(0, dlc - len(final_payload))
+                            )
+                        # print(f"[DEBUG] final_payload type: {type(final_payload)}, value: {final_payload}")
+
+                        # Invia il frame e aggiorna il payload nella finestra TX
+                        self.send_can_message(frame_id, final_payload, dlc)
+                        item.setText(5, " ".join(f"{b:02X}" for b in final_payload))
+
+                        # Update live gauges (XMetro)
+                        for gauge in getattr(self, "xmetro_windows", []):
+                            if gauge.cb_messages.currentData() == frame_id:
+                                if not isinstance(
+                                    final_payload, bytes
+                                ):  # Converti in bytes se necessario
+                                    try:
+                                        final_payload = bytes(final_payload)
+                                    except Exception:
+                                        print(
+                                            f"[XMetro] Payload non convertibile: {type(final_payload)}, valore {final_payload}"
+                                        )
+                                        continue
+                                # Aggiorna il gauge con il payload finale
+                                gauge.update_gauge(final_payload)
+                                # print(f"[XMetro] Payload passato al gauge: {type(final_payload)}, valore {final_payload}")
+
+                    except Exception as e:
+                        print(f"[Errore TX ID {frame_id:03X}]: {e}")
+                        log_exception(e)
+
+                return callback
 
             timer = QTimer(self)
-            timer.timeout.connect(callback)
+            timer.frame_id = frame_id  # Custom attribute for lookup
+            timer.timeout.connect(
+                make_callback(frame_id=frame_id, item=item, script_path=script_path)
+            )
             timer.start(period)
             self.timers.append(timer)
 

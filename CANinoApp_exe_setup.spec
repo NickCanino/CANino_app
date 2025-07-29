@@ -21,8 +21,8 @@ a = Analysis(
         ('src/version.py', '.'),
         ('src/PCANBasic.py', '.'),
         ('resources/figures/dii_logo.png', 'resources/figures'),
-        ('resources/figures/app_logo_1.ico', 'resources/figures'),
-        ('resources/figures/CANinoApp_banner.png', 'resources/figures'),
+        ('resources/figures/app_logo.ico', 'resources/figures'),
+        ('resources/figures/CANinoApp_banner_background.png', 'resources/figures'),
     ],
     hiddenimports=['can.interfaces.pcan'],
     hookspath=[],
@@ -53,5 +53,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='resources/figures/app_logo_1.ico'
+    icon='resources/figures/app_logo.ico'
 )
