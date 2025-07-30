@@ -1,11 +1,20 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import re
+import subprocess
 
-with open("src/version.py", encoding="utf-8") as f:
-    content = f.read()
-    match = re.search(r'__version__\s*=\s*[\'"]([^\'"]+)[\'"]', content)
-    __version__ = match.group(1) if match else "0.0.000"
+# The version must be defined as __version__ = "x.y.z"
+with open("VERSION", encoding="utf-8") as f:
+    __version__ = f.read().strip()
+
+# Obtain the git commit hash
+try:
+    git_hash = (
+        subprocess.check_output(["git", "rev-parse", "--short", "HEAD"])
+        .decode("utf-8")
+        .strip()
+    )
+except Exception:
+    git_hash = "nogit"
 
 a = Analysis(
     ['main.py'],
@@ -18,8 +27,8 @@ a = Analysis(
         ('src/can_interface.py', '.'),
         ('src/xmetro_class.py', '.'),
         ('src/exceptions_logger.py', '.'),
-        ('src/version.py', '.'),
         ('src/PCANBasic.py', '.'),
+        ('VERSION', '.'),
         ('resources/figures/dii_logo.png', 'resources/figures'),
         ('resources/figures/app_logo.ico', 'resources/figures'),
         ('resources/figures/CANinoApp_banner_background.png', 'resources/figures'),
@@ -40,7 +49,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name=f'CANinoApp_v{__version__}',
+    name=f'CANinoApp_v{__version__}_h{git_hash}',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

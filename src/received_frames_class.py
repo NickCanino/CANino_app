@@ -1,3 +1,23 @@
+# -----------------------------------------------------------------------------
+#  Project: CANinoApp
+#  Author: Nicasio Canino <nicasio.canino@phd.unipi.it>
+#  Organization: Department of Information Engineering (DII), University of Pisa
+#  Collaborators: Sergio Saponara <sergio.saponara@unipi.it>, Daniele Rossi <daniele.rossi1@unipi.it>
+#  Copyright 2025 Nicasio Canino
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+#  Unless required by applicable law or agreed to in writing, software
+#  distributed under the License is distributed on an "AS IS" BASIS,
+#  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+#  See the License for the specific language governing permissions and
+#  limitations under the License.
+# -----------------------------------------------------------------------------
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -32,8 +52,8 @@ class ReceivedFramesWindow(QWidget):
         # --- Barra pulsanti log ---
         log_btn_layout = QHBoxLayout()
         # Pulsante per collegare il file CSV
-        self.btn_link_csv = QPushButton(" Link file CSV")
-        self.btn_link_csv.setToolTip("Collega un file CSV per il logging")
+        self.btn_link_csv = QPushButton("Link CSV")
+        self.btn_link_csv.setToolTip("Link a CSV file for logging")
         self.btn_link_csv.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon)
         )
@@ -41,24 +61,24 @@ class ReceivedFramesWindow(QWidget):
         self.btn_link_csv.setCheckable(True)
 
         # Pulsante per avviare il log
-        self.btn_start_log = QPushButton(" Start LOG")
-        self.btn_start_log.setToolTip("Avvia il logging su CSV")
+        self.btn_start_log = QPushButton("Start LOG")
+        self.btn_start_log.setToolTip("Start logging to CSV")
         self.btn_start_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
         self.btn_start_log.setFixedSize(120, 30)
 
         # Pulsante per mettere in pausa il log
-        self.btn_pause_log = QPushButton(" Pausa LOG")
-        self.btn_pause_log.setToolTip("Pausa il logging su CSV")
+        self.btn_pause_log = QPushButton("Pause LOG")
+        self.btn_pause_log.setToolTip("Pause logging to CSV")
         self.btn_pause_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause)
         )
         self.btn_pause_log.setFixedSize(120, 30)
 
         # Pulsante per fermare il log
-        self.btn_stop_log = QPushButton(" Stop LOG")
-        self.btn_stop_log.setToolTip("Ferma il logging su CSV")
+        self.btn_stop_log = QPushButton("Stop LOG")
+        self.btn_stop_log.setToolTip("Stop logging to CSV")
         self.btn_stop_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
@@ -69,10 +89,10 @@ class ReceivedFramesWindow(QWidget):
         self.btn_clear_table.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
         )
-        self.btn_clear_table.setToolTip("Ripulisci tabella RX")
+        self.btn_clear_table.setToolTip("Clear RX table")
         self.btn_clear_table.setFixedSize(30, 30)
 
-        # Stili per i pulsanti
+        # Styles for buttons
         self.btn_start_log.setStyleSheet(
             """
             QPushButton {
@@ -146,12 +166,12 @@ class ReceivedFramesWindow(QWidget):
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
-                "Nome",
+                "Name",
                 "DLC",
                 "Payload (0-7)",
-                "Ultimo ricevimento",
-                "Conteggio",
-                "Periodo (ms)",
+                "Last Received",
+                "Count",
+                "Period (ms)",
                 "Dev. Std (ms)",
             ]
         )
@@ -293,10 +313,14 @@ class ReceivedFramesWindow(QWidget):
 
     def link_csv_file(self):
         path, _ = QFileDialog.getSaveFileName(
-            self, "Seleziona file CSV", "", "CSV Files (*.csv)"
+            self, "Select CSV file", "", "CSV Files (*.csv)"
         )
         if path:
             self.csv_path = path
+
+            self.btn_start_log.setText("Start LOG")
+            self.btn_start_log.setToolTip("Start logging to CSV")
+
             self.btn_start_log.setEnabled(True)
             self.btn_pause_log.setEnabled(False)
             self.btn_stop_log.setEnabled(False)
@@ -331,7 +355,7 @@ class ReceivedFramesWindow(QWidget):
 
     def log_frame_to_csv(self, frame_id, data, dlc, count, avg_period, periods):
         """
-        Logga un singolo frame CAN su CSV, se il log è attivo e non in pausa.
+        Logs a single CAN frame to CSV, if logging is active and not paused.
         """
         if self.log_active and not self.log_paused and self.csv_writer:
             try:
@@ -374,17 +398,26 @@ class ReceivedFramesWindow(QWidget):
                 [
                     "Timestamp",
                     "ID",
-                    "Nome",
+                    "Name",
                     "DLC",
                     "Payload",
-                    "Conteggio",
-                    "Periodo(ms)",
-                    "Dev.Std(ms)",
+                    "Count",
+                    "Period (ms)",
+                    "Std.Dev (ms)",
                 ]
             )
 
         self.log_active = True
         self.log_paused = False
+
+        self.btn_start_log.setText("Start LOG")
+        self.btn_start_log.setToolTip("Logging active")
+
+        self.btn_pause_log.setText("Pause LOG")
+        self.btn_pause_log.setToolTip("Pause logging to CSV")
+
+        self.btn_stop_log.setText("Stop LOG")
+        self.btn_stop_log.setToolTip("Stop logging to CSV")
 
         self.btn_start_log.setEnabled(False)
         self.btn_start_log.setStyleSheet(
@@ -422,6 +455,16 @@ class ReceivedFramesWindow(QWidget):
     def pause_log(self):  # metodo per mettere in pausa il log e non chiudere il file
         if self.log_active:
             self.log_paused = True
+
+            self.btn_start_log.setText("Resume LOG")
+            self.btn_start_log.setToolTip("Resume logging to CSV")
+
+            self.btn_pause_log.setText("Pause LOG")
+            self.btn_pause_log.setToolTip("Logging paused")
+
+            self.btn_stop_log.setText("Stop LOG")
+            self.btn_stop_log.setToolTip("Stop logging to CSV")
+
             self.btn_start_log.setEnabled(True)
             self.btn_start_log.setStyleSheet(
                 """
@@ -459,6 +502,16 @@ class ReceivedFramesWindow(QWidget):
     def stop_log(self):  # metodo per fermare il log e chiudere il file
         self.log_active = False
         self.log_paused = False
+
+        self.btn_start_log.setText("Restart LOG")
+        self.btn_start_log.setToolTip("Restart logging to CSV")
+
+        self.btn_pause_log.setText("Pause LOG")
+        self.btn_pause_log.setToolTip("Pause logging to CSV")
+
+        self.btn_stop_log.setText("Stop LOG")
+        self.btn_stop_log.setToolTip("Stopped logging to CSV")
+
         self.btn_start_log.setEnabled(True)
         self.btn_start_log.setStyleSheet(
             """
