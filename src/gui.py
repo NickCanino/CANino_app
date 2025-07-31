@@ -283,9 +283,8 @@ class MainWindow(QMainWindow):
         self.signal_tree.setColumnWidth(6, 70)
         self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
 
-        self.signal_tree.setSortingEnabled(
-            True
-        )  # Abilita l'ordinamento della tabella dei segnali
+        self.signal_tree.setSortingEnabled(True)
+        self.signal_tree.header().sectionClicked.connect(self.handle_signal_tree_sort)
 
         # Groupbox per i controlli di trasmissione
         tx_group = QGroupBox()
@@ -359,7 +358,7 @@ class MainWindow(QMainWindow):
             if not hasattr(self, "dbc") or self.dbc is None:
                 QMessageBox.warning(self, "DBC", "Load a DBC file first!")
                 return
-            
+
             # Only consider checked TX items
             checked_ids = set()
             for i in range(self.signal_tree.topLevelItemCount()):
@@ -376,9 +375,13 @@ class MainWindow(QMainWindow):
                 return
 
             # Filter DBC messages to only those with checked IDs
-            filtered_msgs = [msg for msg in self.dbc.messages if msg.frame_id in checked_ids]
+            filtered_msgs = [
+                msg for msg in self.dbc.messages if msg.frame_id in checked_ids
+            ]
             if not filtered_msgs:
-                QMessageBox.warning(self, "Slider", "No checked DBC messages found in TX table.")
+                QMessageBox.warning(
+                    self, "Slider", "No checked DBC messages found in TX table."
+                )
                 return
 
             msg_names = [msg.name for msg in filtered_msgs]
@@ -387,7 +390,7 @@ class MainWindow(QMainWindow):
             )
             if not ok:
                 return
-            
+
             msg = next(m for m in self.dbc.messages if m.name == msg_idx)
             sig_names = [sig.name for sig in msg.signals]
             sig_idx, ok = QInputDialog.getItem(
@@ -395,7 +398,7 @@ class MainWindow(QMainWindow):
             )
             if not ok:
                 return
-            
+
             sig = next(s for s in msg.signals if s.name == sig_idx)
             key = (msg.name, sig.name)
             if key in self.added_sliders:
@@ -405,7 +408,7 @@ class MainWindow(QMainWindow):
                     f"Slider already exists for {msg.name} (0x{msg.frame_id:03X}) → {sig.name}",
                 )
                 return
-            
+
             self.added_sliders.add(key)
 
             # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
@@ -650,9 +653,7 @@ class MainWindow(QMainWindow):
                 f"Configuration successfully saved to:\n{filename}",
             )
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error", f"Error saving configuration: {e}"
-            )
+            QMessageBox.critical(self, "Error", f"Error saving configuration: {e}")
             log_exception(e)
 
     def load_config(self, auto=False):
@@ -760,7 +761,10 @@ class MainWindow(QMainWindow):
                     period_spin.setRange(1, 10000)
                     period_spin.setValue(sig.get("period", 100))
                     self.signal_tree.setItemWidget(msg_item, 4, period_spin)
-                    msg_item.setData(4, Qt.ItemDataRole.UserRole, period_spin)
+                    msg_item.setText(4, str(period_spin.value()))
+                    msg_item.setData(
+                        4, Qt.ItemDataRole.DisplayRole, period_spin.value()
+                    )
 
                     # Payload e DLC
                     raw_payload = sig.get("payload", "")
@@ -944,9 +948,7 @@ class MainWindow(QMainWindow):
                     self, "Configuration", "Configuration loaded successfully."
                 )
         except Exception as e:
-            QMessageBox.critical(
-                self, "Error", f"Error loading configuration: {e}"
-            )
+            QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
             log_exception(e)
 
     def remove_slider_widget(self, widget):
@@ -972,9 +974,11 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(self, "Warning", "No CAN channel selected")
                 self.btn_connect.setChecked(False)
                 return
-            
+
             # --- Check if the selected channel is still available ---
-            available_channels = [handle for _, handle in CANInterface.get_available_channels()]
+            available_channels = [
+                handle for _, handle in CANInterface.get_available_channels()
+            ]
             if channel not in available_channels:
                 QMessageBox.critical(
                     self,
@@ -986,14 +990,14 @@ class MainWindow(QMainWindow):
                 return
 
             try:  # Try to connect to the CAN interface
-                pcan_val, bitrate = self.cb_baudrate.currentData()
-                print(f"bitrate value {bitrate} bps")
-                self.can_if = CANInterface(channel, bitrate=bitrate)
+                bitrate_lbl = self.cb_baudrate.currentText()
+                print(f"[DEBUG] bitrate value {bitrate_lbl} bps")
+                self.can_if = CANInterface(channel, bitrate=bitrate_lbl)
                 self.can_if.set_receive_callback(self.process_received_frame)
                 QMessageBox.information(
                     self,
                     "Info",
-                    f"Connected to USB {channel & 0x00F} - BR: {bitrate} bps",
+                    f"Connected to: \n    > {self.cb_bus_tx.currentText()}\n    > Baudrate: {bitrate_lbl}",
                 )
 
                 self.btn_connect.setText("Disconnect")
@@ -1061,9 +1065,8 @@ class MainWindow(QMainWindow):
             period_spin.setValue(msg.cycle_time if msg.cycle_time else 100)
 
             self.signal_tree.setItemWidget(msg_item, 4, period_spin)
-            msg_item.setData(
-                4, Qt.ItemDataRole.UserRole, period_spin
-            )  # Store period spinbox in user data
+            msg_item.setText(4, str(period_spin.value()))
+            msg_item.setData(4, Qt.ItemDataRole.DisplayRole, period_spin.value())
             msg_item.setData(
                 2, Qt.ItemDataRole.UserRole + 1, msg.payload_length
             )  # Store DLC in user data
@@ -1145,7 +1148,8 @@ class MainWindow(QMainWindow):
         period_spin.setRange(1, 10000)
         period_spin.setValue(period)
         self.signal_tree.setItemWidget(msg_item, 4, period_spin)
-        msg_item.setData(4, Qt.ItemDataRole.UserRole, period_spin)
+        msg_item.setText(4, str(period_spin.value()))
+        msg_item.setData(4, Qt.ItemDataRole.DisplayRole, period_spin.value())
 
         msg_item.setText(5, " ".join(["00"] * dlc))
 
@@ -1218,6 +1222,8 @@ class MainWindow(QMainWindow):
                     if hasattr(t, "frame_id") and t.frame_id == frame_id:
                         period_spin = self.signal_tree.itemWidget(item, 4)
                         new_period = period_spin.value() if period_spin else 1000
+                        item.setText(4, str(new_period))
+
                         t.stop()
                         t.start(new_period)
                         if hasattr(self, "tx_periods") and frame_id in self.tx_periods:
@@ -1556,7 +1562,7 @@ class MainWindow(QMainWindow):
         if not hasattr(self, "dbc") or self.dbc is None:
             QMessageBox.warning(self, "DBC", "Load a DBC file first!")
             return
-        
+
         tx_items = []
         for i in range(self.signal_tree.topLevelItemCount()):
             item = self.signal_tree.topLevelItem(i)
@@ -1575,6 +1581,115 @@ class MainWindow(QMainWindow):
         self.xmetro_windows.append(xmetro)
         # Tiene traccia di quelle eliminate
         xmetro.destroyed.connect(lambda: self.xmetro_windows.remove(xmetro))
+
+    def handle_signal_tree_sort(self, column):
+        if column == 4:
+            self.signal_tree.setSortingEnabled(False)
+            items = []
+            for i in range(self.signal_tree.topLevelItemCount()):
+                item = self.signal_tree.topLevelItem(i)
+                period_spin = self.signal_tree.itemWidget(item, 4)
+                if period_spin is not None:
+                    period_value = int(period_spin.value())
+                else:
+                    try:
+                        period_value = int(item.text(4))
+                    except Exception:
+                        period_value = 100
+                item_data = {
+                    "check_state": item.checkState(1),
+                    "id": item.text(2),
+                    "name": item.text(3),
+                    "dlc": item.data(2, Qt.ItemDataRole.UserRole + 1),
+                    "payload": item.text(5),
+                    "script_path": item.data(6, Qt.ItemDataRole.UserRole),
+                    "period": period_value,
+                }
+                items.append((period_value, item_data))
+
+            if not hasattr(self, "_period_sort_asc") or self._period_sort_asc is False:
+                items.sort(key=lambda x: x[0])
+                self._period_sort_asc = True
+            else:
+                items.sort(key=lambda x: x[0], reverse=True)
+                self._period_sort_asc = False
+
+            self.signal_tree.clear()
+            for _, item_data in items:
+                check_state = item_data["check_state"]
+                id_text = item_data["id"]
+                name_text = item_data["name"]
+                dlc = item_data["dlc"] if item_data["dlc"] is not None else 8
+                payload = item_data["payload"]
+                script_path = item_data["script_path"]
+                period_val = item_data["period"] if "period" in item_data else 100
+
+                msg_item = QTreeWidgetItem(self.signal_tree)
+                msg_item.setFlags(
+                    msg_item.flags()
+                    | Qt.ItemFlag.ItemIsUserCheckable
+                    | Qt.ItemFlag.ItemIsEditable
+                )
+                msg_item.setCheckState(1, check_state)
+                msg_item.setText(2, id_text)
+                msg_item.setText(3, name_text)
+                msg_item.setData(2, Qt.ItemDataRole.UserRole + 1, dlc)
+                msg_item.setText(5, payload)
+                if script_path:
+                    msg_item.setData(6, Qt.ItemDataRole.UserRole, script_path)
+
+                period_spin = QSpinBox()
+                period_spin.setRange(1, 10000)
+                period_spin.setValue(period_val)
+                self.signal_tree.setItemWidget(msg_item, 4, period_spin)
+                # Imposta solo il valore numerico come DisplayRole, non il testo
+                msg_item.setData(4, Qt.ItemDataRole.DisplayRole, period_spin.value())
+
+                def on_period_changed(new_value, item=msg_item):
+                    item.setData(4, Qt.ItemDataRole.DisplayRole, new_value)
+
+                period_spin.valueChanged.connect(on_period_changed)
+
+                btn_delete_id = QPushButton()
+                btn_delete_id.setIcon(
+                    self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+                )
+                btn_delete_id.setToolTip("Delete")
+                btn_delete_id.clicked.connect(
+                    lambda _, item=msg_item: self.delete_signal_row(item)
+                )
+                self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
+
+                payload_btn = QPushButton("Link Script")
+                payload_btn.setCheckable(True)
+                payload_btn.setIcon(
+                    self.style().standardIcon(
+                        QStyle.StandardPixmap.SP_FileDialogDetailedView
+                    )
+                )
+                payload_btn.setToolTip("No Script Linked")
+                payload_btn.clicked.connect(
+                    lambda _, item=msg_item: self.modify_payload_script(item)
+                )
+                self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
+                if script_path:
+                    payload_btn.setChecked(True)
+                    payload_btn.setStyleSheet(
+                        "background-color: #4CAF50; color: white;"
+                    )
+                    payload_btn.setToolTip(f"Script: {script_path}")
+                    payload_btn.setText(os.path.basename(script_path))
+
+            self.signal_tree.setSortingEnabled(True)
+
+        else:
+            if hasattr(self, "_period_sort_asc"):
+                del self._period_sort_asc
+
+            self.signal_tree.setSortingEnabled(True)
+            self.signal_tree.sortItems(
+                column, self.signal_tree.header().sortIndicatorOrder()
+            )
 
 
 if __name__ == "__main__":
