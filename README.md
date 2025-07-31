@@ -1,4 +1,5 @@
 ![](resources/figures/CANinoApp_banner_background.png)
+
 # CANino App
 
 ## Index
@@ -12,6 +13,7 @@
   - [Repo Structure](#repo-structure)
 - [Quick Start](#quick-start)
   - [Transmitting CAN Traffic](#transmitting-can-traffic)
+    - [Notes](#notes)
   - [Receiving CAN Traffic](#receiving-can-traffic)
 - [License](#license)
 
@@ -44,47 +46,44 @@ The graphical interface is intuitive and allows quick management of IDs, periods
 
 1. **Clone the repository**
 
-    ```sh
-    git clone https://github.com/NickCanino/CANino_app.git
-    cd CANino_app
-    ```
-
+   ```sh
+   git clone https://github.com/NickCanino/CANino_app.git
+   cd CANino_app
+   ```
 2. **Create a virtual environment**
 
-    ```sh
-    python -m venv .venv
-    ```
-
+   ```sh
+   python -m venv .venv
+   ```
 3. **Activate the virtual environment**
 
-    ```sh
-    .\.venv\Scripts\activate  # On Windows
-    ```
+   ```sh
+   .\.venv\Scripts\activate  # On Windows
+   ```
 
-    ```sh
-    source .venv/bin/activate  # On Linux/Mac
-    ```
-
+   ```sh
+   source .venv/bin/activate  # On Linux/Mac
+   ```
 4. **Install dependencies**
 
-    ```sh
-    pip install -r requirements.txt
-    ```
+   ```sh
+   pip install -r requirements.txt
+   ```
 
-    > **OPTIONAL:** Set the venv interpreter if needed  
-    > On Windows: `.venv\Scripts\python.exe`  
-    > On Linux/Mac: `.venv/bin/python`
-
+   > **OPTIONAL:** Set the venv interpreter if needed
+   > On Windows: `.venv\Scripts\python.exe`
+   > On Linux/Mac: `.venv/bin/python`
+   >
 5. **Build the application executable**
 
-    Before running the final command to generate the application:
+   Before running the final command to generate the application:
 
-    1. *Update the app version* in the `VERSION` file to match the release version.
-    2. *Update the project files list* in the `.spec` file if additional files need to be included in the final build.
+   1. *Update the app version* in the `VERSION` file to match the release version.
+   2. *Update the project files list* in the `.spec` file if additional files need to be included in the final build.
 
-    ```sh
-    pyinstaller CANinoApp_exe_setup.spec
-    ```
+   ```sh
+   pyinstaller CANinoApp_exe_setup.spec
+   ```
 
 ## Package Naming
 
@@ -126,42 +125,38 @@ Once you have obtained `dist/CANinoApp_vX.Y.Z_hHASH.exe`, follow these simple wo
 ## Transmitting CAN Traffic
 
 1. Add CAN messages to be transmitted in the **Transmitted CAN Frames (TX)** window:
-    - a. Load a DBC file by pressing the `Load DBC` button,
-    - b. Load a previously saved project (`File → Load → xxx.json`), or
-    - c. Add messages manually using the `Add ID` button.
 
+   - a. Load a DBC file by pressing the `Load DBC` button (a wide variety can be found in [opendbc](https://github.com/commaai/opendbc)),
+   - b. Load a previously saved project (`File → Load → xxx.json`), or
+   - c. Add messages manually using the `Add ID` button.
 2. Select the desired device from the available options in the `Channel` drop-down menu (refresh the list after connecting/disconnecting a device).
-
 3. Set the `Baudrate` to match the network, choosing a value between 5 kBit/s and 1 MBit/s, then click `Connect`.
-
 4. Configure the payloads of the CAN frames to be transmitted:
-    - a. Change the value manually,
-    - b. Link a Python script via the `Link Script` button, or
-    - c. **If a DBC is loaded**, control the value of a selected signal (portion of the payload) dynamically during transmission using one or more sliders (`Add Slider` button).
 
+   - a. Change the value manually,
+   - b. Link a Python script via the `Link Script` button, or
+   - c. **If a DBC is loaded**, control the value of a selected signal (portion of the payload) dynamically during transmission using one or more sliders (`Add Slider` button).
 5. Press the `Start TX` button (available only when connected to a device) to start transmitting the configured traffic.
 
 ### Notes
+
 > 1. CAN message IDs can be added, deleted, enabled, or disabled during transmission.
 > 2. The transmission period of each ID can be changed during transmission.
 > 3. Regarding the transmitted value for the payload of each ID (message):
->     a. **No DBC Loaded:** A manual value is overwritten by a linked Python script.
->     b. **DBC Loaded:** A manual value is overwritten by a linked Python script, which is partially overwritten by a slider (only the signal controlled by the slider).
+>    a. **No DBC Loaded:** A manual value is overwritten by a linked Python script.
+>    b. **DBC Loaded:** A manual value is overwritten by a linked Python script, which is partially overwritten by a slider (only the signal controlled by the slider).
 
 ## Receiving CAN Traffic
 
 1. Load a DBC file (or a `.json` project in which a DBC has been linked) if you want to see the names of the received CAN frames that correspond to DBC messages.
-
 2. Link a `.csv` file to log the received CAN traffic via the `Link CSV` button.
-
 3. Select the desired device from the available options in the `Channel` drop-down menu (refresh the list after connecting/disconnecting a device).
-
 4. Set the `Baudrate` to match the network, choosing a value between 5 kBit/s and 1 MBit/s, then click `Connect`.
-
 5. Once connected, if a `.csv` file has been linked, you can use three buttons:
-    - a. `Start LOG`: Starts logging of received traffic.
-    - b. `Pause LOG`: Pauses logging. Resuming will append new logs to the linked file.
-    - c. `Stop LOG`: Stops logging completely. Restarting logging will clear the linked file.
+
+   - a. `Start LOG`: Starts logging of received traffic.
+   - b. `Pause LOG`: Pauses logging. Resuming will append new logs to the linked file.
+   - c. `Stop LOG`: Stops logging completely. Restarting logging will clear the linked file.
 
 # License
 
