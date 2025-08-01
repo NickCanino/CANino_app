@@ -1221,6 +1221,15 @@ class MainWindow(QMainWindow):
                 self.stop_tx()
                 self.start_tx()
 
+            try: # Get the frame ID from the item text
+                frame_id = int(item.text(2), 16)
+            except Exception:
+                frame_id = None
+            if frame_id is not None and hasattr(self, "slider_widgets"):
+                for slider_widget in self.slider_widgets:
+                    if getattr(slider_widget, "frame_id", None) == frame_id:
+                        slider_widget.slider.setEnabled(item.checkState(1) == Qt.CheckState.Checked)
+
         elif column == 4:  # Periodo (ms) column changed
             # Update the timer for this item if TX is running
             if self.tx_running:
