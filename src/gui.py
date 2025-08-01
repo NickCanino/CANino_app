@@ -44,6 +44,7 @@ from PyQt6.QtWidgets import (
     QMenu,
     QSlider,
     QScrollArea,
+    QStyledItemDelegate,
 )
 from PyQt6.QtGui import QAction, QIcon, QPixmap
 from PyQt6.QtCore import Qt, QTimer
@@ -51,6 +52,7 @@ import json
 import os
 import sys
 import time
+import re
 
 from src.dbc_loader import load_dbc
 from src.can_interface import CANInterface
@@ -80,6 +82,14 @@ def resource_path(relative_path):
     if hasattr(sys, "_MEIPASS"):
         return os.path.join(sys._MEIPASS, relative_path)
     return os.path.join(os.getcwd(), relative_path)
+
+
+class PayloadEditDelegate(QStyledItemDelegate):
+    def createEditor(self, parent, option, index):
+        # Only allow editing for payload column (column 5)
+        if index.column() == 5:
+            return super().createEditor(parent, option, index)
+        return None
 
 
 class SliderMeta:
@@ -284,6 +294,7 @@ class MainWindow(QMainWindow):
         self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
 
         self.signal_tree.setSortingEnabled(True)
+        self.signal_tree.setItemDelegate(PayloadEditDelegate(self.signal_tree))
         self.signal_tree.header().sectionClicked.connect(self.handle_signal_tree_sort)
 
         # Groupbox per i controlli di trasmissione
@@ -1209,6 +1220,7 @@ class MainWindow(QMainWindow):
             if self.tx_running:
                 self.stop_tx()
                 self.start_tx()
+
         elif column == 4:  # Periodo (ms) column changed
             # Update the timer for this item if TX is running
             if self.tx_running:
@@ -1229,16 +1241,21 @@ class MainWindow(QMainWindow):
                         if hasattr(self, "tx_periods") and frame_id in self.tx_periods:
                             self.tx_periods[frame_id]["nominal"] = new_period
                         break
+
         elif column == 5:
             text = item.text(5).strip()
             parts = text.split()
             dlc = item.data(2, Qt.ItemDataRole.UserRole + 1) or None
 
-            if len(parts) != dlc or any(len(p) != 2 for p in parts):
+            hex_pair_re = re.compile(r"^[0-9a-fA-F]{2}$")
+            if (
+                len(parts) != dlc
+                or any(not hex_pair_re.match(p) for p in parts)
+            ):
                 QMessageBox.warning(
                     self,
                     "Error Payload",
-                    f"Payload must contain exactly {dlc} bytes in hexadecimal, e.g. {' '.join(['00'] * dlc)}",
+                    f"Payload must contain exactly {dlc} bytes in hexadecimal (00-FF), e.g. {' '.join(['00'] * dlc)}",
                 )
                 item.setText(5, " ".join(["00"] * dlc))
 
@@ -1685,7 +1702,7 @@ class MainWindow(QMainWindow):
         else:
             if hasattr(self, "_period_sort_asc"):
                 del self._period_sort_asc
-
+                
             self.signal_tree.setSortingEnabled(True)
             self.signal_tree.sortItems(
                 column, self.signal_tree.header().sortIndicatorOrder()
