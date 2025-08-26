@@ -29,6 +29,7 @@ a = Analysis(
         ('src/received_frames_class.py', '.'),
         ('src/can_interface.py', '.'),
         ('src/xmetro_class.py', '.'),
+        ('src/vagiletta_programmer_class.py', '.'),
         ('src/exceptions_logger.py', '.'),
         ('src/PCANBasic.py', '.'),
         ('VERSION', '.'),
