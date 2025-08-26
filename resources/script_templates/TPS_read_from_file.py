@@ -31,6 +31,7 @@ payloads = []
 # Load payloads from CSV file (provide the path here)
 CSV_PATH = "../resources/tmp/payload_sequence_ID_140.csv"  # <-- Set your CSV file path
 
+
 def _load_payloads():
     global payloads
     payloads.clear()
@@ -40,7 +41,7 @@ def _load_payloads():
         print(f"[ERROR] File does not exist: {abs_path}")
         return
 
-    with open(abs_path, newline='') as csvfile:
+    with open(abs_path, newline="") as csvfile:
         reader = csv.reader(csvfile)
         header = next(reader, None)  # Skip header
         for line_num, row in enumerate(reader, start=2):
@@ -58,15 +59,17 @@ def _load_payloads():
 
     print(f"[DEBUG] Loaded {len(payloads)} payloads from {abs_path}")
 
+
 # Load once at import
 _load_payloads()
+
 
 def get_payload(dlc: int = 8) -> bytes:
     global counter
     counter += 1
 
     if not payloads:
-        _load_payloads() # Reload payloads if empty for some reason
+        _load_payloads()  # Reload payloads if empty for some reason
         if not payloads:
             raise ValueError("Payload list is still empty after attempting to load.")
 
