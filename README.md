@@ -40,7 +40,7 @@ The graphical interface is intuitive and allows quick management of IDs, periods
 
 - Python 3.9+ (Python 3.10 or above recommended)
 - PCAN-USB driver installed ([download link](https://www.peak-system.com/PCAN-USB.199.0.html?L=1))
-- [PCANBasic.dll](resources/PCANBasic.dll) (already included in `resources/`, update if needed)
+- [PCANBasic.dll](tools/PCANBasic.dll) (already included in `resources/`, update if needed)
 
 ## Installation
 

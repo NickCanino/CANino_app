@@ -19,7 +19,10 @@ except Exception:
 a = Analysis(
     ['main.py'],
     pathex=[],
-    binaries=[('resources/PCANBasic.dll', '.')],
+    binaries=[
+        ('tools/PCANBasic.dll', '.'),
+        ('tools/arduino-cli.exe', '.'),
+    ],
     datas=[
         ('src/gui.py', '.'),
         ('src/dbc_loader.py', '.'),
