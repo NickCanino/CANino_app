@@ -58,6 +58,7 @@ from src.dbc_loader import load_dbc
 from src.can_interface import CANInterface
 from src.exceptions_logger import log_exception, __version__
 from src.xmetro_class import XMetroWindow
+from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
 from src.PCANBasic import (
     PCAN_BAUD_1M,
@@ -176,6 +177,16 @@ class MainWindow(QMainWindow):
         file_menu.addAction(action_save_as)
         file_menu.addAction(action_load)
         menubar.addMenu(file_menu)
+
+        # --- AGGIUNGI IL PULSANTE VAGILETTA ---
+        btn_vagiletta = QPushButton("Vagiletta")
+        btn_vagiletta.setStyleSheet(
+            "font-weight: bold; background: #FF9800; color: black;"
+        )
+        btn_vagiletta.setFixedHeight(30)
+        btn_vagiletta.clicked.connect(self.open_vagiletta_window)
+        menubar.setCornerWidget(btn_vagiletta, Qt.Corner.TopRightCorner)
+
         self.setMenuBar(menubar)
 
         # --- CONTROLLI IN ALTO ---
@@ -962,6 +973,10 @@ class MainWindow(QMainWindow):
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
             log_exception(e)
 
+    def open_vagiletta_window(self):
+        dlg = VagilettaWindow(self)
+        dlg.exec()
+
     def remove_slider_widget(self, widget):
         # Remove the widget from the slider_container and update the slider list
         widget.setParent(None)
@@ -1221,14 +1236,16 @@ class MainWindow(QMainWindow):
                 self.stop_tx()
                 self.start_tx()
 
-            try: # Get the frame ID from the item text
+            try:  # Get the frame ID from the item text
                 frame_id = int(item.text(2), 16)
             except Exception:
                 frame_id = None
             if frame_id is not None and hasattr(self, "slider_widgets"):
                 for slider_widget in self.slider_widgets:
                     if getattr(slider_widget, "frame_id", None) == frame_id:
-                        slider_widget.slider.setEnabled(item.checkState(1) == Qt.CheckState.Checked)
+                        slider_widget.slider.setEnabled(
+                            item.checkState(1) == Qt.CheckState.Checked
+                        )
 
         elif column == 4:  # Periodo (ms) column changed
             # Update the timer for this item if TX is running
@@ -1257,10 +1274,7 @@ class MainWindow(QMainWindow):
             dlc = item.data(2, Qt.ItemDataRole.UserRole + 1) or None
 
             hex_pair_re = re.compile(r"^[0-9a-fA-F]{2}$")
-            if (
-                len(parts) != dlc
-                or any(not hex_pair_re.match(p) for p in parts)
-            ):
+            if len(parts) != dlc or any(not hex_pair_re.match(p) for p in parts):
                 QMessageBox.warning(
                     self,
                     "Error Payload",
@@ -1711,7 +1725,7 @@ class MainWindow(QMainWindow):
         else:
             if hasattr(self, "_period_sort_asc"):
                 del self._period_sort_asc
-                
+
             self.signal_tree.setSortingEnabled(True)
             self.signal_tree.sortItems(
                 column, self.signal_tree.header().sortIndicatorOrder()
