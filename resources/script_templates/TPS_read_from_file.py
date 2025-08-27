@@ -29,7 +29,7 @@ counter = 0
 payloads = []
 
 # Load payloads from CSV file (provide the path here)
-CSV_PATH = "../resources/tmp/payload_sequence_ID_140.csv"  # <-- Set your CSV file path
+CSV_PATH = "../CANino_app/resources/tmp/payload_sequence_ID_140.csv"  # <-- Set your CSV file path
 
 
 def _load_payloads():
@@ -43,7 +43,7 @@ def _load_payloads():
 
     with open(abs_path, newline="") as csvfile:
         reader = csv.reader(csvfile)
-        header = next(reader, None)  # Skip header
+        next(reader)  # Skip header
         for line_num, row in enumerate(reader, start=2):
             # Skip empty or invalid rows
             if not row or all(cell.strip() == "" for cell in row):
