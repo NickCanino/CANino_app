@@ -134,16 +134,13 @@ class MainWindow(QMainWindow):
         menubar = QMenuBar(self)
         menubar.setStyleSheet(
             """
-            QMenuBar {
-                background-color: #444444;
-                color: white;
-            }
+            
             QMenuBar::item {
-                background: #444444;
+                background: #1E1E1E;
                 color: white;
             }
             QMenuBar::item:selected {
-                background: #666666;
+                background: #553200;
             }
             QMenu {
                 background-color: #444444;
@@ -178,14 +175,10 @@ class MainWindow(QMainWindow):
         file_menu.addAction(action_load)
         menubar.addMenu(file_menu)
 
-        # --- AGGIUNGI IL PULSANTE VAGILETTA ---
-        btn_vagiletta = QPushButton("Vagiletta")
-        btn_vagiletta.setStyleSheet(
-            "font-weight: bold; background: #FF9800; color: black;"
-        )
-        btn_vagiletta.setFixedHeight(30)
-        btn_vagiletta.clicked.connect(self.open_vagiletta_window)
-        menubar.setCornerWidget(btn_vagiletta, Qt.Corner.TopRightCorner)
+        # --- AGGIUNGI L'AZIONE "Vagiletta" ALLA MENUBAR ---
+        action_vagiletta = QAction("Vagiletta", self)
+        action_vagiletta.triggered.connect(self.open_vagiletta_window)
+        menubar.addAction(action_vagiletta)
 
         self.setMenuBar(menubar)
 

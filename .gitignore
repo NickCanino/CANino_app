@@ -31,3 +31,4 @@ Thumbs.db
 *.json
 *.dbc
 tmp/
+arduino_build/

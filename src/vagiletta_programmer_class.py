@@ -26,16 +26,15 @@ from PyQt6.QtWidgets import (
     QLabel,
     QVBoxLayout,
     QMessageBox,
-    QWidget,
     QSizePolicy,
     QStyle,
     QGroupBox,
+    QProgressDialog,
 )
-from PyQt6.QtGui import QPixmap, QIcon, QImage
-from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 import subprocess
 import hashlib
-import shutil
 import os
 from pathlib import Path
 from src.exceptions_logger import log_exception
@@ -43,7 +42,7 @@ from src.exceptions_logger import log_exception
 ARDUINO_CLI = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../tools/arduino-cli.exe")
 )
-BUILD_DIR = Path("./arduino_build")  # TODO: verificare che sia il percorso giusto
+BUILD_DIR = Path("./arduino_build")
 INO_IMG_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../resources/figures/arduino_uno.png")
 )
@@ -61,22 +60,27 @@ def prepare_project(params: dict) -> Path:
     if target_dir.exists():
         return target_dir
 
-    if BUILD_DIR.exists():
-        shutil.rmtree(BUILD_DIR)
-    BUILD_DIR.mkdir(parents=True, exist_ok=True)
+    # # Prova a cancellare solo se non ci sono thread attivi sulla cartella
+    # if BUILD_DIR.exists():
+    #     try:
+    #         shutil.rmtree(BUILD_DIR)
+    #     except PermissionError as e:
+    #         log_exception(e)
+    #         raise RuntimeError(
+    #             f"Impossibile cancellare la cartella {BUILD_DIR}. Chiudi eventuali programmi che la usano e riprova."
+    #         )
 
+    BUILD_DIR.mkdir(parents=True, exist_ok=True)
     sketch_dir = target_dir
     sketch_dir.mkdir(parents=True)
-    sketch_file = sketch_dir / "MySketch.ino"
+    sketch_file = sketch_dir / f"{h}.ino"
 
     template = """
     int SPEED = {speed};
     const char* MODE = "{mode}";
-
     void setup() {{
         Serial.begin(9600);
     }}
-
     void loop() {{
         Serial.print("Speed: ");
         Serial.println(SPEED);
@@ -94,26 +98,58 @@ def list_arduino_ports():
         result = subprocess.run(
             [ARDUINO_CLI, "board", "list"], capture_output=True, text=True
         )
-
         ports = []
         lines = result.stdout.splitlines()
-
-        # Filtra solo le righe che contengono porte valide
         valid_ports = [
-            line.split()[0]
-            for line in lines
-            if line and not line.startswith("Port")
+            line.split()[0] for line in lines if line and not line.startswith("Port")
         ]
-
-        # Se ci sono porte, aggiungile dopo '-'
         ports.append("-")
         ports.extend(valid_ports)
-
         return ports
-    
     except Exception as e:
         log_exception(e)
         return []
+
+
+class FlashWorker(QObject):
+    progress = pyqtSignal(int)
+    finished = pyqtSignal(bool, str)
+
+    def __init__(self, port, params):
+        super().__init__()
+        self.port = port
+        self.params = params
+
+    def run(self):
+        try:
+            self.progress.emit(10)
+            proj = prepare_project(self.params)
+            fqbn = "arduino:avr:uno"
+            self.progress.emit(30)
+            res_compile = subprocess.run(
+                [ARDUINO_CLI, "compile", "--fqbn", fqbn, str(proj)],
+                capture_output=True,
+                text=True,
+            )
+            if res_compile.returncode != 0:
+                self.finished.emit(
+                    False, f"Compilazione fallita:\n{res_compile.stderr}"
+                )
+                return
+            self.progress.emit(70)
+            res_upload = subprocess.run(
+                [ARDUINO_CLI, "upload", "-p", self.port, "--fqbn", fqbn, str(proj)],
+                capture_output=True,
+                text=True,
+            )
+            if res_upload.returncode != 0:
+                self.finished.emit(False, f"Upload fallito:\n{res_upload.stderr}")
+                return
+            self.progress.emit(100)
+            self.finished.emit(True, f"Flash su {self.port} completato!")
+        except Exception as e:
+            log_exception(e)
+            self.finished.emit(False, str(e))
 
 
 class VagilettaWindow(QDialog):
@@ -124,121 +160,66 @@ class VagilettaWindow(QDialog):
         self.setLayout(main_layout)
         self.setMinimumSize(900, 400)
 
-        # Scaled pixmap of Arduino Uno
         self.pixmap_scaled = QPixmap(INO_IMG_PATH).scaled(
-            100, 100,
+            100,
+            100,
             Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation
+            Qt.TransformationMode.SmoothTransformation,
         )
-        # Greyed pixmap
         self.pixmap_greyed = self._get_pixmap_greyed(self.pixmap_scaled)
 
-        # --- Pulsante di refresh sopra la matrice ---
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         )
         refresh_btn.setFixedSize(80, 30)
         refresh_btn.clicked.connect(self.refresh_ports)
-        main_layout.addWidget(refresh_btn, alignment=Qt.AlignmentFlag.AlignLeft)
 
-        # --- Matrice 2x4 di box ---
+        main_layout.addWidget(refresh_btn, alignment=Qt.AlignmentFlag.AlignLeft)
         grid = QGridLayout()
         main_layout.addLayout(grid)
-        self.boxes = []
+
         self.combos = []
         self.arduino_imgs = []
-        self.img_path = os.path.abspath(
-            os.path.join(
-                os.path.dirname(__file__), "../resources/figures/arduino_uno.png"
-            )
-        )
+        self.progress_dialog = None
 
         for i in range(2):
             for j in range(4):
-                group = QGroupBox(f"Slot {i*4+j+1}")
+                index = i * 4 + j
+                group = QGroupBox(f"Slot {index + 1}")
                 group.setStyleSheet(
                     "QGroupBox { border: 2px solid #2196F3; border-radius: 8px; margin-top: 8px; }"
                 )
                 vbox = QVBoxLayout(group)
 
-                # Immagine Arduino
                 img_label = QLabel()
                 img_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
                 img_label.setPixmap(self.pixmap_greyed)
                 vbox.addWidget(img_label)
                 self.arduino_imgs.append(img_label)
 
-                # ComboBox porte
                 combo = QComboBox()
                 combo.setSizePolicy(
                     QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
                 )
-                combo.currentIndexChanged.connect(self._make_combo_handler(i * 4 + j))
+                combo.currentIndexChanged.connect(self._make_combo_handler(index))
                 vbox.addWidget(combo)
                 self.combos.append(combo)
 
-                # Pulsante flash
                 flash_btn = QPushButton("Flash")
                 flash_btn.setSizePolicy(
                     QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
                 )
+                params = {
+                    "speed": 100 + index * 10,
+                    "mode": "fast" if index % 2 == 0 else "slow",
+                }
+                flash_btn.clicked.connect(
+                    lambda _, c=combo, p=params: self._handle_flash(c, p)
+                )
                 vbox.addWidget(flash_btn)
 
-                params = {
-                    "speed": 100 + (i * 4 + j) * 10,
-                    "mode": "fast" if (i * 4 + j) % 2 == 0 else "slow",
-                }
-
-                def do_flash(combo=combo, params=params):
-                    port = combo.currentText()
-                    if not port or port == "-":
-                        QMessageBox.warning(self, "Errore", "Seleziona una porta!")
-                        return
-                    
-                    proj = prepare_project(params)
-                    fqbn = "arduino:avr:uno"
-                    try:
-                        res_compile = subprocess.run(
-                            [ARDUINO_CLI, "compile", "--fqbn", fqbn, str(proj)],
-                            capture_output=True,
-                            text=True,
-                        )
-                        if res_compile.returncode != 0:
-                            QMessageBox.critical(
-                                self,
-                                "Errore",
-                                f"Compilazione fallita:\n{res_compile.stderr}",
-                            )
-                            return
-                        res_upload = subprocess.run(
-                            [
-                                ARDUINO_CLI,
-                                "upload",
-                                "-p",
-                                port,
-                                "--fqbn",
-                                fqbn,
-                                str(proj),
-                            ],
-                            capture_output=True,
-                            text=True,
-                        )
-                        if res_upload.returncode != 0:
-                            QMessageBox.critical(
-                                self, "Errore", f"Upload fallito:\n{res_upload.stderr}"
-                            )
-                            return
-                        QMessageBox.information(
-                            self, "Successo", f"Flash su {port} completato!"
-                        )
-                    except Exception as e:
-                        log_exception(e)
-                        QMessageBox.critical(self, "Errore", str(e))
-
-                flash_btn.clicked.connect(do_flash)
                 grid.addWidget(group, i, j)
-                self.boxes.append((combo, flash_btn, img_label))
 
         self.refresh_ports()
 
@@ -248,18 +229,13 @@ class VagilettaWindow(QDialog):
 
     def refresh_ports(self):
         self.ports = list_arduino_ports()
-
-        # Raccogli le porte già selezionate (tranne '-')
         selected = [c.currentText() for c in self.combos if c.currentText() != "-"]
 
         for i, combo in enumerate(self.combos):
             current = combo.currentText()
-
-            # Costruisci la lista delle porte disponibili per questa combo
             available_ports = [
                 p for p in self.ports if p == "-" or p not in selected or p == current
             ]
-
             combo.blockSignals(True)
             combo.clear()
             combo.addItems(available_ports)
@@ -267,8 +243,8 @@ class VagilettaWindow(QDialog):
 
             if current in available_ports:
                 combo.setCurrentText(current)
-            combo.blockSignals(False)
 
+            combo.blockSignals(False)
             if combo.currentText() == "-" or not combo.currentText():
                 self.arduino_imgs[i].setPixmap(self.pixmap_greyed)
             else:
@@ -279,3 +255,39 @@ class VagilettaWindow(QDialog):
             self.refresh_ports()
 
         return handler
+
+    def _handle_flash(self, combo, params):
+        port = combo.currentText()
+        if not port or port == "-":
+            QMessageBox.warning(self, "Errore", "Seleziona una porta!")
+            return
+
+        # Progress dialog
+        self.progress_dialog = QProgressDialog(
+            "Flashing Arduino...", "Annulla", 0, 100, self
+        )
+        self.progress_dialog.setWindowTitle("Flash in corso")
+        self.progress_dialog.setWindowModality(Qt.WindowModality.ApplicationModal)
+        self.progress_dialog.setMinimumDuration(0)
+        self.progress_dialog.setValue(0)
+        self.progress_dialog.show()
+
+        # Threading
+        self.thread = QThread()
+        self.worker = FlashWorker(port, params)
+        self.worker.moveToThread(self.thread)
+        self.worker.progress.connect(self.progress_dialog.setValue)
+        self.worker.finished.connect(self._on_flash_finished)
+        self.worker.finished.connect(self.thread.quit)
+        self.worker.finished.connect(self.worker.deleteLater)
+        self.thread.finished.connect(self.thread.deleteLater)
+        self.thread.started.connect(self.worker.run)
+        self.progress_dialog.canceled.connect(self.thread.quit)
+        self.thread.start()
+
+    def _on_flash_finished(self, success, message):
+        self.progress_dialog.reset()
+        if success:
+            QMessageBox.information(self, "Successo", message)
+        else:
+            QMessageBox.critical(self, "Errore", message)
