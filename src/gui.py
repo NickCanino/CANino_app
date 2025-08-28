@@ -18,10 +18,6 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# TODO: IN start_tx() METHOD DO THE FOLLOWINGS:
-# TODO: impede to change the ID of a message during transmission
-# TODO: disable slider when the message is not enabled for TX
-
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
