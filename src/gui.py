@@ -280,7 +280,9 @@ class MainWindow(QMainWindow):
         self.btn_link_global_script.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
-        self.btn_link_global_script.setFixedSize(150, 30)
+        self.btn_link_global_script.setFixedSize(220, 30)
+        # self.btn_link_global_script.setStyleSheet("overflow: hidden; text-overflow: ellipsis;")
+        # self.btn_link_global_script.setToolTip(self.btn_link_global_script.text())
         self.btn_link_global_script.clicked.connect(self.select_global_payload_script)
 
         # Layout orizzontale per i due pulsanti
@@ -288,8 +290,8 @@ class MainWindow(QMainWindow):
         tx_buttons_layout.addWidget(self.btn_add_id)
         tx_buttons_layout.addWidget(self.btn_start_tx)
         tx_buttons_layout.addWidget(self.btn_add_xmetro)
+        tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_link_global_script)
-        tx_buttons_layout.addStretch(1)
 
         # --- ALBERO DEI SEGNALI ---
         self.signal_tree = QTreeWidget()

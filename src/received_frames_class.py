@@ -66,7 +66,7 @@ class ReceivedFramesWindow(QWidget):
         self.btn_start_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
-        self.btn_start_log.setFixedSize(120, 30)
+        self.btn_start_log.setFixedSize(100, 30)
 
         # Pulsante per mettere in pausa il log
         self.btn_pause_log = QPushButton("Pause LOG")
@@ -74,7 +74,7 @@ class ReceivedFramesWindow(QWidget):
         self.btn_pause_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause)
         )
-        self.btn_pause_log.setFixedSize(120, 30)
+        self.btn_pause_log.setFixedSize(100, 30)
 
         # Pulsante per fermare il log
         self.btn_stop_log = QPushButton("Stop LOG")
@@ -82,7 +82,7 @@ class ReceivedFramesWindow(QWidget):
         self.btn_stop_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
-        self.btn_stop_log.setFixedSize(120, 30)
+        self.btn_stop_log.setFixedSize(100, 30)
 
         # Pulsante per pulire tabella RX
         self.btn_clear_table = QPushButton("")
@@ -137,21 +137,12 @@ class ReceivedFramesWindow(QWidget):
         self.btn_pause_log.setEnabled(False)
         self.btn_stop_log.setEnabled(False)
 
-        log_btn_layout.addWidget(
-            self.btn_clear_table, alignment=Qt.AlignmentFlag.AlignLeft
-        )
-        log_btn_layout.addWidget(
-            self.btn_link_csv, alignment=Qt.AlignmentFlag.AlignRight
-        )
-        log_btn_layout.addWidget(
-            self.btn_start_log, alignment=Qt.AlignmentFlag.AlignRight
-        )
-        log_btn_layout.addWidget(
-            self.btn_pause_log, alignment=Qt.AlignmentFlag.AlignRight
-        )
-        log_btn_layout.addWidget(
-            self.btn_stop_log, alignment=Qt.AlignmentFlag.AlignRight
-        )
+        log_btn_layout.addWidget(self.btn_clear_table)
+        log_btn_layout.addStretch(0)
+        log_btn_layout.addWidget(self.btn_link_csv)
+        log_btn_layout.addWidget(self.btn_start_log)
+        log_btn_layout.addWidget(self.btn_pause_log)
+        log_btn_layout.addWidget(self.btn_stop_log)
         layout.addLayout(log_btn_layout)
 
         # Connect buttons
