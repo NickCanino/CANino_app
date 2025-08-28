@@ -123,11 +123,14 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"CANino App - v{__version__}")
         self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo.ico")))
         self.setGeometry(100, 100, 1100, 700)
+
+        # Class Attributes
         self.dbc = None
         self.can_if = None
         self.timers = []
         self.tx_running = False
-
+        self.global_script_path = None
+        self.global_script_cache = {}
         self.project_root = os.getcwd()
 
         # --- MENU ---
@@ -250,13 +253,15 @@ class MainWindow(QMainWindow):
         )
         top_layout.addWidget(self.btn_connect)
 
+        # Button to ADD IDs in TX
         self.btn_add_id = QPushButton("Add ID")
         self.btn_add_id.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
         )
-        self.btn_add_id.setFixedSize(120, 30)
+        self.btn_add_id.setFixedSize(100, 30)
         self.btn_add_id.clicked.connect(self.add_manual_id)
 
+        # Button to start TX
         self.btn_start_tx = QPushButton("Start TX")
         self.btn_start_tx.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
@@ -265,22 +270,29 @@ class MainWindow(QMainWindow):
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
         self.btn_start_tx.setEnabled(False)  # Disabilita il pulsante all'inizio
 
+        # Button to open the XMetro window
         self.btn_add_xmetro = QPushButton("Add XMetro TX")
         self.btn_add_xmetro.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
         )
-        self.btn_add_xmetro.setFixedSize(180, 30)
+        self.btn_add_xmetro.setFixedSize(140, 30)
         self.btn_add_xmetro.clicked.connect(self.open_xmetro_window)
-
         self.xmetro_windows = []
+
+        # Button to link a global Payload Script
+        self.btn_link_global_script = QPushButton("Link Global Script")
+        self.btn_link_global_script.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
+        self.btn_link_global_script.setFixedSize(150, 30)
+        self.btn_link_global_script.clicked.connect(self.select_global_payload_script)
 
         # Layout orizzontale per i due pulsanti
         tx_buttons_layout = QHBoxLayout()
         tx_buttons_layout.addWidget(self.btn_add_id)
         tx_buttons_layout.addWidget(self.btn_start_tx)
-        tx_buttons_layout.addWidget(
-            self.btn_add_xmetro, alignment=Qt.AlignmentFlag.AlignRight
-        )
+        tx_buttons_layout.addWidget(self.btn_add_xmetro)
+        tx_buttons_layout.addWidget(self.btn_link_global_script)
         tx_buttons_layout.addStretch(1)
 
         # --- ALBERO DEI SEGNALI ---
@@ -626,7 +638,12 @@ class MainWindow(QMainWindow):
         else:
             dbc_path = None
 
-        config = {"dbc_file": dbc_path, "signals": [], "sliders": []}
+        config = {
+            "dbc_file": dbc_path,
+            "signals": [],
+            "sliders": [],
+            "global_script": self.global_script_path if self.global_script_path else None,
+        }
 
         for widget in getattr(self, "slider_widgets", []):
             meta = SliderMeta(
@@ -689,7 +706,7 @@ class MainWindow(QMainWindow):
             with open(filename, "r", encoding="utf-8") as f:
                 config = json.load(f)
 
-            # Carica DBC se presente
+            # Loads DBC if existing
             dbc_file = config.get("dbc_file")
             if dbc_file is not None:
                 print(f"[DEBUG] Loading DBC from: {dbc_file}")
@@ -706,6 +723,21 @@ class MainWindow(QMainWindow):
                         "DBC",
                         f"Cannot find DBC file:\n{absolute_path}",
                     )
+            
+            # Restores global script
+            global_script = config.get("global_script")
+            if global_script:
+                self.global_script_path = global_script
+                self.global_script_cache.clear()
+                self.btn_link_global_script.setStyleSheet("background-color: #4CAF50; color: white;")
+                self.btn_link_global_script.setToolTip(f"Global Script: {global_script}")
+                self.btn_link_global_script.setText(os.path.basename(global_script))
+            else:
+                self.global_script_path = None
+                self.global_script_cache.clear()
+                self.btn_link_global_script.setStyleSheet("")
+                self.btn_link_global_script.setToolTip("No Global Script Linked")
+                self.btn_link_global_script.setText("Link Global Script")
 
             # Load signals only if present in the configuration
             if "signals" in config:
@@ -1275,6 +1307,27 @@ class MainWindow(QMainWindow):
                 )
                 item.setText(5, " ".join(["00"] * dlc))
 
+    def select_global_payload_script(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Global Python script", "", "Python Files (*.py)"
+        )
+        rel_file_path = (
+            os.path.relpath(file_path, start=self.project_root) if file_path else None
+        )
+
+        if rel_file_path:
+            self.global_script_path = rel_file_path
+            self.global_script_cache.clear()
+            self.btn_link_global_script.setStyleSheet("background-color: #4CAF50; color: white;")
+            self.btn_link_global_script.setToolTip(f"Global Script: {rel_file_path}")
+            self.btn_link_global_script.setText(os.path.basename(rel_file_path))
+            QMessageBox.information(
+                self,
+                "Global Script selected",
+                f"Global script set for all IDs:\n{rel_file_path}\n\n"
+                "This will be used for all TX payloads unless a specific script is set for an ID.",
+            )
+
     def modify_payload_script(self, item):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Python script", "", "Python Files (*.py)"
@@ -1282,6 +1335,7 @@ class MainWindow(QMainWindow):
         rel_file_path = (
             os.path.relpath(file_path, start=self.project_root) if file_path else None
         )
+
         if rel_file_path:
             item.setData(6, Qt.ItemDataRole.UserRole, rel_file_path)
             widget = self.signal_tree.itemWidget(item, 6)
@@ -1290,10 +1344,12 @@ class MainWindow(QMainWindow):
                 widget.setStyleSheet("background-color: #4CAF50; color: white;")
                 widget.setToolTip(f"Script: {rel_file_path}")
                 widget.setText(os.path.basename(rel_file_path))
+
             QMessageBox.information(
                 self,
                 "Script selected",
-                f"Script associated with ID {item.text(2)}:\n{rel_file_path}",
+                f"Script associated with ID {item.text(2)}:\n{rel_file_path}"
+                "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
 
     # Update the payload of a single signal in the CAN message
@@ -1427,10 +1483,6 @@ class MainWindow(QMainWindow):
                                 )
                                 + ref_period
                             )
-                            # if frame_id == 0x050:
-                            #     print(
-                            #             f"[DEBUG] ID 0x{frame_id:03X}: (err*P: {error_period*p_factor:02f} ms, err*I: {txp['integral']*i_factor:02f} ms) ref:{ref_period} -> new:{new_period} ms"
-                            #         )
 
                             # Aggiorna il periodo del timer se necessario
                             if new_period != ref_period + txp["offset"]:
@@ -1460,6 +1512,7 @@ class MainWindow(QMainWindow):
 
                     # Se il payload è stato specificato come script, lo esegue
                     try:
+                        # 1. Per-ID script has priority
                         if script_path and os.path.exists(script_path):
                             if script_path not in script_cache:
                                 script_globals = {}
@@ -1479,6 +1532,29 @@ class MainWindow(QMainWindow):
                                 raise ValueError(
                                     f"get_payload(dlc) must return exactly {dlc} bytes"
                                 )
+                        
+                        # 2. Otherwise, use global script if set
+                        elif self.global_script_path and os.path.exists(self.global_script_path):
+                            if self.global_script_path not in self.global_script_cache:
+                                script_globals = {}
+                                with open(self.global_script_path, "r", encoding="utf-8") as f:
+                                    exec(f.read(), script_globals)
+                                get_payload_fn = script_globals.get("get_payload")
+                                if not callable(get_payload_fn):
+                                    raise RuntimeError(
+                                        "Global script file does not contain a function get_payload()"
+                                    )
+                                self.global_script_cache[self.global_script_path] = get_payload_fn
+                            else:
+                                get_payload_fn = self.global_script_cache[self.global_script_path]
+
+                            payload = get_payload_fn(dlc, frame_id)
+                            if not isinstance(payload, bytes) or len(payload) != dlc:
+                                raise ValueError(
+                                    f"get_payload(dlc) must return exactly {dlc} bytes"
+                                )
+                        
+                        # 3. Otherwise, use manual payload
                         else:
                             payload_text = item.text(5).strip()
 
@@ -1490,13 +1566,9 @@ class MainWindow(QMainWindow):
 
                             # Se lo script restituisce un payload, usa solo i primi DLC byte
                             if isinstance(payload, bytes):
-                                payload = payload[:dlc] + bytes(
-                                    [0x00] * max(0, dlc - len(payload))
-                                )
+                                payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
 
-                        # oppure se arriva da uno script, taglia i byte in eccesso
-                        # payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
-
+                        # Apply slider overrides
                         payload_list = list(payload)
                         if frame_id in slider_overrides:
                             for sig, slider in slider_overrides[frame_id]:
@@ -1511,6 +1583,8 @@ class MainWindow(QMainWindow):
                                 if isinstance(result, int):
                                     result = bytes([result])
                                 payload_list = list(result)
+
+                        # Apply padding
                         final_payload = bytes(payload_list)
                         if len(final_payload) != dlc:
                             final_payload = final_payload[:dlc] + bytes(
