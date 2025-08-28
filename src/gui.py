@@ -1348,7 +1348,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Script selected",
-                f"Script associated with ID {item.text(2)}:\n{rel_file_path}"
+                f"Script associated with ID {item.text(2)}:\n{rel_file_path}\n\n"
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
 
