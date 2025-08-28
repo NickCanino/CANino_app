@@ -47,6 +47,7 @@ INO_IMG_PATH = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "../resources/figures/arduino_uno.png")
 )
 
+
 def get_params_hash(params: dict) -> str:
     s = "_".join(f"{k}={v}" for k, v in sorted(params.items()))
     return hashlib.md5(s.encode()).hexdigest()
@@ -81,6 +82,7 @@ def prepare_project(params: dict) -> Path:
     sketch_file.write_text(code)
     return target_dir
 
+
 def list_arduino_ports():
     try:
         result = subprocess.run(
@@ -97,6 +99,7 @@ def list_arduino_ports():
     except Exception as e:
         log_exception(e)
         return []
+
 
 class FlashWorker(QObject):
     progress = pyqtSignal(int)
@@ -124,7 +127,7 @@ class FlashWorker(QObject):
                     False, f"Compilazione fallita:\n{res_compile.stderr}"
                 )
                 return
-            
+
             self.progress.emit(70)
             res_upload = subprocess.run(
                 [ARDUINO_CLI, "upload", "-p", self.port, "--fqbn", fqbn, str(proj)],
@@ -134,13 +137,14 @@ class FlashWorker(QObject):
             if res_upload.returncode != 0:
                 self.finished.emit(False, f"Upload fallito:\n{res_upload.stderr}")
                 return
-            
+
             self.progress.emit(100)
             self.finished.emit(True, f"Flash su {self.port} completato!")
 
         except Exception as e:
             log_exception(e)
             self.finished.emit(False, str(e))
+
 
 class VagilettaWindow(QDialog):
     def __init__(self, parent=None):
