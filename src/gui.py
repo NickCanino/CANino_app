@@ -1474,7 +1474,7 @@ class MainWindow(QMainWindow):
                             else:
                                 get_payload_fn = script_cache[script_path]
 
-                            payload = get_payload_fn(dlc)
+                            payload = get_payload_fn(dlc, frame_id)
                             if not isinstance(payload, bytes) or len(payload) != dlc:
                                 raise ValueError(
                                     f"get_payload(dlc) must return exactly {dlc} bytes"

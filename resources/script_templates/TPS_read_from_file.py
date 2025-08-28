@@ -27,29 +27,33 @@ import os
 # Optional state variables
 counter = 0
 payloads = []
+loaded_id = None # Tracks which ID has been loaded
 
 # Load payloads from CSV file (provide the path here)
-CSV_PATH = "../CANino_app/resources/tmp/payload_sequence_ID_140.csv"  # <-- Set your CSV file path
+CSV_DIR = "../CANino_app/resources/tmp/"  # <-- Set your CSV file path
 
 
-def _load_payloads():
-    global payloads
+def _load_payloads(arbid: int):
+    """Load payloads for a given arbitration ID (hex)."""
+    global payloads, loaded_id
     payloads.clear()
-    abs_path = os.path.abspath(CSV_PATH)
-    print(f"[DEBUG] Trying to load CSV from: {abs_path}")
+    loaded_id = arbid
+
+    filename = f"payload_sequence_ID_{arbid:03X}.csv"
+    abs_path = os.path.abspath(os.path.join(CSV_DIR, filename))
+    print(f"[DEBUG] Trying to load CSV for ID {arbid:03X} from: {abs_path}")
+
     if not os.path.exists(abs_path):
         print(f"[ERROR] File does not exist: {abs_path}")
         return
 
     with open(abs_path, newline="") as csvfile:
         reader = csv.reader(csvfile)
-        next(reader)  # Skip header
+        next(reader, None)  # Skip header if present
         for line_num, row in enumerate(reader, start=2):
-            # Skip empty or invalid rows
             if not row or all(cell.strip() == "" for cell in row):
                 continue
             try:
-                # Try to convert all columns except the first (Index) to int
                 payload = [int(val) for val in row if val.strip() != ""]
                 if payload:
                     payloads.append(payload)
@@ -57,27 +61,24 @@ def _load_payloads():
                 print(f"[ERROR] Line {line_num}: {e} | Row: {row}")
                 continue
 
-    print(f"[DEBUG] Loaded {len(payloads)} payloads from {abs_path}")
+    print(f"[DEBUG] Loaded {len(payloads)} payloads for ID {arbid:03X}")
+    
 
+def get_payload(dlc: int = 8, id: int = None) -> bytes:
+    """Return the next payload for the given arbitration ID."""
+    global counter, payloads, loaded_id
+    if id is None:
+        raise ValueError("Must provide arbitration ID (id parameter)")
 
-# Load once at import
-_load_payloads()
-
-
-def get_payload(dlc: int = 8) -> bytes:
-    global counter
-    counter += 1
-
-    if not payloads:
-        _load_payloads()  # Reload payloads if empty for some reason
+    # Reload if ID changed or not loaded yet
+    if loaded_id != id or not payloads:
+        _load_payloads(id)
         if not payloads:
-            raise ValueError("Payload list is still empty after attempting to load.")
+            raise ValueError(f"No payloads found for ID {id:03X}")
 
-    # Loop through payloads, restart if at end
+    counter += 1
     idx = (counter - 1) % len(payloads)
     payload = payloads[idx][:dlc]
-    # payload = payloads[idx][:dlc] + [0xFF] * (dlc - len(payloads[idx]))
 
-    # print(f"[DEBUG] TX payload : {[f'{b:02X}' for b in payload[:dlc]]}")
-    print(f"[DEBUG] TX payload : {payload}")
-    return bytes(payload[:dlc])  # Return the payload for the current counter value
+    print(f"[DEBUG] TX payload for ID {id:03X}: {payload}")
+    return bytes(payload[:dlc])

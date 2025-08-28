@@ -25,7 +25,7 @@
 counter = 0
 
 
-def get_payload(dlc: int = 8) -> bytes:
+def get_payload(dlc: int = 8, id: int = None) -> bytes:
     global counter
     counter += 1  # useful to vary the bytes over time, if you want
 
