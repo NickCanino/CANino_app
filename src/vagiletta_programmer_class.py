@@ -38,14 +38,11 @@ import hashlib
 import os
 from pathlib import Path
 from src.exceptions_logger import log_exception
+from src.utils import resource_path
 
-ARDUINO_CLI = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../tools/arduino-cli.exe")
-)
+ARDUINO_CLI = resource_path("tools/arduino-cli.exe")
 BUILD_DIR = Path("./arduino_build")
-INO_IMG_PATH = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), "../resources/figures/arduino_uno.png")
-)
+INO_IMG_PATH = resource_path("resources/figures/arduino_uno.png")
 
 
 def get_params_hash(params: dict) -> str:

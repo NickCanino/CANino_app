@@ -24,12 +24,13 @@ from PyQt6.QtCore import Qt, QPointF
 import math
 from cantools.database.can.signal import NamedSignalValue
 from src.exceptions_logger import log_exception
-
+from src.utils import resource_path
 
 class XMetroWindow(QWidget):
     def __init__(self, dbc_loader, tx_items):
         super().__init__()
         self.setWindowTitle("XMetro Gauge")
+        self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo.ico")))
         self.setFixedSize(500, 300)
 
         layout = QVBoxLayout()

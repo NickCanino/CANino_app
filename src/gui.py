@@ -56,6 +56,7 @@ from src.exceptions_logger import log_exception, __version__
 from src.xmetro_class import XMetroWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
+from src.utils import resource_path
 from src.PCANBasic import (
     PCAN_BAUD_1M,
     PCAN_BAUD_800K,
@@ -72,13 +73,6 @@ from src.PCANBasic import (
     PCAN_BAUD_10K,
     PCAN_BAUD_5K,
 )
-
-
-# Funzione per ottenere il percorso assoluto delle risorse, compatibile con PyInstaller
-def resource_path(relative_path):
-    if hasattr(sys, "_MEIPASS"):
-        return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.getcwd(), relative_path)
 
 
 class PayloadEditDelegate(QStyledItemDelegate):
