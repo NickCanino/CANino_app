@@ -32,8 +32,10 @@ PAD_WITH_ZEROES = True
 _payload_cache = OrderedDict()  # type: ignore
 _counters = {}
 
+
 def _id_filename(arbid: int) -> str:
     return f"payload_sequence_ID_{arbid:03X}.csv"
+
 
 def _is_int_like(s: str) -> bool:
     try:
@@ -42,6 +44,7 @@ def _is_int_like(s: str) -> bool:
     except Exception:
         return False
 
+
 def _row_to_bytes(row: list[str]) -> bytes:
     vals = []
     for cell in row[1:]:
@@ -49,13 +52,18 @@ def _row_to_bytes(row: list[str]) -> bytes:
         if not cell:
             continue
         try:
-            v = int(cell, 16) if all(ch in "0123456789abcdefABCDEF" for ch in cell) and len(cell) <= 2 else int(cell, 0)
+            v = (
+                int(cell, 16)
+                if all(ch in "0123456789abcdefABCDEF" for ch in cell) and len(cell) <= 2
+                else int(cell, 0)
+            )
         except Exception:
             continue
         if not (0 <= v <= 255):
             raise ValueError(f"byte fuori range 0..255: {v}")
         vals.append(v)
     return bytes(vals)
+
 
 def _load_payloads_for_id(arbid: int) -> list[bytes]:
     filename = _id_filename(arbid)
@@ -91,6 +99,7 @@ def _load_payloads_for_id(arbid: int) -> list[bytes]:
     print(f"[DEBUG] Loaded {len(payloads)} payloads for ID {arbid:03X}")
     return payloads
 
+
 def _ensure_in_cache(arbid: int) -> None:
     if arbid in _payload_cache:
         _payload_cache.move_to_end(arbid)
@@ -104,6 +113,7 @@ def _ensure_in_cache(arbid: int) -> None:
         raise ValueError(f"No payloads found for ID {arbid:03X}")
     _payload_cache[arbid] = payloads
     _counters.setdefault(arbid, 0)
+
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
     """Return the next payload for the given arbitration ID, using cache and CSV."""
@@ -119,6 +129,7 @@ def get_payload(dlc: int = 8, id: int = None) -> bytes:
         frame += bytes(dlc - len(frame))
     print(f"[DEBUG] TX payload for ID {id:03X}: {list(frame)}")
     return frame
+
 
 def set_csv_dir(path: str) -> None:
     """Change the CSV directory and clear the cache."""

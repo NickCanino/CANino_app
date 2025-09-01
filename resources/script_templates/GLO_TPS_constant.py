@@ -23,6 +23,7 @@
 
 _counters = {}
 
+
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
     """Returns a constant payload for each ID independently."""
 

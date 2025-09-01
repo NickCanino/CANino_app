@@ -23,6 +23,7 @@
 
 _counters = {}
 
+
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
     """Returns a sawtooth payload for each ID independently."""
     payload = [0x00] * dlc

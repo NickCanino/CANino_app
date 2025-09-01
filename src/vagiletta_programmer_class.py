@@ -35,10 +35,10 @@ from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 import subprocess
 import hashlib
-import os
 from pathlib import Path
 from src.exceptions_logger import log_exception
 from src.utils import resource_path
+
 
 ARDUINO_CLI = resource_path("tools/arduino-cli.exe")
 BUILD_DIR = Path("./arduino_build")

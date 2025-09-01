@@ -634,7 +634,9 @@ class MainWindow(QMainWindow):
             "dbc_file": dbc_path,
             "signals": [],
             "sliders": [],
-            "global_script": self.global_script_path if self.global_script_path else None,
+            "global_script": (
+                self.global_script_path if self.global_script_path else None
+            ),
         }
 
         for widget in getattr(self, "slider_widgets", []):
@@ -715,14 +717,18 @@ class MainWindow(QMainWindow):
                         "DBC",
                         f"Cannot find DBC file:\n{absolute_path}",
                     )
-            
+
             # Restores global script
             global_script = config.get("global_script")
             if global_script:
                 self.global_script_path = global_script
                 self.global_script_cache.clear()
-                self.btn_link_global_script.setStyleSheet("background-color: #4CAF50; color: white;")
-                self.btn_link_global_script.setToolTip(f"Global Script: {global_script}")
+                self.btn_link_global_script.setStyleSheet(
+                    "background-color: #4CAF50; color: white;"
+                )
+                self.btn_link_global_script.setToolTip(
+                    f"Global Script: {global_script}"
+                )
                 self.btn_link_global_script.setText(os.path.basename(global_script))
             else:
                 self.global_script_path = None
@@ -1310,7 +1316,9 @@ class MainWindow(QMainWindow):
         if rel_file_path:
             self.global_script_path = rel_file_path
             self.global_script_cache.clear()
-            self.btn_link_global_script.setStyleSheet("background-color: #4CAF50; color: white;")
+            self.btn_link_global_script.setStyleSheet(
+                "background-color: #4CAF50; color: white;"
+            )
             self.btn_link_global_script.setToolTip(f"Global Script: {rel_file_path}")
             self.btn_link_global_script.setText(os.path.basename(rel_file_path))
             QMessageBox.information(
@@ -1524,28 +1532,36 @@ class MainWindow(QMainWindow):
                                 raise ValueError(
                                     f"get_payload(dlc) must return exactly {dlc} bytes"
                                 )
-                        
+
                         # 2. Otherwise, use global script if set
-                        elif self.global_script_path and os.path.exists(self.global_script_path):
+                        elif self.global_script_path and os.path.exists(
+                            self.global_script_path
+                        ):
                             if self.global_script_path not in self.global_script_cache:
                                 script_globals = {}
-                                with open(self.global_script_path, "r", encoding="utf-8") as f:
+                                with open(
+                                    self.global_script_path, "r", encoding="utf-8"
+                                ) as f:
                                     exec(f.read(), script_globals)
                                 get_payload_fn = script_globals.get("get_payload")
                                 if not callable(get_payload_fn):
                                     raise RuntimeError(
                                         "Global script file does not contain a function get_payload()"
                                     )
-                                self.global_script_cache[self.global_script_path] = get_payload_fn
+                                self.global_script_cache[self.global_script_path] = (
+                                    get_payload_fn
+                                )
                             else:
-                                get_payload_fn = self.global_script_cache[self.global_script_path]
+                                get_payload_fn = self.global_script_cache[
+                                    self.global_script_path
+                                ]
 
                             payload = get_payload_fn(dlc, frame_id)
                             if not isinstance(payload, bytes) or len(payload) != dlc:
                                 raise ValueError(
                                     f"get_payload(dlc) must return exactly {dlc} bytes"
                                 )
-                        
+
                         # 3. Otherwise, use manual payload
                         else:
                             payload_text = item.text(5).strip()
@@ -1558,7 +1574,9 @@ class MainWindow(QMainWindow):
 
                             # Se lo script restituisce un payload, usa solo i primi DLC byte
                             if isinstance(payload, bytes):
-                                payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
+                                payload = payload[:dlc] + bytes(
+                                    [0x00] * max(0, dlc - len(payload))
+                                )
 
                         # Apply slider overrides
                         payload_list = list(payload)
