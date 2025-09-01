@@ -20,8 +20,8 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[
-        ('tools/PCANBasic.dll', '.'),
-        ('tools/arduino-cli.exe', '.'),
+        ('tools/PCANBasic.dll', '.tools'),
+        ('tools/arduino-cli.exe', 'tools'),
     ],
     datas=[
         ('src/gui.py', '.'),
