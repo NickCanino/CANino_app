@@ -85,17 +85,20 @@ def list_arduino_ports():
         result = subprocess.run(
             [ARDUINO_CLI, "board", "list"], capture_output=True, text=True
         )
-        ports = []
+        ports = ["-"]  # di default solo "-"
+
         lines = result.stdout.splitlines()
-        valid_ports = [
-            line.split()[0] for line in lines if line and not line.startswith("Port")
-        ]
-        ports.append("-")
-        ports.extend(valid_ports)
+
+        if lines and not lines[0].startswith("No boards found."):
+            valid_ports = [
+                line.split()[0] for line in lines if line and not line.startswith("Port")
+            ]
+            ports.extend(valid_ports)
+
         return ports
     except Exception as e:
         log_exception(e)
-        return []
+        return ["-"]
 
 
 class FlashWorker(QObject):
