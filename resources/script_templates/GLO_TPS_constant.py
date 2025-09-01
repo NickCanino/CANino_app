@@ -18,23 +18,14 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# This script is dynamically loaded by the main program.
-# It must define the function: get_payload() -> bytes
+# This script is for use as a global payload generator in CANinoApp.
+# It must define: get_payload(dlc: int = 8, id: int = None) -> bytes
 
-# Optional state variables (e.g., to keep track of time or a counter)
-counter = 0
-
+_counters = {}
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
-    global counter
-    counter = (counter + 1) % 256  # sawtooth on 1 byte (0–255)
+    """Returns a constant payload for each ID independently."""
 
-    # Payload base: all bytes set to 0x00
-    payload = [0x00] * 8
+    payload = [0x00] * dlc
 
-    # Modifiable section for each byte of the payload
-    # payload[0] = ...
-    # ...
-    payload[dlc - 1] = counter  # sawtooth on byte 7
-
-    return bytes(payload[:dlc])  # Return only the bytes requested by the DLC
+    return bytes(payload)
