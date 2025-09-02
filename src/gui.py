@@ -42,7 +42,7 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QStyledItemDelegate,
 )
-from PyQt6.QtGui import QAction, QIcon, QPixmap
+from PyQt6.QtGui import QAction, QIcon, QPixmap, QFont
 from PyQt6.QtCore import Qt, QTimer
 import json
 import os
@@ -81,6 +81,13 @@ class PayloadEditDelegate(QStyledItemDelegate):
         if index.column() == 5:
             return super().createEditor(parent, option, index)
         return None
+    
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if index.column() == 5:  # Payload column
+            font = QFont("Courier New", 10)
+            font.setStyleHint(QFont.StyleHint.TypeWriter)
+            option.font = font
 
 
 class SliderMeta:
@@ -297,7 +304,7 @@ class MainWindow(QMainWindow):
         self.signal_tree.setColumnWidth(2, 50)
         self.signal_tree.setColumnWidth(3, 100)
         self.signal_tree.setColumnWidth(4, 80)
-        self.signal_tree.setColumnWidth(5, 140)
+        self.signal_tree.setColumnWidth(5, 190)
         self.signal_tree.setColumnWidth(6, 70)
         self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
 
