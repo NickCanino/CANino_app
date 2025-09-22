@@ -27,7 +27,7 @@ from cantools.database.can.signal import NamedSignalValue
 from src.exceptions_logger import log_exception
 from src.utils import resource_path
 
-
+# TODO: Show only one window for all XMetro gauges
 class XMetroWindow(QWidget):
     def __init__(self, dbc_loader, tx_items):
         super().__init__()

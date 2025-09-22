@@ -1555,7 +1555,7 @@ class MainWindow(QMainWindow):
                     now_time = time.time() * 1000  # ms
                     txp = self.tx_periods[frame_id]
 
-                    # TODO: riabilitare controllo adattivo del periodo correggendo il conflitto con metodo timer_busload_elapsed()
+                    # FIXME: riabilitare controllo adattivo del periodo correggendo il conflitto con metodo timer_busload_elapsed()
                     # Monitor period
                     # if txp["last_time"] is not None:
                     #    real_period = now_time - txp["last_time"]
