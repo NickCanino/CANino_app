@@ -27,7 +27,9 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QFileDialog,
     QStyle,
+    QStyledItemDelegate,
 )
+from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, QTimer, QDateTime
 import time
 import csv
@@ -36,6 +38,13 @@ from datetime import datetime
 
 from src.exceptions_logger import log_exception
 
+class PayloadEditDelegate(QStyledItemDelegate):
+    def initStyleOption(self, option, index):
+        super().initStyleOption(option, index)
+        if index.column() == 0 or index.column() == 1 or index.column() == 2 or index.column() == 3:
+            font = QFont("Arial", 10)
+            font.setStyleHint(QFont.StyleHint.Monospace)
+            option.font = font
 
 class ReceivedFramesWindow(QWidget):
     def __init__(self, dbc=None):
@@ -175,6 +184,8 @@ class ReceivedFramesWindow(QWidget):
         self.table.setColumnWidth(5, 70)  # Conteggio
         self.table.setColumnWidth(6, 100)  # Periodo EMA (ms)
         self.table.setColumnWidth(7, 100)  # Dev. Std (ms)
+
+        self.table.setItemDelegate(PayloadEditDelegate(self.table))
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 

@@ -84,9 +84,9 @@ class PayloadEditDelegate(QStyledItemDelegate):
     
     def initStyleOption(self, option, index):
         super().initStyleOption(option, index)
-        if index.column() == 5:  # Payload column
+        if index.column() == 2 or index.column() == 3 or index.column() == 5:  # Payload column
             font = QFont("Courier New", 10)
-            font.setStyleHint(QFont.StyleHint.TypeWriter)
+            font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
 
 
@@ -298,6 +298,7 @@ class MainWindow(QMainWindow):
         self.signal_tree = QTreeWidget()
         self.signal_tree.setHeaderLabels(
             ["", "Enable", "ID", "Name", "Period (ms)", "Payload (0 - 7)", ""]
+            # ["", "Enable", "ID", "Name", "Period (ms)", "B0 B1 B2 B3 B4 B5 B6 B7 B8", ""]
         )
         self.signal_tree.setColumnWidth(0, 50)
         self.signal_tree.setColumnWidth(1, 50)

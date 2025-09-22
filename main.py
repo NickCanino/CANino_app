@@ -19,11 +19,18 @@
 # -----------------------------------------------------------------------------
 
 from PyQt6.QtWidgets import QApplication
+from PyQt6.QtGui import QFont
 from src.gui import MainWindow
 import sys
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # font = QFont("Arial", 10)
+    # font.setStyleHint(QFont.StyleHint.TypeWriter)
+    # app.setFont(font)
+
     window = MainWindow()
     window.show()
+
     sys.exit(app.exec())
