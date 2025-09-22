@@ -22,6 +22,7 @@ from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QComboBox, QHBoxLayout
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QIcon
 from PyQt6.QtCore import Qt, QPointF
 import math
+import sys
 from cantools.database.can.signal import NamedSignalValue
 from src.exceptions_logger import log_exception
 from src.utils import resource_path

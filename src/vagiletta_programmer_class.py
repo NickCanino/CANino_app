@@ -35,6 +35,7 @@ from PyQt6.QtGui import QPixmap, QImage
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
 import subprocess
 import hashlib
+import sys
 from pathlib import Path
 from src.exceptions_logger import log_exception
 from src.utils import resource_path
@@ -91,7 +92,9 @@ def list_arduino_ports():
 
         if lines and not lines[0].startswith("No boards found."):
             valid_ports = [
-                line.split()[0] for line in lines if line and not line.startswith("Port")
+                line.split()[0]
+                for line in lines
+                if line and not line.startswith("Port")
             ]
             ports.extend(valid_ports)
 

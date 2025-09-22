@@ -39,31 +39,35 @@ from datetime import datetime
 
 from src.exceptions_logger import log_exception
 
-RX_refresh_rate_ms  = 500
+RX_refresh_rate_ms = 500
 
 # Rx column definition (see also setHorizontalHeaderLabels)
-RX_COL_0_id            = 0       
-RX_COL_1_name          = 1      
-RX_COL_2_dlc           = 2       
-RX_COL_3_payload       = 3                   
-RX_COL_4_count         = 4         
-RX_COL_5_period        = 5     
-RX_COL_6_min           = 6     
-RX_COL_7_max           = 7     
-RX_COL_8_dev_std       = 8              
-RX_COL_9_last_received = 9         
-
-
+RX_COL_0_id = 0
+RX_COL_1_name = 1
+RX_COL_2_dlc = 2
+RX_COL_3_payload = 3
+RX_COL_4_count = 4
+RX_COL_5_period = 5
+RX_COL_6_min = 6
+RX_COL_7_max = 7
+RX_COL_8_dev_std = 8
+RX_COL_9_last_received = 9
 
 
 class PayloadEditDelegate(QStyledItemDelegate):
     def initStyleOption(self, option, index):
         # Monospace style for some columns
         super().initStyleOption(option, index)
-        if index.column() == RX_COL_0_id or index.column() == RX_COL_1_name or index.column() == RX_COL_2_dlc or index.column() == RX_COL_3_payload:
+        if (
+            index.column() == RX_COL_0_id
+            or index.column() == RX_COL_1_name
+            or index.column() == RX_COL_2_dlc
+            or index.column() == RX_COL_3_payload
+        ):
             font = QFont("Arial", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
+
 
 class ReceivedFramesWindow(QWidget):
     def __init__(self, dbc=None):
@@ -74,9 +78,9 @@ class ReceivedFramesWindow(QWidget):
         self.csv_writer = None
         self.log_active = False
         self.log_paused = False
-        
-        self.busload_rx_arbitration_bits = 0 # busload Rx statistics
-        self.busload_rx_data_bits        = 0 # busload Rx statistics
+
+        self.busload_rx_arbitration_bits = 0  # busload Rx statistics
+        self.busload_rx_data_bits = 0  # busload Rx statistics
 
         layout = QVBoxLayout()
 
@@ -200,15 +204,15 @@ class ReceivedFramesWindow(QWidget):
             ]
         )
         # Imposta larghezza colonne
-        self.table.setColumnWidth(RX_COL_0_id           , 50)  
-        self.table.setColumnWidth(RX_COL_1_name         , 100) 
-        self.table.setColumnWidth(RX_COL_2_dlc          , 50)  
-        self.table.setColumnWidth(RX_COL_3_payload      , 800) # old: 140
-        self.table.setColumnWidth(RX_COL_4_count        , 70)
-        self.table.setColumnWidth(RX_COL_5_period       , 80) # old: 100 
-        self.table.setColumnWidth(RX_COL_6_min          , 80) 
-        self.table.setColumnWidth(RX_COL_7_max          , 80) 
-        self.table.setColumnWidth(RX_COL_8_dev_std      , 100) 
+        self.table.setColumnWidth(RX_COL_0_id, 50)
+        self.table.setColumnWidth(RX_COL_1_name, 100)
+        self.table.setColumnWidth(RX_COL_2_dlc, 50)
+        self.table.setColumnWidth(RX_COL_3_payload, 800)  # old: 140
+        self.table.setColumnWidth(RX_COL_4_count, 70)
+        self.table.setColumnWidth(RX_COL_5_period, 80)  # old: 100
+        self.table.setColumnWidth(RX_COL_6_min, 80)
+        self.table.setColumnWidth(RX_COL_7_max, 80)
+        self.table.setColumnWidth(RX_COL_8_dev_std, 100)
         self.table.setColumnWidth(RX_COL_9_last_received, 140)
 
         self.table.setItemDelegate(PayloadEditDelegate(self.table))
@@ -235,25 +239,28 @@ class ReceivedFramesWindow(QWidget):
 
     def clear_busload_stats(self):
         self.busload_rx_arbitration_bits = 0
-        self.busload_rx_data_bits        = 0
+        self.busload_rx_data_bits = 0
 
     def get_busload_rx_arbitration_bits(self):
         return self.busload_rx_arbitration_bits
-    
+
     def get_busload_rx_data_bits(self):
         return self.busload_rx_data_bits
-    
 
     def clear_rx_table(self):
         self.table.setRowCount(0)
         self._rx_buffer.clear()
 
-    def update_frame(self, frame_id: int, data: bytes, dlc: int = None, is_fd: bool = False):
+    def update_frame(
+        self, frame_id: int, data: bytes, dlc: int = None, is_fd: bool = False
+    ):
         # Aggiorna solo il buffer, non la tabella direttamente
-        
-        self.busload_rx_arbitration_bits += 79 # 11 can id (suppose base frame format) + 68 arbitration other bits
-        self.busload_rx_data_bits        += dlc
-        
+
+        self.busload_rx_arbitration_bits += (
+            79  # 11 can id (suppose base frame format) + 68 arbitration other bits
+        )
+        self.busload_rx_data_bits += dlc
+
         now = time.time()
         if frame_id not in self._rx_buffer:  # Nuovo frame
             self._rx_buffer[frame_id] = {
@@ -274,8 +281,8 @@ class ReceivedFramesWindow(QWidget):
                 data=f["data"],
                 dlc=f["dlc"],
                 count=f["count"],
-                #min=f["min"],
-                #max=f["max"],
+                # min=f["min"],
+                # max=f["max"],
                 avg_period=f["avg_period"],
                 periods=f["periods"],
             )
@@ -286,15 +293,15 @@ class ReceivedFramesWindow(QWidget):
             f["dlc"] = len(data)
             f["data"] = data
             f["periods"].append(period)
-            
+
             if f["min"] is None:  # primo aggiornamento
                 f["min"] = period
-            else: 
+            else:
                 f["min"] = period if period < f["min"] else f["min"]
-            
+
             if f["max"] is None:  # primo aggiornamento
                 f["max"] = period
-            else: 
+            else:
                 f["max"] = period if period > f["max"] else f["max"]
 
             if f["avg_period"] is None:  # primo aggiornamento
@@ -334,17 +341,41 @@ class ReceivedFramesWindow(QWidget):
 
             self.table.setItem(row, RX_COL_1_name, QTableWidgetItem(msg_name))
             self.table.setItem(row, RX_COL_2_dlc, QTableWidgetItem(str(f["dlc"])))
-            self.table.setItem(row, RX_COL_3_payload, QTableWidgetItem(" ".join(f"{b:02X}" for b in f["data"])))
+            self.table.setItem(
+                row,
+                RX_COL_3_payload,
+                QTableWidgetItem(" ".join(f"{b:02X}" for b in f["data"])),
+            )
             self.table.setItem(row, RX_COL_4_count, QTableWidgetItem(str(f["count"])))
-            self.table.setItem(row, RX_COL_5_period, QTableWidgetItem(f"{f['avg_period']:.1f}" if f["avg_period"] else "-"))
-            self.table.setItem(row, RX_COL_6_min, QTableWidgetItem(f"{f['min']:.1f}" if f["min"] else "-"))
-            self.table.setItem(row, RX_COL_7_max, QTableWidgetItem(f"{f['max']:.1f}" if f["max"] else "-"))
-            
+            self.table.setItem(
+                row,
+                RX_COL_5_period,
+                QTableWidgetItem(f"{f['avg_period']:.1f}" if f["avg_period"] else "-"),
+            )
+            self.table.setItem(
+                row,
+                RX_COL_6_min,
+                QTableWidgetItem(f"{f['min']:.1f}" if f["min"] else "-"),
+            )
+            self.table.setItem(
+                row,
+                RX_COL_7_max,
+                QTableWidgetItem(f"{f['max']:.1f}" if f["max"] else "-"),
+            )
+
             std_dev = statistics.pstdev(f["periods"]) if len(f["periods"]) > 1 else 0.0
-            self.table.setItem(row, RX_COL_8_dev_std, QTableWidgetItem(f"{std_dev:.1f}" if std_dev else "-"))
+            self.table.setItem(
+                row,
+                RX_COL_8_dev_std,
+                QTableWidgetItem(f"{std_dev:.1f}" if std_dev else "-"),
+            )
 
             last_recv = QDateTime.fromSecsSinceEpoch(int(f["last_time"]))
-            self.table.setItem(row, RX_COL_9_last_received, QTableWidgetItem(last_recv.toString(Qt.DateFormat.ISODate)))
+            self.table.setItem(
+                row,
+                RX_COL_9_last_received,
+                QTableWidgetItem(last_recv.toString(Qt.DateFormat.ISODate)),
+            )
 
     def set_dbc(self, dbc):
         self.dbc = dbc

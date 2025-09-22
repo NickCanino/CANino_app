@@ -27,9 +27,9 @@ from src.exceptions_logger import log_exception
 
 
 class CANInterface:
-    def __init__(self, channel: str, timing:"500000", is_fd = False) :
+    def __init__(self, channel: str, timing: "500000", is_fd=False):
         self.channel = channel
-        self.timing = timing # must be valid both if CAN or CANFD
+        self.timing = timing  # must be valid both if CAN or CANFD
         self.is_fd = is_fd
         self.bus = None
         self.receive_thread = None
@@ -41,14 +41,14 @@ class CANInterface:
     def open_bus(self):
         try:
             self.bus = can.Bus(
-                channel=self.channel, 
+                channel=self.channel,
                 interface="pcan",
                 timing=self.timing,
                 fd=self.is_fd,
                 auto_reset=True,
-                receive_own_messages=False
+                receive_own_messages=False,
             )
-            
+
             self.running = True
             self.receive_thread = threading.Thread(
                 target=self._receive_loop, daemon=True
@@ -60,7 +60,13 @@ class CANInterface:
     def send_frame(self, frame_id, data, dlc=None, is_fd=False):
         try:
             msg = can.Message(
-                arbitration_id=frame_id, data=data, is_extended_id=False, dlc=dlc, is_fd=is_fd, bitrate_switch=is_fd, check=True
+                arbitration_id=frame_id,
+                data=data,
+                is_extended_id=False,
+                dlc=dlc,
+                is_fd=is_fd,
+                bitrate_switch=is_fd,
+                check=True,
             )
             self.bus.send(msg)
         except Exception as e:
@@ -72,7 +78,9 @@ class CANInterface:
                 if self.bus is not None:
                     msg = self.bus.recv(1.0)
                     if msg and self.receive_callback:
-                        self.receive_callback(msg.arbitration_id, msg.data, msg.dlc, msg.is_fd)
+                        self.receive_callback(
+                            msg.arbitration_id, msg.data, msg.dlc, msg.is_fd
+                        )
             except Exception as e:
                 log_exception(__file__, sys._getframe().f_lineno, e)
 

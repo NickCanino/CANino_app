@@ -76,31 +76,40 @@ from src.PCANBasic import (
 )
 
 
-PCAN_BAUD_FD_2M = can.BitTimingFd(f_clock=80000000,nom_brp=10,nom_tseg1=12,nom_tseg2=3,nom_sjw=1,data_brp=4,data_tseg1=7,data_tseg2=2,data_sjw=1)
-                   
+PCAN_BAUD_FD_2M = can.BitTimingFd(
+    f_clock=80000000,
+    nom_brp=10,
+    nom_tseg1=12,
+    nom_tseg2=3,
+    nom_sjw=1,
+    data_brp=4,
+    data_tseg1=7,
+    data_tseg2=2,
+    data_sjw=1,
+)
+
 BUSLOAD_refresh_rate_ms = 1000
 
 # Tx column definition
-TX_COL_0_del    = 0    
-TX_COL_1_enable = 1    
-TX_COL_2_id     = 2    
-TX_COL_3_fd     = 3    
-TX_COL_4_name   = 4    
-TX_COL_5_period = 5    
-TX_COL_6_payload= 6    
-TX_COL_7_script = 7    
+TX_COL_0_del = 0
+TX_COL_1_enable = 1
+TX_COL_2_id = 2
+TX_COL_3_fd = 3
+TX_COL_4_name = 4
+TX_COL_5_period = 5
+TX_COL_6_payload = 6
+TX_COL_7_script = 7
 
-TX_COL_DATA             = TX_COL_2_id
+TX_COL_DATA = TX_COL_2_id
 TX_COL_DATA_ROLE_script = Qt.ItemDataRole.UserRole
-TX_COL_DATA_ROLE_dlc    = Qt.ItemDataRole.UserRole + 1
-TX_COL_DATA_ROLE_is_fd  = Qt.ItemDataRole.UserRole + 2
+TX_COL_DATA_ROLE_dlc = Qt.ItemDataRole.UserRole + 1
+TX_COL_DATA_ROLE_is_fd = Qt.ItemDataRole.UserRole + 2
 
-TX_COL_PERIODDATA         = TX_COL_5_period
-TX_COL_PERIODDATA_period  = Qt.ItemDataRole.DisplayRole
+TX_COL_PERIODDATA = TX_COL_5_period
+TX_COL_PERIODDATA_period = Qt.ItemDataRole.DisplayRole
 
-TX_COL_SCRIPTDATA       = TX_COL_7_script
-TX_COL_SCRIPTDATA_path  = Qt.ItemDataRole.UserRole
-
+TX_COL_SCRIPTDATA = TX_COL_7_script
+TX_COL_SCRIPTDATA_path = Qt.ItemDataRole.UserRole
 
 
 class PayloadEditDelegate(QStyledItemDelegate):
@@ -109,11 +118,15 @@ class PayloadEditDelegate(QStyledItemDelegate):
         if index.column() == 6:
             return super().createEditor(parent, option, index)
         return None
-    
+
     def initStyleOption(self, option, index):
         # Monospace style for some columns
         super().initStyleOption(option, index)
-        if index.column() == TX_COL_2_id or index.column() == TX_COL_4_name or index.column() == TX_COL_6_payload:
+        if (
+            index.column() == TX_COL_2_id
+            or index.column() == TX_COL_4_name
+            or index.column() == TX_COL_6_payload
+        ):
             font = QFont("Courier New", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
@@ -158,9 +171,9 @@ class MainWindow(QMainWindow):
         self.global_script_path = None
         self.global_script_cache = {}
         self.project_root = os.getcwd()
-        
+
         self.busload_tx_arbitration_bits = 0
-        self.busload_tx_data_bits        = 0
+        self.busload_tx_data_bits = 0
 
         # --- MENU ---
         menubar = QMenuBar(self)
@@ -245,17 +258,16 @@ class MainWindow(QMainWindow):
         self.btn_refresh_bus.setFixedSize(30, 30)
         self.btn_refresh_bus.clicked.connect(self.refresh_bus_list)
         top_layout.addWidget(self.btn_refresh_bus)
-        
-        
+
         # Timer per aggiornare il busload
         self.timer_busload = QTimer(self)
         self.timer_busload.timeout.connect(self.timer_busload_elapsed)
-        self.timer_busload.start(BUSLOAD_refresh_rate_ms) 
-        
+        self.timer_busload.start(BUSLOAD_refresh_rate_ms)
+
         self.lbl_busload = QLabel("BusLoad:")
         self.lbl_busload.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_busload, alignment=Qt.AlignmentFlag.AlignVCenter)
-        
+
         self.lbl_baudrate = QLabel("Baudrate:")
         self.lbl_baudrate.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_baudrate, alignment=Qt.AlignmentFlag.AlignVCenter)
@@ -342,14 +354,14 @@ class MainWindow(QMainWindow):
         self.signal_tree.setHeaderLabels(
             ["", "Enable", "ID", "FD", "Name", "Period (ms)", "Payload (0 - 7)", ""]
         )
-        self.signal_tree.setColumnWidth(TX_COL_0_del    , 30) # old: 50
-        self.signal_tree.setColumnWidth(TX_COL_1_enable , 30) # old: 50
-        self.signal_tree.setColumnWidth(TX_COL_2_id     , 50)
-        self.signal_tree.setColumnWidth(TX_COL_3_fd     , 30)
-        self.signal_tree.setColumnWidth(TX_COL_4_name   , 100)
-        self.signal_tree.setColumnWidth(TX_COL_5_period , 80)
-        self.signal_tree.setColumnWidth(TX_COL_6_payload, 800) # old: 190
-        self.signal_tree.setColumnWidth(TX_COL_7_script , 70)
+        self.signal_tree.setColumnWidth(TX_COL_0_del, 30)  # old: 50
+        self.signal_tree.setColumnWidth(TX_COL_1_enable, 30)  # old: 50
+        self.signal_tree.setColumnWidth(TX_COL_2_id, 50)
+        self.signal_tree.setColumnWidth(TX_COL_3_fd, 30)
+        self.signal_tree.setColumnWidth(TX_COL_4_name, 100)
+        self.signal_tree.setColumnWidth(TX_COL_5_period, 80)
+        self.signal_tree.setColumnWidth(TX_COL_6_payload, 800)  # old: 190
+        self.signal_tree.setColumnWidth(TX_COL_7_script, 70)
         self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
 
         self.signal_tree.setSortingEnabled(True)
@@ -661,18 +673,17 @@ class MainWindow(QMainWindow):
         self.refresh_bus_list()
         # Carica la configurazione all'avvio, se esiste
         self.load_config(auto=True)
-        
+
     def clear_busload_stats(self):
         self.busload_tx_arbitration_bits = 0
-        self.busload_tx_data_bits        = 0
+        self.busload_tx_data_bits = 0
 
     def get_busload_tx_arbitration_bits(self):
         return self.busload_tx_arbitration_bits
-    
+
     def get_busload_tx_data_bits(self):
         return self.busload_tx_data_bits
-        
-        
+
     def save_config(self):
         self._save_config_to_file(self.CONFIG_FILE)
 
@@ -824,7 +835,10 @@ class MainWindow(QMainWindow):
                             (
                                 self.signal_tree.topLevelItem(i)
                                 for i in range(self.signal_tree.topLevelItemCount())
-                                if int(self.signal_tree.topLevelItem(i).text(TX_COL_2_id), 16)
+                                if int(
+                                    self.signal_tree.topLevelItem(i).text(TX_COL_2_id),
+                                    16,
+                                )
                                 == frame_id
                             ),
                             None,
@@ -834,17 +848,21 @@ class MainWindow(QMainWindow):
                             "script_path"
                         ):  # se l'item esiste e ha uno script
                             script_path = sig["script_path"]
-                            item.setData(TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path)
-                            payload_btn = self.signal_tree.itemWidget(item, TX_COL_7_script)
-                            if payload_btn and isinstance(payload_btn, QPushButton):
-                                payload_btn.setChecked(True)
-                                payload_btn.setStyleSheet(
+                            item.setData(
+                                TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                            )
+                            script_btn = self.signal_tree.itemWidget(
+                                item, TX_COL_7_script
+                            )
+                            if script_btn and isinstance(script_btn, QPushButton):
+                                script_btn.setChecked(True)
+                                script_btn.setStyleSheet(
                                     "background-color: #4CAF50; color: white;"
                                 )
-                                payload_btn.setToolTip(
+                                script_btn.setToolTip(
                                     f"Script: {os.path.relpath(script_path, start=self.project_root)}"
                                 )
-                                payload_btn.setText(os.path.basename(script_path))
+                                script_btn.setText(os.path.basename(script_path))
                         continue  # salta l'aggiunta dell'intero messaggio: già caricato
 
                     # Messaggio non caricato: aggiungilo manualmente
@@ -894,32 +912,38 @@ class MainWindow(QMainWindow):
                     btn_delete_id.clicked.connect(
                         lambda _, item=msg_item: self.delete_signal_row(item)
                     )
-                    self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
+                    self.signal_tree.setItemWidget(
+                        msg_item, TX_COL_0_del, btn_delete_id
+                    )
 
-                    payload_btn = QPushButton("Link Script")
-                    payload_btn.setCheckable(True)
-                    payload_btn.setIcon(
+                    script_btn = QPushButton("Link Script")
+                    script_btn.setCheckable(True)
+                    script_btn.setIcon(
                         self.style().standardIcon(
                             QStyle.StandardPixmap.SP_FileDialogDetailedView
                         )
                     )
-                    # payload_btn.setToolTip("Script Payload")
-                    payload_btn.clicked.connect(
+                    # script_btn.setToolTip("Script Payload")
+                    script_btn.clicked.connect(
                         lambda _, item=msg_item: self.modify_payload_script(item)
                     )
-                    self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, payload_btn)
+                    self.signal_tree.setItemWidget(
+                        msg_item, TX_COL_7_script, script_btn
+                    )
 
                     if sig.get("script_path"):
                         script_path = sig["script_path"]
-                        msg_item.setData(TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path)
-                        payload_btn.setChecked(True)
-                        payload_btn.setStyleSheet(
+                        msg_item.setData(
+                            TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                        )
+                        script_btn.setChecked(True)
+                        script_btn.setStyleSheet(
                             "background-color: #4CAF50; color: white;"
                         )
-                        payload_btn.setToolTip(
+                        script_btn.setToolTip(
                             f"Script: {os.path.relpath(script_path, start=self.project_root)}"
                         )
-                        payload_btn.setText(os.path.basename(script_path))
+                        script_btn.setText(os.path.basename(script_path))
 
             # Load sliders
             if "sliders" in config and len(config["sliders"]) > 0:
@@ -1104,7 +1128,9 @@ class MainWindow(QMainWindow):
             try:  # Try to connect to the CAN interface
                 bitrate_lbl = self.cb_baudrate.currentData()
                 print(f"[DEBUG] selected timing: {bitrate_lbl}")
-                self.can_if = CANInterface(channel, timing=bitrate_lbl, is_fd=("f_clock=" in bitrate_lbl))
+                self.can_if = CANInterface(
+                    channel, timing=bitrate_lbl, is_fd=("f_clock=" in bitrate_lbl)
+                )
                 self.can_if.set_receive_callback(self.process_received_frame)
                 QMessageBox.information(
                     self,
@@ -1179,9 +1205,15 @@ class MainWindow(QMainWindow):
 
             self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
             msg_item.setText(TX_COL_5_period, str(period_spin.value()))
-            msg_item.setData(TX_COL_5_period, Qt.ItemDataRole.DisplayRole, period_spin.value())
-            msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, msg.payload_length)  # Store DLC in user data
-            msg_item.setText(TX_COL_6_payload, " ".join(["00"] * msg.payload_length))  # Set default payload
+            msg_item.setData(
+                TX_COL_5_period, Qt.ItemDataRole.DisplayRole, period_spin.value()
+            )
+            msg_item.setData(
+                TX_COL_DATA, TX_COL_DATA_ROLE_dlc, msg.payload_length
+            )  # Store DLC in user data
+            msg_item.setText(
+                TX_COL_6_payload, " ".join(["00"] * msg.payload_length)
+            )  # Set default payload
 
             # Add delete button as first column
             btn_delete_id = QPushButton()
@@ -1208,7 +1240,9 @@ class MainWindow(QMainWindow):
             )
             self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
 
-            self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder) # Ascending sort by ID (column 2)
+            self.signal_tree.sortItems(
+                TX_COL_2_id, Qt.SortOrder.AscendingOrder
+            )  # Ascending sort by ID (column 2)
 
     def add_manual_id(self):
         id_text, ok = QInputDialog.getText(
@@ -1236,13 +1270,12 @@ class MainWindow(QMainWindow):
         dlc, ok = QInputDialog.getInt(
             self, "Add Manual ID", "Enter DLC (1-64):", min=1, max=64
         )
-        
+
         # TODO: questo input non dovrebbe essere fornito per primo? Parametri come il DLC non dipendono da questo?
         is_fd, ok = QInputDialog.getInt(
             self, "Add Manual ID", "Select if FD (0-1):", min=0, max=1
         )
-        
-        
+
         if not ok:
             return
 
@@ -1266,7 +1299,9 @@ class MainWindow(QMainWindow):
         period_spin.setValue(period)
         self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
         msg_item.setText(TX_COL_5_period, str(period_spin.value()))
-        msg_item.setData(TX_COL_PERIODDATA, Qt.ItemDataRole.DisplayRole, period_spin.value())
+        msg_item.setData(
+            TX_COL_PERIODDATA, Qt.ItemDataRole.DisplayRole, period_spin.value()
+        )
 
         msg_item.setText(TX_COL_6_payload, " ".join(["00"] * dlc))
 
@@ -1359,7 +1394,7 @@ class MainWindow(QMainWindow):
                             self.tx_periods[frame_id]["nominal"] = new_period
                         break
 
-        elif column == TX_COL_6_payload: # Payload
+        elif column == TX_COL_6_payload:  # Payload
             text = item.text(TX_COL_6_payload).strip()
             parti = text.split()
             dlc = item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or None
@@ -1522,7 +1557,7 @@ class MainWindow(QMainWindow):
 
                     # TODO: riabilitare controllo adattivo del periodo correggendo il conflitto con metodo timer_busload_elapsed()
                     # Monitor period
-                    #if txp["last_time"] is not None:
+                    # if txp["last_time"] is not None:
                     #    real_period = now_time - txp["last_time"]
                     #    txp["samples"].append(real_period)
                     #    # if len(txp["samples"]) > 10:
@@ -1578,13 +1613,12 @@ class MainWindow(QMainWindow):
                     )  # se il payload viene da testo manuale
                     if not isinstance(dlc, int) or not (1 <= dlc <= 64):
                         dlc = 8
-                        
+
                     is_fd = (
                         item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) or 0
                     )  # 0 se CAN, 1 se CAN-FD
                     if not isinstance(is_fd, int) or not (0 <= is_fd <= 1):
                         is_fd = 0
-
 
                     # Se il payload è stato specificato come script, lo esegue
                     try:
@@ -1680,7 +1714,10 @@ class MainWindow(QMainWindow):
 
                         # Invia il frame e aggiorna il payload nella finestra TX
                         self.send_can_message(frame_id, final_payload, dlc, is_fd)
-                        item.setText(TX_COL_6_payload, " ".join(f"{b:02X}" for b in final_payload))
+                        item.setText(
+                            TX_COL_6_payload,
+                            " ".join(f"{b:02X}" for b in final_payload),
+                        )
 
                         # Update live gauges (XMetro)
                         for gauge in getattr(self, "xmetro_windows", []):
@@ -1739,9 +1776,9 @@ class MainWindow(QMainWindow):
 
     def send_can_message(self, frame_id, data, dlc=None, is_fd=False):
         if self.can_if:
-            try:                
-                self.busload_tx_arbitration_bits += 79 # 11 can id (suppose base frame format) + 68 arbitration other bits
-                self.busload_tx_data_bits        += dlc
+            try:
+                self.busload_tx_arbitration_bits += 79  # 11 can id (suppose base frame format) + 68 arbitration other bits
+                self.busload_tx_data_bits += dlc
 
                 self.can_if.send_frame(frame_id, data, dlc, is_fd)
             except Exception as e:
@@ -1834,14 +1871,18 @@ class MainWindow(QMainWindow):
                 msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
                 msg_item.setText(TX_COL_6_payload, payload)
                 if script_path:
-                    msg_item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path)
+                    msg_item.setData(
+                        TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path
+                    )
 
                 period_spin = QSpinBox()
                 period_spin.setRange(1, 10000)
                 period_spin.setValue(period_val)
                 self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
                 # Imposta solo il valore numerico come DisplayRole, non il testo
-                msg_item.setData(TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, period_spin.value())
+                msg_item.setData(
+                    TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, period_spin.value()
+                )
 
                 def on_period_changed(new_value, item=msg_item):
                     item.setData(TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, new_value)
@@ -1870,12 +1911,10 @@ class MainWindow(QMainWindow):
                 script_btn.clicked.connect(
                     lambda _, item=msg_item: self.modify_payload_script(item)
                 )
-                self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, payload_btn)
+                self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
                 if script_path:
                     script_btn.setChecked(True)
-                    script_btn.setStyleSheet(
-                        "background-color: #4CAF50; color: white;"
-                    )
+                    script_btn.setStyleSheet("background-color: #4CAF50; color: white;")
                     script_btn.setToolTip(f"Script: {script_path}")
                     script_btn.setText(os.path.basename(script_path))
 
@@ -1889,28 +1928,39 @@ class MainWindow(QMainWindow):
             self.signal_tree.sortItems(
                 column, self.signal_tree.header().sortIndicatorOrder()
             )
-            
-            
+
     def timer_busload_elapsed(self):
-        tot_arbitration_bits = self.rx_window.get_busload_rx_arbitration_bits() + self.get_busload_tx_arbitration_bits()
-        tot_data_bits        = self.rx_window.get_busload_rx_data_bits()        + self.get_busload_tx_data_bits()
-        
+        tot_arbitration_bits = (
+            self.rx_window.get_busload_rx_arbitration_bits()
+            + self.get_busload_tx_arbitration_bits()
+        )
+        tot_data_bits = (
+            self.rx_window.get_busload_rx_data_bits() + self.get_busload_tx_data_bits()
+        )
+
         self.rx_window.clear_busload_stats()
         self.clear_busload_stats()
-        
-        label, pcan_val, real_data_val, real_arb_val = self.baudrate_values[self.cb_baudrate.currentIndex()]
-        
+
+        label, pcan_val, real_data_val, real_arb_val = self.baudrate_values[
+            self.cb_baudrate.currentIndex()
+        ]
+
         arbitration_baudrate = real_arb_val
-        data_baudrate        = real_data_val
-        
+        data_baudrate = real_data_val
+
         tot_arbitration_time_s = float(tot_arbitration_bits) / arbitration_baudrate
-        tot_data_time_s        = float(tot_data_bits)        / data_baudrate
-        
-        print(f"arbitration_baudrate={arbitration_baudrate} data_baudrate={data_baudrate} tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s{tot_data_time_s:6.4f}")
-        
-        busload = ((tot_arbitration_time_s + tot_data_time_s)*100) / (float(BUSLOAD_refresh_rate_ms)/1000) 
-        
+        tot_data_time_s = float(tot_data_bits) / data_baudrate
+
+        print(
+            f"arbitration_baudrate={arbitration_baudrate} data_baudrate={data_baudrate} tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s{tot_data_time_s:6.4f}"
+        )
+
+        busload = ((tot_arbitration_time_s + tot_data_time_s) * 100) / (
+            float(BUSLOAD_refresh_rate_ms) / 1000
+        )
+
         self.lbl_busload.setText(f"BusLoad: {busload:3.1f}%")
+
 
 if __name__ == "__main__":
     import sys
