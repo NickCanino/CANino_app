@@ -49,6 +49,7 @@ import os
 import sys
 import time
 import re
+import can
 
 from src.dbc_loader import load_dbc
 from src.can_interface import CANInterface
@@ -75,16 +76,44 @@ from src.PCANBasic import (
 )
 
 
+PCAN_BAUD_FD_2M = can.BitTimingFd(f_clock=80000000,nom_brp=10,nom_tseg1=12,nom_tseg2=3,nom_sjw=1,data_brp=4,data_tseg1=7,data_tseg2=2,data_sjw=1)
+                   
+BUSLOAD_refresh_rate_ms = 1000
+
+# Tx column definition
+TX_COL_0_del    = 0    
+TX_COL_1_enable = 1    
+TX_COL_2_id     = 2    
+TX_COL_3_fd     = 3    
+TX_COL_4_name   = 4    
+TX_COL_5_period = 5    
+TX_COL_6_payload= 6    
+TX_COL_7_script = 7    
+
+TX_COL_DATA             = TX_COL_2_id
+TX_COL_DATA_ROLE_script = Qt.ItemDataRole.UserRole
+TX_COL_DATA_ROLE_dlc    = Qt.ItemDataRole.UserRole + 1
+TX_COL_DATA_ROLE_is_fd  = Qt.ItemDataRole.UserRole + 2
+
+TX_COL_PERIODDATA         = TX_COL_5_period
+TX_COL_PERIODDATA_period  = Qt.ItemDataRole.DisplayRole
+
+TX_COL_SCRIPTDATA       = TX_COL_7_script
+TX_COL_SCRIPTDATA_path  = Qt.ItemDataRole.UserRole
+
+
+
 class PayloadEditDelegate(QStyledItemDelegate):
     def createEditor(self, parent, option, index):
-        # Only allow editing for payload column (column 5)
-        if index.column() == 5:
+        # Only allow editing for payload column (column 6)
+        if index.column() == 6:
             return super().createEditor(parent, option, index)
         return None
     
     def initStyleOption(self, option, index):
+        # Monospace style for some columns
         super().initStyleOption(option, index)
-        if index.column() == 2 or index.column() == 3 or index.column() == 5:  # Payload column
+        if index.column() == TX_COL_2_id or index.column() == TX_COL_4_name or index.column() == TX_COL_6_payload:
             font = QFont("Courier New", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
@@ -129,6 +158,9 @@ class MainWindow(QMainWindow):
         self.global_script_path = None
         self.global_script_cache = {}
         self.project_root = os.getcwd()
+        
+        self.busload_tx_arbitration_bits = 0
+        self.busload_tx_data_bits        = 0
 
         # --- MENU ---
         menubar = QMenuBar(self)
@@ -175,8 +207,8 @@ class MainWindow(QMainWindow):
         file_menu.addAction(action_load)
         menubar.addMenu(file_menu)
 
-        # --- AGGIUNGI L'AZIONE "Vagiletta" ALLA MENUBAR ---
-        action_vagiletta = QAction("Vagiletta", self)
+        # --- AGGIUNGI L'AZIONE "Valigetta" ALLA MENUBAR ---
+        action_vagiletta = QAction("Valigetta", self)
         action_vagiletta.triggered.connect(self.open_vagiletta_window)
         menubar.addAction(action_vagiletta)
 
@@ -213,32 +245,43 @@ class MainWindow(QMainWindow):
         self.btn_refresh_bus.setFixedSize(30, 30)
         self.btn_refresh_bus.clicked.connect(self.refresh_bus_list)
         top_layout.addWidget(self.btn_refresh_bus)
-
+        
+        
+        # Timer per aggiornare il busload
+        self.timer_busload = QTimer(self)
+        self.timer_busload.timeout.connect(self.timer_busload_elapsed)
+        self.timer_busload.start(BUSLOAD_refresh_rate_ms) 
+        
+        self.lbl_busload = QLabel("BusLoad:")
+        self.lbl_busload.setAlignment(Qt.AlignmentFlag.AlignRight)
+        top_layout.addWidget(self.lbl_busload, alignment=Qt.AlignmentFlag.AlignVCenter)
+        
         self.lbl_baudrate = QLabel("Baudrate:")
         self.lbl_baudrate.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_baudrate, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.cb_baudrate = QComboBox()
-        baudrate_values = [
-            ("1 MBit/s", str(PCAN_BAUD_1M.value), 1000000),
-            ("800 kBit/s", str(PCAN_BAUD_800K.value), 800000),
-            ("500 kBit/s", str(PCAN_BAUD_500K.value), 500000),
-            ("250 kBit/s", str(PCAN_BAUD_250K.value), 250000),
-            ("125 kBit/s", str(PCAN_BAUD_125K.value), 125000),
-            ("100 kBit/s", str(PCAN_BAUD_100K.value), 100000),
-            ("95.238 kBit/s", str(PCAN_BAUD_95K.value), 95238),
-            ("83.333 kBit/s", str(PCAN_BAUD_83K.value), 83333),
-            ("50 kBit/s", str(PCAN_BAUD_50K.value), 50000),
-            ("47.619 kBit/s", str(PCAN_BAUD_47K.value), 47619),
-            ("33.333 kBit/s", str(PCAN_BAUD_33K.value), 33333),
-            ("20 kBit/s", str(PCAN_BAUD_20K.value), 20000),
-            ("10 kBit/s", str(PCAN_BAUD_10K.value), 10000),
-            ("5 kBit/s", str(PCAN_BAUD_5K.value), 5000),
+        self.baudrate_values = [
+            ("2 MBit/s (CANFD)", PCAN_BAUD_FD_2M, 2000000, 500000),
+            ("1 MBit/s", str(PCAN_BAUD_1M.value), 1000000, 0),
+            ("800 kBit/s", str(PCAN_BAUD_800K.value), 800000, 0),
+            ("500 kBit/s", str(PCAN_BAUD_500K.value), 500000, 0),
+            ("250 kBit/s", str(PCAN_BAUD_250K.value), 250000, 0),
+            ("125 kBit/s", str(PCAN_BAUD_125K.value), 125000, 0),
+            ("100 kBit/s", str(PCAN_BAUD_100K.value), 100000, 0),
+            ("95.238 kBit/s", str(PCAN_BAUD_95K.value), 95238, 0),
+            ("83.333 kBit/s", str(PCAN_BAUD_83K.value), 83333, 0),
+            ("50 kBit/s", str(PCAN_BAUD_50K.value), 50000, 0),
+            ("47.619 kBit/s", str(PCAN_BAUD_47K.value), 47619, 0),
+            ("33.333 kBit/s", str(PCAN_BAUD_33K.value), 33333, 0),
+            ("20 kBit/s", str(PCAN_BAUD_20K.value), 20000, 0),
+            ("10 kBit/s", str(PCAN_BAUD_10K.value), 10000, 0),
+            ("5 kBit/s", str(PCAN_BAUD_5K.value), 5000, 0),
         ]
-        for label, pcan_val, real_val in baudrate_values:
-            self.cb_baudrate.addItem(label, (pcan_val, real_val))
-        self.cb_baudrate.setCurrentIndex(2)  # Default to 500 kBit/s
-        self.cb_baudrate.setFixedSize(100, 30)
+        for label, pcan_val, real_data_val, real_arb_val in self.baudrate_values:
+            self.cb_baudrate.addItem(label, pcan_val)
+        self.cb_baudrate.setCurrentIndex(0)  # Default to 2 MBit/s (CANFD)
+        self.cb_baudrate.setFixedSize(150, 30)
         top_layout.addWidget(self.cb_baudrate)
 
         self.btn_connect = QPushButton("Connect")
@@ -297,16 +340,16 @@ class MainWindow(QMainWindow):
         # --- ALBERO DEI SEGNALI ---
         self.signal_tree = QTreeWidget()
         self.signal_tree.setHeaderLabels(
-            ["", "Enable", "ID", "Name", "Period (ms)", "Payload (0 - 7)", ""]
-            # ["", "Enable", "ID", "Name", "Period (ms)", "B0 B1 B2 B3 B4 B5 B6 B7 B8", ""]
+            ["", "Enable", "ID", "FD", "Name", "Period (ms)", "Payload (0 - 7)", ""]
         )
-        self.signal_tree.setColumnWidth(0, 50)
-        self.signal_tree.setColumnWidth(1, 50)
-        self.signal_tree.setColumnWidth(2, 50)
-        self.signal_tree.setColumnWidth(3, 100)
-        self.signal_tree.setColumnWidth(4, 80)
-        self.signal_tree.setColumnWidth(5, 190)
-        self.signal_tree.setColumnWidth(6, 70)
+        self.signal_tree.setColumnWidth(TX_COL_0_del    , 30) # old: 50
+        self.signal_tree.setColumnWidth(TX_COL_1_enable , 30) # old: 50
+        self.signal_tree.setColumnWidth(TX_COL_2_id     , 50)
+        self.signal_tree.setColumnWidth(TX_COL_3_fd     , 30)
+        self.signal_tree.setColumnWidth(TX_COL_4_name   , 100)
+        self.signal_tree.setColumnWidth(TX_COL_5_period , 80)
+        self.signal_tree.setColumnWidth(TX_COL_6_payload, 800) # old: 190
+        self.signal_tree.setColumnWidth(TX_COL_7_script , 70)
         self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
 
         self.signal_tree.setSortingEnabled(True)
@@ -390,9 +433,9 @@ class MainWindow(QMainWindow):
             checked_ids = set()
             for i in range(self.signal_tree.topLevelItemCount()):
                 item = self.signal_tree.topLevelItem(i)
-                if item.checkState(1) == Qt.CheckState.Checked:
+                if item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked:
                     try:
-                        frame_id = int(item.text(2), 16)
+                        frame_id = int(item.text(TX_COL_2_id), 16)
                         checked_ids.add(frame_id)
                     except Exception:
                         continue
@@ -618,7 +661,18 @@ class MainWindow(QMainWindow):
         self.refresh_bus_list()
         # Carica la configurazione all'avvio, se esiste
         self.load_config(auto=True)
+        
+    def clear_busload_stats(self):
+        self.busload_tx_arbitration_bits = 0
+        self.busload_tx_data_bits        = 0
 
+    def get_busload_tx_arbitration_bits(self):
+        return self.busload_tx_arbitration_bits
+    
+    def get_busload_tx_data_bits(self):
+        return self.busload_tx_data_bits
+        
+        
     def save_config(self):
         self._save_config_to_file(self.CONFIG_FILE)
 
@@ -663,18 +717,19 @@ class MainWindow(QMainWindow):
         for i in range(self.signal_tree.topLevelItemCount()):
             item = self.signal_tree.topLevelItem(i)
             signal = {
-                "enabled": item.checkState(1) == Qt.CheckState.Checked,
-                "id": item.text(2),
-                "name": item.text(3),
+                "enabled": item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked,
+                "id": item.text(TX_COL_2_id),
+                "fd": item.text(TX_COL_3_fd),
+                "name": item.text(TX_COL_4_name),
                 "period": (
-                    self.signal_tree.itemWidget(item, 4).value()
-                    if self.signal_tree.itemWidget(item, 4)
+                    self.signal_tree.itemWidget(item, TX_COL_5_period).value()
+                    if self.signal_tree.itemWidget(item, TX_COL_5_period)
                     else 100
                 ),
-                "payload": item.text(5),
-                "dlc": item.data(2, Qt.ItemDataRole.UserRole + 1) or 8,
+                "payload": item.text(TX_COL_6_payload),
+                "dlc": item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or 8,
                 "script_path": item.data(
-                    6, Qt.ItemDataRole.UserRole
+                    TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path
                 ),  # salva anche lo script per l'ID
             }
             config["signals"].append(signal)
@@ -688,7 +743,7 @@ class MainWindow(QMainWindow):
             )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving configuration: {e}")
-            log_exception(e)
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
     def load_config(self, auto=False):
         if auto:  # Carica automaticamente il file di configurazione predefinito
@@ -752,7 +807,7 @@ class MainWindow(QMainWindow):
                 for i in range(self.signal_tree.topLevelItemCount()):
                     item = self.signal_tree.topLevelItem(i)
                     try:
-                        existing_id = int(item.text(2), 16)
+                        existing_id = int(item.text(TX_COL_2_id), 16)
                         loaded_ids.add(existing_id)
                     except Exception:
                         pass
@@ -769,7 +824,7 @@ class MainWindow(QMainWindow):
                             (
                                 self.signal_tree.topLevelItem(i)
                                 for i in range(self.signal_tree.topLevelItemCount())
-                                if int(self.signal_tree.topLevelItem(i).text(2), 16)
+                                if int(self.signal_tree.topLevelItem(i).text(TX_COL_2_id), 16)
                                 == frame_id
                             ),
                             None,
@@ -779,8 +834,8 @@ class MainWindow(QMainWindow):
                             "script_path"
                         ):  # se l'item esiste e ha uno script
                             script_path = sig["script_path"]
-                            item.setData(6, Qt.ItemDataRole.UserRole, script_path)
-                            payload_btn = self.signal_tree.itemWidget(item, 6)
+                            item.setData(TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path)
+                            payload_btn = self.signal_tree.itemWidget(item, TX_COL_7_script)
                             if payload_btn and isinstance(payload_btn, QPushButton):
                                 payload_btn.setChecked(True)
                                 payload_btn.setStyleSheet(
@@ -807,16 +862,16 @@ class MainWindow(QMainWindow):
                             else Qt.CheckState.Unchecked
                         ),
                     )
-                    msg_item.setText(2, sig.get("id", ""))
-                    msg_item.setText(3, sig.get("name", ""))
+                    msg_item.setText(TX_COL_2_id, sig.get("id", ""))
+                    msg_item.setText(TX_COL_3_fd, sig.get("name", ""))
 
                     period_spin = QSpinBox()
                     period_spin.setRange(1, 10000)
                     period_spin.setValue(sig.get("period", 100))
-                    self.signal_tree.setItemWidget(msg_item, 4, period_spin)
-                    msg_item.setText(4, str(period_spin.value()))
+                    self.signal_tree.setItemWidget(msg_item, TX_COL_4_name, period_spin)
+                    msg_item.setText(TX_COL_4_name, str(period_spin.value()))
                     msg_item.setData(
-                        4, Qt.ItemDataRole.DisplayRole, period_spin.value()
+                        TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, period_spin.value()
                     )
 
                     # Payload e DLC
@@ -827,8 +882,8 @@ class MainWindow(QMainWindow):
                         len(p) != 2 for p in payload_parts
                     ):
                         raw_payload = " ".join(["00"] * dlc)
-                    msg_item.setData(2, Qt.ItemDataRole.UserRole + 1, dlc)
-                    msg_item.setText(5, raw_payload)
+                    msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
+                    msg_item.setText(TX_COL_6_payload, raw_payload)
 
                     # Pulsanti standard
                     btn_delete_id = QPushButton()
@@ -839,7 +894,7 @@ class MainWindow(QMainWindow):
                     btn_delete_id.clicked.connect(
                         lambda _, item=msg_item: self.delete_signal_row(item)
                     )
-                    self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
+                    self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
 
                     payload_btn = QPushButton("Link Script")
                     payload_btn.setCheckable(True)
@@ -852,11 +907,11 @@ class MainWindow(QMainWindow):
                     payload_btn.clicked.connect(
                         lambda _, item=msg_item: self.modify_payload_script(item)
                     )
-                    self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
+                    self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, payload_btn)
 
                     if sig.get("script_path"):
                         script_path = sig["script_path"]
-                        msg_item.setData(6, Qt.ItemDataRole.UserRole, script_path)
+                        msg_item.setData(TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path)
                         payload_btn.setChecked(True)
                         payload_btn.setStyleSheet(
                             "background-color: #4CAF50; color: white;"
@@ -1002,7 +1057,7 @@ class MainWindow(QMainWindow):
                 )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
-            log_exception(e)
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
     def open_vagiletta_window(self):
         dlg = VagilettaWindow(self)
@@ -1047,9 +1102,9 @@ class MainWindow(QMainWindow):
                 return
 
             try:  # Try to connect to the CAN interface
-                bitrate_lbl = self.cb_baudrate.currentText()
-                print(f"[DEBUG] bitrate value {bitrate_lbl} bps")
-                self.can_if = CANInterface(channel, bitrate=bitrate_lbl)
+                bitrate_lbl = self.cb_baudrate.currentData()
+                print(f"[DEBUG] selected timing: {bitrate_lbl}")
+                self.can_if = CANInterface(channel, timing=bitrate_lbl, is_fd=("f_clock=" in bitrate_lbl))
                 self.can_if.set_receive_callback(self.process_received_frame)
                 QMessageBox.information(
                     self,
@@ -1070,7 +1125,7 @@ class MainWindow(QMainWindow):
 
             except Exception as e:
                 QMessageBox.critical(self, "Error", f"Error opening CAN: {e}")
-                log_exception(e)
+                log_exception(__file__, sys._getframe().f_lineno, e)
                 self.btn_connect.setChecked(False)
                 self.btn_start_tx.setEnabled(False)  # <--- Disable if error
 
@@ -1113,23 +1168,20 @@ class MainWindow(QMainWindow):
                 | Qt.ItemFlag.ItemIsUserCheckable
                 | Qt.ItemFlag.ItemIsEditable
             )
-            msg_item.setCheckState(1, Qt.CheckState.Checked)
-            msg_item.setText(2, f"0x{msg.frame_id:03X}")
-            msg_item.setText(3, msg.name)
+            msg_item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
+            msg_item.setText(TX_COL_2_id, f"0x{msg.frame_id:03X}")
+            msg_item.setText(TX_COL_3_fd, "Y" if self.can_if.is_fd else "n")
+            msg_item.setText(TX_COL_4_name, msg.name)
 
             period_spin = QSpinBox()
             period_spin.setRange(1, 10000)
             period_spin.setValue(msg.cycle_time if msg.cycle_time else 100)
 
-            self.signal_tree.setItemWidget(msg_item, 4, period_spin)
-            msg_item.setText(4, str(period_spin.value()))
-            msg_item.setData(4, Qt.ItemDataRole.DisplayRole, period_spin.value())
-            msg_item.setData(
-                2, Qt.ItemDataRole.UserRole + 1, msg.payload_length
-            )  # Store DLC in user data
-            msg_item.setText(
-                5, " ".join(["00"] * msg.payload_length)
-            )  # Set default payload
+            self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
+            msg_item.setText(TX_COL_5_period, str(period_spin.value()))
+            msg_item.setData(TX_COL_5_period, Qt.ItemDataRole.DisplayRole, period_spin.value())
+            msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, msg.payload_length)  # Store DLC in user data
+            msg_item.setText(TX_COL_6_payload, " ".join(["00"] * msg.payload_length))  # Set default payload
 
             # Add delete button as first column
             btn_delete_id = QPushButton()
@@ -1140,24 +1192,23 @@ class MainWindow(QMainWindow):
             btn_delete_id.clicked.connect(
                 lambda _, item=msg_item: self.delete_signal_row(item)
             )
-            self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
+            self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
 
             # Add custom payload button in 5th column
-            payload_btn = QPushButton("Link Script")
-            payload_btn.setCheckable(True)
-            payload_btn.setIcon(
+            script_btn = QPushButton("Link Script")
+            script_btn.setCheckable(True)
+            script_btn.setIcon(
                 self.style().standardIcon(
                     QStyle.StandardPixmap.SP_FileDialogDetailedView
                 )
             )
-            payload_btn.setToolTip("No Script Linked")
-            payload_btn.clicked.connect(
+            script_btn.setToolTip("No Script Linked")
+            script_btn.clicked.connect(
                 lambda _, item=msg_item: self.modify_payload_script(item)
             )
-            self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
+            self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
 
-            # Ascending sort by ID (column 2)
-            self.signal_tree.sortItems(2, Qt.SortOrder.AscendingOrder)
+            self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder) # Ascending sort by ID (column 2)
 
     def add_manual_id(self):
         id_text, ok = QInputDialog.getText(
@@ -1183,8 +1234,15 @@ class MainWindow(QMainWindow):
             return
 
         dlc, ok = QInputDialog.getInt(
-            self, "Add Manual ID", "Enter DLC (1-8):", min=1, max=8
+            self, "Add Manual ID", "Enter DLC (1-64):", min=1, max=64
         )
+        
+        # TODO: questo input non dovrebbe essere fornito per primo? Parametri come il DLC non dipendono da questo?
+        is_fd, ok = QInputDialog.getInt(
+            self, "Add Manual ID", "Select if FD (0-1):", min=0, max=1
+        )
+        
+        
         if not ok:
             return
 
@@ -1194,21 +1252,23 @@ class MainWindow(QMainWindow):
             | Qt.ItemFlag.ItemIsUserCheckable
             | Qt.ItemFlag.ItemIsEditable
         )
-        msg_item.setCheckState(1, Qt.CheckState.Checked)
-        msg_item.setText(2, f"0x{frame_id:03X}")
-        msg_item.setText(3, name)
+        msg_item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
+        msg_item.setText(TX_COL_2_id, f"0x{frame_id:03X}")
+        msg_item.setText(TX_COL_3_fd, "Y" if is_fd else "n")
+        msg_item.setText(TX_COL_4_name, name)
 
-        # Salva DLC come dato dell'item
-        msg_item.setData(2, Qt.ItemDataRole.UserRole + 1, dlc)
+        # Salva DLC e is_fd come dato dell'item
+        msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
+        msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd, is_fd)
 
         period_spin = QSpinBox()
         period_spin.setRange(1, 10000)
         period_spin.setValue(period)
-        self.signal_tree.setItemWidget(msg_item, 4, period_spin)
-        msg_item.setText(4, str(period_spin.value()))
-        msg_item.setData(4, Qt.ItemDataRole.DisplayRole, period_spin.value())
+        self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
+        msg_item.setText(TX_COL_5_period, str(period_spin.value()))
+        msg_item.setData(TX_COL_PERIODDATA, Qt.ItemDataRole.DisplayRole, period_spin.value())
 
-        msg_item.setText(5, " ".join(["00"] * dlc))
+        msg_item.setText(TX_COL_6_payload, " ".join(["00"] * dlc))
 
         # Pulsanti standard
         btn_delete_id = QPushButton()
@@ -1219,22 +1279,22 @@ class MainWindow(QMainWindow):
         btn_delete_id.clicked.connect(
             lambda _, item=msg_item: self.delete_signal_row(item)
         )
-        self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
+        self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
 
         # Pulsante per linkare lo script del payload
-        payload_btn = QPushButton("Link Script")
-        payload_btn.setCheckable(True)
-        payload_btn.setIcon(
+        script_btn = QPushButton("Link Script")
+        script_btn.setCheckable(True)
+        script_btn.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
-        payload_btn.setToolTip("No Script Linked")
-        payload_btn.clicked.connect(
+        script_btn.setToolTip("No Script Linked")
+        script_btn.clicked.connect(
             lambda _, item=msg_item: self.modify_payload_script(item)
         )
-        self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
+        self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
 
         # Ascending sort by ID (column 2)
-        self.signal_tree.sortItems(2, Qt.SortOrder.AscendingOrder)
+        self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
 
         # Se la trasmissione è attiva, riavvia per includere il nuovo ID
         if self.tx_running:
@@ -1247,7 +1307,7 @@ class MainWindow(QMainWindow):
             # Se la trasmissione è attiva, ferma e rimuovi il timer relativo all'ID
             if self.tx_running:
                 try:
-                    frame_id = int(item.text(2), 16)
+                    frame_id = int(item.text(TX_COL_2_id), 16)
                     timers_to_remove = []
                     for t in self.timers:
                         if hasattr(t, "frame_id") and t.frame_id == frame_id:
@@ -1262,36 +1322,36 @@ class MainWindow(QMainWindow):
             self.signal_tree.takeTopLevelItem(idx)
 
     def on_signal_tree_item_changed(self, item, column):
-        if column == 1:  # Checkbox abilitazione
+        if column == TX_COL_1_enable:  # Checkbox abilitazione
             if self.tx_running:
                 self.stop_tx()
                 self.start_tx()
 
             try:  # Get the frame ID from the item text
-                frame_id = int(item.text(2), 16)
+                frame_id = int(item.text(TX_COL_2_id), 16)
             except Exception:
                 frame_id = None
             if frame_id is not None and hasattr(self, "slider_widgets"):
                 for slider_widget in self.slider_widgets:
                     if getattr(slider_widget, "frame_id", None) == frame_id:
                         slider_widget.slider.setEnabled(
-                            item.checkState(1) == Qt.CheckState.Checked
+                            item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
                         )
 
-        elif column == 4:  # Periodo (ms) column changed
+        elif column == TX_COL_5_period:  # Periodo (ms) column changed
             # Update the timer for this item if TX is running
             if self.tx_running:
                 frame_id = None
                 try:
-                    frame_id = int(item.text(2), 16)
+                    frame_id = int(item.text(TX_COL_2_id), 16)
                 except Exception:
                     return
                 # Find and update the timer for this frame_id
                 for t in getattr(self, "timers", []):
                     if hasattr(t, "frame_id") and t.frame_id == frame_id:
-                        period_spin = self.signal_tree.itemWidget(item, 4)
+                        period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
                         new_period = period_spin.value() if period_spin else 1000
-                        item.setText(4, str(new_period))
+                        item.setText(TX_COL_5_period, str(new_period))
 
                         t.stop()
                         t.start(new_period)
@@ -1299,19 +1359,19 @@ class MainWindow(QMainWindow):
                             self.tx_periods[frame_id]["nominal"] = new_period
                         break
 
-        elif column == 5:
-            text = item.text(5).strip()
-            parts = text.split()
-            dlc = item.data(2, Qt.ItemDataRole.UserRole + 1) or None
+        elif column == TX_COL_6_payload: # Payload
+            text = item.text(TX_COL_6_payload).strip()
+            parti = text.split()
+            dlc = item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or None
 
             hex_pair_re = re.compile(r"^[0-9a-fA-F]{2}$")
-            if len(parts) != dlc or any(not hex_pair_re.match(p) for p in parts):
+            if len(parti) != dlc or any(not hex_pair_re.match(p) for p in parti):
                 QMessageBox.warning(
                     self,
                     "Error Payload",
                     f"Payload must contain exactly {dlc} bytes in hexadecimal (00-FF), e.g. {' '.join(['00'] * dlc)}",
                 )
-                item.setText(5, " ".join(["00"] * dlc))
+                item.setText(TX_COL_6_payload, " ".join(["00"] * dlc))
 
     def select_global_payload_script(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1345,8 +1405,8 @@ class MainWindow(QMainWindow):
         )
 
         if rel_file_path:
-            item.setData(6, Qt.ItemDataRole.UserRole, rel_file_path)
-            widget = self.signal_tree.itemWidget(item, 6)
+            item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, rel_file_path)
+            widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
             if widget and isinstance(widget, QPushButton):
                 widget.setChecked(True)
                 widget.setStyleSheet("background-color: #4CAF50; color: white;")
@@ -1356,7 +1416,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Script selected",
-                f"Script associated with ID {item.text(2)}:\n{rel_file_path}\n\n"
+                f"Script associated with ID {item.text(TX_COL_2_id)}:\n{rel_file_path}\n\n"
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
 
@@ -1404,9 +1464,9 @@ class MainWindow(QMainWindow):
         items_to_send = []
         for i in range(self.signal_tree.topLevelItemCount()):  # Itera su tutti gli ID
             item = self.signal_tree.topLevelItem(i)
-            if item.checkState(1) == Qt.CheckState.Checked:
+            if item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked:
                 try:
-                    frame_id = int(item.text(2), 16)
+                    frame_id = int(item.text(TX_COL_2_id), 16)
                     items_to_send.append((frame_id, item))
                 except Exception:
                     continue
@@ -1426,7 +1486,7 @@ class MainWindow(QMainWindow):
 
         # Inizializza i timer ed il dizionario per la cache degli script
         for frame_id, item in items_to_send:
-            period_spin = self.signal_tree.itemWidget(item, 4)
+            period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
             period = period_spin.value() if period_spin else 1000
             self.tx_periods[frame_id] = {
                 "nominal": period,
@@ -1452,7 +1512,7 @@ class MainWindow(QMainWindow):
 
                 period_spin.valueChanged.connect(make_period_handler())
 
-            script_path = item.data(6, Qt.ItemDataRole.UserRole)
+            script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
             script_cache = {}
 
             def make_callback(frame_id=frame_id, item=item, script_path=script_path):
@@ -1460,63 +1520,71 @@ class MainWindow(QMainWindow):
                     now_time = time.time() * 1000  # ms
                     txp = self.tx_periods[frame_id]
 
+                    # TODO: riabilitare controllo adattivo del periodo correggendo il conflitto con metodo timer_busload_elapsed()
                     # Monitor period
-                    if txp["last_time"] is not None:
-                        real_period = now_time - txp["last_time"]
-                        txp["samples"].append(real_period)
-                        # if len(txp["samples"]) > 10:
-                        #     txp["samples"].pop(0)
+                    #if txp["last_time"] is not None:
+                    #    real_period = now_time - txp["last_time"]
+                    #    txp["samples"].append(real_period)
+                    #    # if len(txp["samples"]) > 10:
+                    #    #     txp["samples"].pop(0)
 
-                        # Calculate mean and check hysteresis
-                        if len(txp["samples"]) == 10:
-                            # Calcola la media attuale dei periodi e poi ripulisce la lista
-                            real_mean_period = sum(txp["samples"]) / 10
-                            txp["samples"].pop(0)
+                    #    # Calculate mean and check hysteresis
+                    #    if len(txp["samples"]) == 10:
+                    #        # Calcola la media attuale dei periodi e poi ripulisce la lista
+                    #        real_mean_period = sum(txp["samples"]) / 10
+                    #        txp["samples"].pop(0)
 
-                            ref_period = txp["nominal"]
-                            p_factor = 0.0  # Fattore di proporzione
-                            i_factor = 0.002  # Fattore di integrazione
+                    #        ref_period = txp["nominal"]
+                    #        p_factor = 0.0  # Fattore di proporzione
+                    #        i_factor = 0.002  # Fattore di integrazione
 
-                            error_period = float(ref_period) - real_mean_period
+                    #        error_period = float(ref_period) - real_mean_period
 
-                            # --- INTEGRALE: accumula l'errore nel tempo ---
-                            if "integral" not in txp:
-                                txp["integral"] = 0.0
-                            txp["integral"] += error_period
+                    #        # --- INTEGRALE: accumula l'errore nel tempo ---
+                    #        if "integral" not in txp:
+                    #            txp["integral"] = 0.0
+                    #        txp["integral"] += error_period
 
-                            # --- PI controller ---
-                            new_period = (
-                                int(
-                                    error_period * p_factor + txp["integral"] * i_factor
-                                )
-                                + ref_period
-                            )
+                    #        # --- PI controller ---
+                    #        new_period = (
+                    #            int(
+                    #                error_period * p_factor + txp["integral"] * i_factor
+                    #            )
+                    #            + ref_period
+                    #        )
 
-                            # Aggiorna il periodo del timer se necessario
-                            if new_period != ref_period + txp["offset"]:
-                                txp["offset"] = new_period - ref_period
-                                print(
-                                    f"[DEBUG] Update of period for ID 0x{frame_id:03X}: (Ierr: {txp['integral']:02f} ms, corr: {new_period - ref_period:02f} ms) ref:{ref_period} -> new:{new_period} ms"
-                                )
+                    #        # Aggiorna il periodo del timer se necessario
+                    #        if new_period != ref_period + txp["offset"]:
+                    #            txp["offset"] = new_period - ref_period
+                    #            print(
+                    #                f"[DEBUG] Update of period for ID 0x{frame_id:03X}: (Ierr: {txp['integral']:02f} ms, corr: {new_period - ref_period:02f} ms) ref:{ref_period} -> new:{new_period} ms"
+                    #            )
 
-                                for t in self.timers:
-                                    if (
-                                        hasattr(t, "frame_id")
-                                        and t.frame_id == frame_id
-                                    ):
-                                        t.stop()
-                                        t.start(max(5, new_period))
-                                        break
+                    #            for t in self.timers:
+                    #                if (
+                    #                    hasattr(t, "frame_id")
+                    #                    and t.frame_id == frame_id
+                    #                ):
+                    #                    t.stop()
+                    #                    t.start(max(5, new_period))
+                    #                    break
 
                     txp["last_time"] = (
                         now_time  # Aggiorna l'ultimo tempo di trasmissione
                     )
 
                     dlc = (
-                        item.data(2, Qt.ItemDataRole.UserRole + 1) or 8
+                        item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or 8
                     )  # se il payload viene da testo manuale
-                    if not isinstance(dlc, int) or not (1 <= dlc <= 8):
+                    if not isinstance(dlc, int) or not (1 <= dlc <= 64):
                         dlc = 8
+                        
+                    is_fd = (
+                        item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) or 0
+                    )  # 0 se CAN, 1 se CAN-FD
+                    if not isinstance(is_fd, int) or not (0 <= is_fd <= 1):
+                        is_fd = 0
+
 
                     # Se il payload è stato specificato come script, lo esegue
                     try:
@@ -1572,7 +1640,7 @@ class MainWindow(QMainWindow):
 
                         # 3. Otherwise, use manual payload
                         else:
-                            payload_text = item.text(5).strip()
+                            payload_text = item.text(TX_COL_6_payload).strip()
 
                             if payload_text:
                                 payload_parts = payload_text.split()
@@ -1611,8 +1679,8 @@ class MainWindow(QMainWindow):
                         # print(f"[DEBUG] final_payload type: {type(final_payload)}, value: {final_payload}")
 
                         # Invia il frame e aggiorna il payload nella finestra TX
-                        self.send_can_message(frame_id, final_payload, dlc)
-                        item.setText(5, " ".join(f"{b:02X}" for b in final_payload))
+                        self.send_can_message(frame_id, final_payload, dlc, is_fd)
+                        item.setText(TX_COL_6_payload, " ".join(f"{b:02X}" for b in final_payload))
 
                         # Update live gauges (XMetro)
                         for gauge in getattr(self, "xmetro_windows", []):
@@ -1633,7 +1701,7 @@ class MainWindow(QMainWindow):
 
                     except Exception as e:
                         print(f"[Error TX ID {frame_id:03X}]: {e}")
-                        log_exception(e)
+                        log_exception(__file__, sys._getframe().f_lineno, e)
 
                 return callback
 
@@ -1661,27 +1729,29 @@ class MainWindow(QMainWindow):
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
 
-    def make_timer_callback(self, frame_id, data, dlc, item=None):
+    def make_timer_callback(self, frame_id, data, dlc, is_fd, item=None):
         def callback():
-            self.send_can_message(frame_id, data, dlc)
+            self.send_can_message(frame_id, data, dlc, is_fd)
             if item:
-                item.setText(5, " ".join(f"{b:02X}" for b in data))
+                item.setText(TX_COL_6_payload, " ".join(f"{b:02X}" for b in data))
 
         return callback
 
-    def send_can_message(self, frame_id, data, dlc=None):
+    def send_can_message(self, frame_id, data, dlc=None, is_fd=False):
         if self.can_if:
-            try:
-                self.can_if.send_frame(frame_id, data, dlc)
-            except Exception as e:
-                print(f"Error sending CAN frame: {e}")
-                log_exception(e)
+            try:                
+                self.busload_tx_arbitration_bits += 79 # 11 can id (suppose base frame format) + 68 arbitration other bits
+                self.busload_tx_data_bits        += dlc
 
-    def process_received_frame(self, frame_id, data, dlc=None):
+                self.can_if.send_frame(frame_id, data, dlc, is_fd)
+            except Exception as e:
+                log_exception(__file__, sys._getframe().f_lineno, e)
+
+    def process_received_frame(self, frame_id, data, dlc=None, is_fd=False):
         try:
-            self.rx_window.update_frame(frame_id, data, dlc)
+            self.rx_window.update_frame(frame_id, data, dlc, is_fd)
         except Exception as e:
-            log_exception(e)
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
     def open_xmetro_window(self):
         if not hasattr(self, "dbc") or self.dbc is None:
@@ -1691,7 +1761,7 @@ class MainWindow(QMainWindow):
         tx_items = []
         for i in range(self.signal_tree.topLevelItemCount()):
             item = self.signal_tree.topLevelItem(i)
-            if item.checkState(1) == Qt.CheckState.Checked:
+            if item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked:
                 tx_items.append(item)
         if not tx_items:
             QMessageBox.warning(self, "XMetro", "No TX messages enabled.")
@@ -1708,26 +1778,27 @@ class MainWindow(QMainWindow):
         xmetro.destroyed.connect(lambda: self.xmetro_windows.remove(xmetro))
 
     def handle_signal_tree_sort(self, column):
-        if column == 4:
+        if column == TX_COL_4_name:
             self.signal_tree.setSortingEnabled(False)
             items = []
             for i in range(self.signal_tree.topLevelItemCount()):
                 item = self.signal_tree.topLevelItem(i)
-                period_spin = self.signal_tree.itemWidget(item, 4)
+                period_spin = self.signal_tree.itemWidget(item, TX_COL_4_name)
                 if period_spin is not None:
                     period_value = int(period_spin.value())
                 else:
                     try:
-                        period_value = int(item.text(4))
+                        period_value = int(item.text(TX_COL_4_name))
                     except Exception:
                         period_value = 100
                 item_data = {
-                    "check_state": item.checkState(1),
-                    "id": item.text(2),
-                    "name": item.text(3),
-                    "dlc": item.data(2, Qt.ItemDataRole.UserRole + 1),
-                    "payload": item.text(5),
-                    "script_path": item.data(6, Qt.ItemDataRole.UserRole),
+                    "check_state": item.checkState(TX_COL_1_enable),
+                    "id": item.text(TX_COL_2_id),
+                    "fd": item.text(TX_COL_3_fd),
+                    "name": item.text(TX_COL_4_name),
+                    "dlc": item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc),
+                    "payload": item.text(TX_COL_6_payload),
+                    "script_path": item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path),
                     "period": period_value,
                 }
                 items.append((period_value, item_data))
@@ -1745,6 +1816,7 @@ class MainWindow(QMainWindow):
                 id_text = item_data["id"]
                 name_text = item_data["name"]
                 dlc = item_data["dlc"] if item_data["dlc"] is not None else 8
+                is_fd = item_data["is_fd"]
                 payload = item_data["payload"]
                 script_path = item_data["script_path"]
                 period_val = item_data["period"] if "period" in item_data else 100
@@ -1755,23 +1827,24 @@ class MainWindow(QMainWindow):
                     | Qt.ItemFlag.ItemIsUserCheckable
                     | Qt.ItemFlag.ItemIsEditable
                 )
-                msg_item.setCheckState(1, check_state)
-                msg_item.setText(2, id_text)
-                msg_item.setText(3, name_text)
-                msg_item.setData(2, Qt.ItemDataRole.UserRole + 1, dlc)
-                msg_item.setText(5, payload)
+                msg_item.setCheckState(TX_COL_1_enable, check_state)
+                msg_item.setText(TX_COL_2_id, id_text)
+                msg_item.setText(TX_COL_3_fd, is_fd)
+                msg_item.setText(TX_COL_4_name, name_text)
+                msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
+                msg_item.setText(TX_COL_6_payload, payload)
                 if script_path:
-                    msg_item.setData(6, Qt.ItemDataRole.UserRole, script_path)
+                    msg_item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path)
 
                 period_spin = QSpinBox()
                 period_spin.setRange(1, 10000)
                 period_spin.setValue(period_val)
-                self.signal_tree.setItemWidget(msg_item, 4, period_spin)
+                self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
                 # Imposta solo il valore numerico come DisplayRole, non il testo
-                msg_item.setData(4, Qt.ItemDataRole.DisplayRole, period_spin.value())
+                msg_item.setData(TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, period_spin.value())
 
                 def on_period_changed(new_value, item=msg_item):
-                    item.setData(4, Qt.ItemDataRole.DisplayRole, new_value)
+                    item.setData(TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, new_value)
 
                 period_spin.valueChanged.connect(on_period_changed)
 
@@ -1783,27 +1856,28 @@ class MainWindow(QMainWindow):
                 btn_delete_id.clicked.connect(
                     lambda _, item=msg_item: self.delete_signal_row(item)
                 )
-                self.signal_tree.setItemWidget(msg_item, 0, btn_delete_id)
+                self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
 
-                payload_btn = QPushButton("Link Script")
-                payload_btn.setCheckable(True)
-                payload_btn.setIcon(
+                # TODO: verificare differenza tra qui ed i metodi add_manual_id() e populate_signal_tree()
+                script_btn = QPushButton("Link Script")
+                script_btn.setCheckable(True)
+                script_btn.setIcon(
                     self.style().standardIcon(
                         QStyle.StandardPixmap.SP_FileDialogDetailedView
                     )
                 )
-                payload_btn.setToolTip("No Script Linked")
-                payload_btn.clicked.connect(
+                script_btn.setToolTip("No Script Linked")
+                script_btn.clicked.connect(
                     lambda _, item=msg_item: self.modify_payload_script(item)
                 )
-                self.signal_tree.setItemWidget(msg_item, 6, payload_btn)
+                self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, payload_btn)
                 if script_path:
-                    payload_btn.setChecked(True)
-                    payload_btn.setStyleSheet(
+                    script_btn.setChecked(True)
+                    script_btn.setStyleSheet(
                         "background-color: #4CAF50; color: white;"
                     )
-                    payload_btn.setToolTip(f"Script: {script_path}")
-                    payload_btn.setText(os.path.basename(script_path))
+                    script_btn.setToolTip(f"Script: {script_path}")
+                    script_btn.setText(os.path.basename(script_path))
 
             self.signal_tree.setSortingEnabled(True)
 
@@ -1815,7 +1889,28 @@ class MainWindow(QMainWindow):
             self.signal_tree.sortItems(
                 column, self.signal_tree.header().sortIndicatorOrder()
             )
-
+            
+            
+    def timer_busload_elapsed(self):
+        tot_arbitration_bits = self.rx_window.get_busload_rx_arbitration_bits() + self.get_busload_tx_arbitration_bits()
+        tot_data_bits        = self.rx_window.get_busload_rx_data_bits()        + self.get_busload_tx_data_bits()
+        
+        self.rx_window.clear_busload_stats()
+        self.clear_busload_stats()
+        
+        label, pcan_val, real_data_val, real_arb_val = self.baudrate_values[self.cb_baudrate.currentIndex()]
+        
+        arbitration_baudrate = real_arb_val
+        data_baudrate        = real_data_val
+        
+        tot_arbitration_time_s = float(tot_arbitration_bits) / arbitration_baudrate
+        tot_data_time_s        = float(tot_data_bits)        / data_baudrate
+        
+        print(f"arbitration_baudrate={arbitration_baudrate} data_baudrate={data_baudrate} tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s{tot_data_time_s:6.4f}")
+        
+        busload = ((tot_arbitration_time_s + tot_data_time_s)*100) / (float(BUSLOAD_refresh_rate_ms)/1000) 
+        
+        self.lbl_busload.setText(f"BusLoad: {busload:3.1f}%")
 
 if __name__ == "__main__":
     import sys

@@ -97,7 +97,7 @@ def list_arduino_ports():
 
         return ports
     except Exception as e:
-        log_exception(e)
+        log_exception(__file__, sys._getframe().f_lineno, e)
         return ["-"]
 
 
@@ -142,7 +142,7 @@ class FlashWorker(QObject):
             self.finished.emit(True, f"Flash su {self.port} completato!")
 
         except Exception as e:
-            log_exception(e)
+            log_exception(__file__, sys._getframe().f_lineno, e)
             self.finished.emit(False, str(e))
 
 

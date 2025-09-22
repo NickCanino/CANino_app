@@ -49,5 +49,6 @@ logging.basicConfig(
 )
 
 
-def log_exception(e):
+def log_exception(filename="", line_number="", e=""):
+    print(f"Exception occurred [{filename}:{line_number}]: {e}")
     logging.error("Exception occurred", exc_info=e)

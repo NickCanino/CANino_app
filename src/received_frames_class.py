@@ -33,15 +33,34 @@ from PyQt6.QtGui import QFont
 from PyQt6.QtCore import Qt, QTimer, QDateTime
 import time
 import csv
+import sys
 import statistics
 from datetime import datetime
 
 from src.exceptions_logger import log_exception
 
+RX_refresh_rate_ms  = 500
+
+# Rx column definition (see also setHorizontalHeaderLabels)
+RX_COL_0_id            = 0       
+RX_COL_1_name          = 1      
+RX_COL_2_dlc           = 2       
+RX_COL_3_payload       = 3                   
+RX_COL_4_count         = 4         
+RX_COL_5_period        = 5     
+RX_COL_6_min           = 6     
+RX_COL_7_max           = 7     
+RX_COL_8_dev_std       = 8              
+RX_COL_9_last_received = 9         
+
+
+
+
 class PayloadEditDelegate(QStyledItemDelegate):
     def initStyleOption(self, option, index):
+        # Monospace style for some columns
         super().initStyleOption(option, index)
-        if index.column() == 0 or index.column() == 1 or index.column() == 2 or index.column() == 3:
+        if index.column() == RX_COL_0_id or index.column() == RX_COL_1_name or index.column() == RX_COL_2_dlc or index.column() == RX_COL_3_payload:
             font = QFont("Arial", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
@@ -55,6 +74,9 @@ class ReceivedFramesWindow(QWidget):
         self.csv_writer = None
         self.log_active = False
         self.log_paused = False
+        
+        self.busload_rx_arbitration_bits = 0 # busload Rx statistics
+        self.busload_rx_data_bits        = 0 # busload Rx statistics
 
         layout = QVBoxLayout()
 
@@ -94,12 +116,12 @@ class ReceivedFramesWindow(QWidget):
         self.btn_stop_log.setFixedSize(100, 30)
 
         # Pulsante per pulire tabella RX
-        self.btn_clear_table = QPushButton("")
+        self.btn_clear_table = QPushButton("Clear")
         self.btn_clear_table.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
         )
         self.btn_clear_table.setToolTip("Clear RX table")
-        self.btn_clear_table.setFixedSize(30, 30)
+        self.btn_clear_table.setFixedSize(80, 30)
 
         # Styles for buttons
         self.btn_start_log.setStyleSheet(
@@ -162,28 +184,32 @@ class ReceivedFramesWindow(QWidget):
         self.btn_stop_log.clicked.connect(self.stop_log)
 
         # --- Tabella RX ---
-        self.table = QTableWidget(0, 8)  # 8 colonne
+        self.table = QTableWidget(0, 10)  # 10 colonne
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
                 "Name",
                 "DLC",
-                "Payload (0-7)",
-                "Last Received",
+                "Payload",
                 "Count",
                 "Period (ms)",
+                "Min (ms)",
+                "Max (ms)",
                 "Dev. Std (ms)",
+                "Last Received",
             ]
         )
         # Imposta larghezza colonne
-        self.table.setColumnWidth(0, 50)  # ID
-        self.table.setColumnWidth(1, 100)  # Nome
-        self.table.setColumnWidth(2, 50)  # DLC
-        self.table.setColumnWidth(3, 140)  # Payload
-        self.table.setColumnWidth(4, 140)  # Ultimo ricevimento
-        self.table.setColumnWidth(5, 70)  # Conteggio
-        self.table.setColumnWidth(6, 100)  # Periodo EMA (ms)
-        self.table.setColumnWidth(7, 100)  # Dev. Std (ms)
+        self.table.setColumnWidth(RX_COL_0_id           , 50)  
+        self.table.setColumnWidth(RX_COL_1_name         , 100) 
+        self.table.setColumnWidth(RX_COL_2_dlc          , 50)  
+        self.table.setColumnWidth(RX_COL_3_payload      , 800) # old: 140
+        self.table.setColumnWidth(RX_COL_4_count        , 70)
+        self.table.setColumnWidth(RX_COL_5_period       , 80) # old: 100 
+        self.table.setColumnWidth(RX_COL_6_min          , 80) 
+        self.table.setColumnWidth(RX_COL_7_max          , 80) 
+        self.table.setColumnWidth(RX_COL_8_dev_std      , 100) 
+        self.table.setColumnWidth(RX_COL_9_last_received, 140)
 
         self.table.setItemDelegate(PayloadEditDelegate(self.table))
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
@@ -205,14 +231,29 @@ class ReceivedFramesWindow(QWidget):
         # Timer per aggiornare la tabella ogni secondo
         self.refresh_timer = QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh_table)
-        self.refresh_timer.start(500)  # ogni 500 ms
+        self.refresh_timer.start(RX_refresh_rate_ms)  # ogni 500 ms
+
+    def clear_busload_stats(self):
+        self.busload_rx_arbitration_bits = 0
+        self.busload_rx_data_bits        = 0
+
+    def get_busload_rx_arbitration_bits(self):
+        return self.busload_rx_arbitration_bits
+    
+    def get_busload_rx_data_bits(self):
+        return self.busload_rx_data_bits
+    
 
     def clear_rx_table(self):
         self.table.setRowCount(0)
         self._rx_buffer.clear()
 
-    def update_frame(self, frame_id: int, data: bytes, dlc: int = None):
+    def update_frame(self, frame_id: int, data: bytes, dlc: int = None, is_fd: bool = False):
         # Aggiorna solo il buffer, non la tabella direttamente
+        
+        self.busload_rx_arbitration_bits += 79 # 11 can id (suppose base frame format) + 68 arbitration other bits
+        self.busload_rx_data_bits        += dlc
+        
         now = time.time()
         if frame_id not in self._rx_buffer:  # Nuovo frame
             self._rx_buffer[frame_id] = {
@@ -221,6 +262,8 @@ class ReceivedFramesWindow(QWidget):
                 "data": data,
                 "last_time": now,
                 "periods": [0],
+                "min": None,
+                "max": None,
                 "avg_period": None,
             }
         else:  # Frame già esistente
@@ -231,6 +274,8 @@ class ReceivedFramesWindow(QWidget):
                 data=f["data"],
                 dlc=f["dlc"],
                 count=f["count"],
+                #min=f["min"],
+                #max=f["max"],
                 avg_period=f["avg_period"],
                 periods=f["periods"],
             )
@@ -241,6 +286,16 @@ class ReceivedFramesWindow(QWidget):
             f["dlc"] = len(data)
             f["data"] = data
             f["periods"].append(period)
+            
+            if f["min"] is None:  # primo aggiornamento
+                f["min"] = period
+            else: 
+                f["min"] = period if period < f["min"] else f["min"]
+            
+            if f["max"] is None:  # primo aggiornamento
+                f["max"] = period
+            else: 
+                f["max"] = period if period > f["max"] else f["max"]
 
             if f["avg_period"] is None:  # primo aggiornamento
                 f["avg_period"] = period
@@ -266,7 +321,7 @@ class ReceivedFramesWindow(QWidget):
                 # crea nuova riga
                 row = self.table.rowCount()
                 self.table.insertRow(row)
-                self.table.setItem(row, 0, QTableWidgetItem(id_str))
+                self.table.setItem(row, RX_COL_0_id, QTableWidgetItem(id_str))
             # Aggiorna sempre il nome dalla DBC (anche se già presente)
             msg_name = ""
             if self.dbc and hasattr(self.dbc, "db"):
@@ -276,27 +331,20 @@ class ReceivedFramesWindow(QWidget):
                         msg_name = msg.name
                 except Exception:
                     pass
-            self.table.setItem(row, 1, QTableWidgetItem(msg_name))
 
+            self.table.setItem(row, RX_COL_1_name, QTableWidgetItem(msg_name))
+            self.table.setItem(row, RX_COL_2_dlc, QTableWidgetItem(str(f["dlc"])))
+            self.table.setItem(row, RX_COL_3_payload, QTableWidgetItem(" ".join(f"{b:02X}" for b in f["data"])))
+            self.table.setItem(row, RX_COL_4_count, QTableWidgetItem(str(f["count"])))
+            self.table.setItem(row, RX_COL_5_period, QTableWidgetItem(f"{f['avg_period']:.1f}" if f["avg_period"] else "-"))
+            self.table.setItem(row, RX_COL_6_min, QTableWidgetItem(f"{f['min']:.1f}" if f["min"] else "-"))
+            self.table.setItem(row, RX_COL_7_max, QTableWidgetItem(f"{f['max']:.1f}" if f["max"] else "-"))
+            
             std_dev = statistics.pstdev(f["periods"]) if len(f["periods"]) > 1 else 0.0
+            self.table.setItem(row, RX_COL_8_dev_std, QTableWidgetItem(f"{std_dev:.1f}" if std_dev else "-"))
 
-            self.table.setItem(row, 2, QTableWidgetItem(str(f["dlc"])))
-            self.table.setItem(
-                row, 3, QTableWidgetItem(" ".join(f"{b:02X}" for b in f["data"]))
-            )
             last_recv = QDateTime.fromSecsSinceEpoch(int(f["last_time"]))
-            self.table.setItem(
-                row, 4, QTableWidgetItem(last_recv.toString(Qt.DateFormat.ISODate))
-            )
-            self.table.setItem(row, 5, QTableWidgetItem(str(f["count"])))
-            self.table.setItem(
-                row,
-                6,
-                QTableWidgetItem(f"{f['avg_period']:.1f}" if f["avg_period"] else "-"),
-            )
-            self.table.setItem(
-                row, 7, QTableWidgetItem(f"{std_dev:.1f}" if std_dev else "-")
-            )
+            self.table.setItem(row, RX_COL_9_last_received, QTableWidgetItem(last_recv.toString(Qt.DateFormat.ISODate)))
 
     def set_dbc(self, dbc):
         self.dbc = dbc
@@ -311,7 +359,7 @@ class ReceivedFramesWindow(QWidget):
                         msg_name = msg.name
                 except Exception:
                     pass
-            self.table.setItem(row, 1, QTableWidgetItem(msg_name))
+            self.table.setItem(row, RX_COL_1_name, QTableWidgetItem(msg_name))
 
     def link_csv_file(self):
         path, _ = QFileDialog.getSaveFileName(
@@ -387,7 +435,7 @@ class ReceivedFramesWindow(QWidget):
                 )
                 self.csv_file.flush()
             except Exception as e:
-                log_exception(e)
+                log_exception(__file__, sys._getframe().f_lineno, e)
 
     def start_log(self):  # metodo per avviare il log e aprire il file CSV
         if not self.csv_path:

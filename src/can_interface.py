@@ -20,15 +20,17 @@
 
 import can
 import threading
+import sys
 from typing import Callable, Optional
 from src.PCANBasic import PCANBasic, PCAN_ERROR_OK, PCAN_ATTACHED_CHANNELS, PCAN_NONEBUS
 from src.exceptions_logger import log_exception
 
 
 class CANInterface:
-    def __init__(self, channel: str, bitrate: int = 500000):
+    def __init__(self, channel: str, timing:"500000", is_fd = False) :
         self.channel = channel
-        self.bitrate = bitrate
+        self.timing = timing # must be valid both if CAN or CANFD
+        self.is_fd = is_fd
         self.bus = None
         self.receive_thread = None
         self.running = False
@@ -38,25 +40,31 @@ class CANInterface:
 
     def open_bus(self):
         try:
-            self.bus = can.interface.Bus(
-                channel=self.channel, bustype="pcan", bitrate=self.bitrate
+            self.bus = can.Bus(
+                channel=self.channel, 
+                interface="pcan",
+                timing=self.timing,
+                fd=self.is_fd,
+                auto_reset=True,
+                receive_own_messages=False
             )
+            
             self.running = True
             self.receive_thread = threading.Thread(
                 target=self._receive_loop, daemon=True
             )
             self.receive_thread.start()
         except Exception as e:
-            log_exception(e)
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
-    def send_frame(self, frame_id, data, dlc=None):
+    def send_frame(self, frame_id, data, dlc=None, is_fd=False):
         try:
             msg = can.Message(
-                arbitration_id=frame_id, data=data, is_extended_id=False, dlc=dlc
+                arbitration_id=frame_id, data=data, is_extended_id=False, dlc=dlc, is_fd=is_fd, bitrate_switch=is_fd, check=True
             )
             self.bus.send(msg)
         except Exception as e:
-            log_exception(e)
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
     def _receive_loop(self):
         while self.running:
@@ -64,9 +72,9 @@ class CANInterface:
                 if self.bus is not None:
                     msg = self.bus.recv(1.0)
                     if msg and self.receive_callback:
-                        self.receive_callback(msg.arbitration_id, msg.data)
+                        self.receive_callback(msg.arbitration_id, msg.data, msg.dlc, msg.is_fd)
             except Exception as e:
-                log_exception(e)
+                log_exception(__file__, sys._getframe().f_lineno, e)
 
     def set_receive_callback(self, callback: Optional[Callable[[int, bytes], None]]):
         self.receive_callback = callback

@@ -82,6 +82,7 @@ class DBCLoader:
 
     def _load_messages(self):
         for msg in self.db.messages:  # type: ignore[attr-defined]
+            print(f"{msg}")
             if not isinstance(msg, Message):
                 continue
 

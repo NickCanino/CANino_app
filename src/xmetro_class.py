@@ -120,7 +120,7 @@ class XMetroWindow(QWidget):
             if isinstance(physical_val, NamedSignalValue):
                 physical_val = int(physical_val)
         except Exception as e:
-            log_exception(e)
+            log_exception(__file__, sys._getframe().f_lineno, e)
             physical_val = 0
 
         # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
