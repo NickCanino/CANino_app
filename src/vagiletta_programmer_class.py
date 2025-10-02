@@ -44,7 +44,18 @@ from src.utils import resource_path
 ARDUINO_CLI = resource_path("tools/arduino-cli.exe")
 BUILD_DIR = Path("./arduino_build")
 INO_IMG_PATH = resource_path("resources/figures/arduino_uno.png")
+APP_LOGO_PATH = resource_path("resources/figures/app_logo.ico")
 
+NUM_TO_LETTER = [
+    'A',
+    'B',
+    'C',
+    'D',
+    'E',
+    'F',
+    'G',
+    'H'
+]
 
 def get_params_hash(params: dict) -> str:
     s = "_".join(f"{k}={v}" for k, v in sorted(params.items()))
@@ -156,6 +167,7 @@ class VagilettaWindow(QDialog):
         main_layout = QVBoxLayout(self)
         self.setLayout(main_layout)
         self.setMinimumSize(900, 400)
+        self.setWindowIcon(QIcon(resource_path(APP_LOGO_PATH)))
 
         self.pixmap_scaled = QPixmap(INO_IMG_PATH).scaled(
             100,
@@ -183,7 +195,7 @@ class VagilettaWindow(QDialog):
         for i in range(2):
             for j in range(4):
                 index = i * 4 + j
-                group = QGroupBox(f"Slot {index + 1}")
+                group = QGroupBox(f"Node {index + 1}") # group = QGroupBox(f"Node {NUM_TO_LETTER[index]}")
                 group.setStyleSheet(
                     "QGroupBox { border: 2px solid #2196F3; border-radius: 8px; margin-top: 8px; }"
                 )

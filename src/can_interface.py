@@ -59,6 +59,20 @@ class CANInterface:
 
     def send_frame(self, frame_id, data, dlc=None, is_fd=False):
         try:
+            if self.bus is None:
+                print("[ERROR] CAN bus not initialized. Cannot send frame.")
+                return
+            
+            # CAN-FD: dlc può essere fino a 64, CAN classico fino a 8
+            if dlc is None:
+                dlc = len(data)
+            if not isinstance(data, (bytes, bytearray)):
+                data = bytes(data)
+            if len(data) < dlc:
+                data = data + bytes([0x00] * (dlc - len(data)))
+            elif len(data) > dlc:
+                data = data[:dlc]
+            
             msg = can.Message(
                 arbitration_id=frame_id,
                 data=data,
@@ -69,6 +83,7 @@ class CANInterface:
                 check=True,
             )
             self.bus.send(msg)
+
         except Exception as e:
             log_exception(__file__, sys._getframe().f_lineno, e)
 

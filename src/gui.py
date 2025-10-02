@@ -1126,7 +1126,7 @@ class MainWindow(QMainWindow):
                 return
 
             try:  # Try to connect to the CAN interface
-                bitrate_lbl = self.cb_baudrate.currentData()
+                bitrate_lbl = self.cb_baudrate.currentText()
                 print(f"[DEBUG] selected timing: {bitrate_lbl}")
                 self.can_if = CANInterface(
                     channel, timing=bitrate_lbl, is_fd=("f_clock=" in bitrate_lbl)
@@ -1187,6 +1187,7 @@ class MainWindow(QMainWindow):
         self.signal_tree.clear()
         if not self.dbc:
             return
+        is_fd = self.can_if.is_fd if self.can_if is not None else False
         for msg in self.dbc.messages:
             msg_item = QTreeWidgetItem(self.signal_tree)
             msg_item.setFlags(
@@ -1196,7 +1197,7 @@ class MainWindow(QMainWindow):
             )
             msg_item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
             msg_item.setText(TX_COL_2_id, f"0x{msg.frame_id:03X}")
-            msg_item.setText(TX_COL_3_fd, "Y" if self.can_if.is_fd else "n")
+            msg_item.setText(TX_COL_3_fd, "Y" if is_fd else "n")
             msg_item.setText(TX_COL_4_name, msg.name)
 
             period_spin = QSpinBox()
@@ -1246,7 +1247,7 @@ class MainWindow(QMainWindow):
 
     def add_manual_id(self):
         id_text, ok = QInputDialog.getText(
-            self, "Add Manual ID", "Enter hexadecimal ID (e.g. 100):"
+            self, "Add Manual ID", "Enter hex. ID (e.g. 100):"
         )
         if not ok or not id_text:
             return
@@ -1267,15 +1268,18 @@ class MainWindow(QMainWindow):
         if not ok:
             return
 
-        dlc, ok = QInputDialog.getInt(
-            self, "Add Manual ID", "Enter DLC (1-64):", min=1, max=64
-        )
-
-        # TODO: questo input non dovrebbe essere fornito per primo? Parametri come il DLC non dipendono da questo?
         is_fd, ok = QInputDialog.getInt(
             self, "Add Manual ID", "Select if FD (0-1):", min=0, max=1
         )
 
+        if is_fd is 1:
+            dlc, ok = QInputDialog.getInt(
+                self, "Add Manual ID", "Enter DLC (1-64):", min=1, max=64
+            )
+        elif is_fd is 0:
+            dlc, ok = QInputDialog.getInt(
+                self, "Add Manual ID", "Enter DLC (1-8):", min=1, max=8
+            )
         if not ok:
             return
 
@@ -1929,32 +1933,49 @@ class MainWindow(QMainWindow):
                 column, self.signal_tree.header().sortIndicatorOrder()
             )
 
+    
+
+    # BUG: error in tot_arbitration_time_s calculation when selecting a baudrate different from 2Mbit/s(FD)
     def timer_busload_elapsed(self):
+        # Sums of TX bits in arbitration phase and data phase (for CAN-FD)
         tot_arbitration_bits = (
             self.rx_window.get_busload_rx_arbitration_bits()
             + self.get_busload_tx_arbitration_bits()
         )
         tot_data_bits = (
-            self.rx_window.get_busload_rx_data_bits() + self.get_busload_tx_data_bits()
+            self.rx_window.get_busload_rx_data_bits()
+            + self.get_busload_tx_data_bits()
         )
 
+        # Stats reset
         self.rx_window.clear_busload_stats()
         self.clear_busload_stats()
 
+        # Extraction of values from selected baudrate
         label, pcan_val, real_data_val, real_arb_val = self.baudrate_values[
             self.cb_baudrate.currentIndex()
         ]
 
-        arbitration_baudrate = real_arb_val
-        data_baudrate = real_data_val
+        # Total time occupied in the bus
+        if real_arb_val > 0:
+            # CAN-FD: arbitration phase (500 kbit/s) + data phase (2 Mbit/s)
+            arbitration_baudrate = real_arb_val
+            data_baudrate = real_data_val
 
-        tot_arbitration_time_s = float(tot_arbitration_bits) / arbitration_baudrate
-        tot_data_time_s = float(tot_data_bits) / data_baudrate
+            tot_arbitration_time_s = float(tot_arbitration_bits) / arbitration_baudrate
+            tot_data_time_s = float(tot_data_bits) / data_baudrate
+        else:
+            # classic CAN: fixed bitrate for arbitration and data phases
+            arbitration_baudrate = real_data_val  # unique bitrate
+            tot_arbitration_time_s = float(tot_arbitration_bits + tot_data_bits) / arbitration_baudrate
+            tot_data_time_s = 0.0  # no distiction
 
         print(
-            f"arbitration_baudrate={arbitration_baudrate} data_baudrate={data_baudrate} tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s{tot_data_time_s:6.4f}"
+            f"arbitration_baudrate={arbitration_baudrate} data_baudrate={real_data_val} "
+            f"tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s={tot_data_time_s:6.4f}"
         )
 
+        # Busload as percentage
         busload = ((tot_arbitration_time_s + tot_data_time_s) * 100) / (
             float(BUSLOAD_refresh_rate_ms) / 1000
         )
