@@ -64,7 +64,7 @@ def _is_int_like(s: str) -> bool:
 
 def _row_to_bytes(row: list[str]) -> bytes:
     vals = []
-    for cell in row[1:]:
+    for cell in reversed(row[1:]):
         cell = cell.strip()
         if not cell:
             continue

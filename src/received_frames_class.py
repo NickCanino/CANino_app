@@ -64,7 +64,8 @@ class PayloadEditDelegate(QStyledItemDelegate):
             or index.column() == RX_COL_2_dlc
             or index.column() == RX_COL_3_payload
         ):
-            font = QFont("Arial", 10)
+            # font = QFont("Arial", 10)
+            font = QFont("Courier New", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
 
@@ -207,7 +208,7 @@ class ReceivedFramesWindow(QWidget):
         self.table.setColumnWidth(RX_COL_0_id, 50)
         self.table.setColumnWidth(RX_COL_1_name, 100)
         self.table.setColumnWidth(RX_COL_2_dlc, 50)
-        self.table.setColumnWidth(RX_COL_3_payload, 800)  # old: 140
+        self.table.setColumnWidth(RX_COL_3_payload, 200)  # old: 140
         self.table.setColumnWidth(RX_COL_4_count, 70)
         self.table.setColumnWidth(RX_COL_5_period, 80)  # old: 100
         self.table.setColumnWidth(RX_COL_6_min, 80)
@@ -256,10 +257,30 @@ class ReceivedFramesWindow(QWidget):
     ):
         # Aggiorna solo il buffer, non la tabella direttamente
 
-        self.busload_rx_arbitration_bits += (
-            79  # 11 can id (suppose base frame format) + 68 arbitration other bits
-        )
-        self.busload_rx_data_bits += dlc
+        # determina DLC se non fornito
+        if dlc is None:
+            dlc = len(data) if data else 0
+        dlc = max(0, min(int(dlc), 64))
+
+        # heuristica extended ID
+        is_extended = isinstance(frame_id, int) and frame_id > 0x7FF
+
+        # Conteggio compatto dei bit:
+        # arbitration = SOF(1) + ID(11|29) + RTR/IDE/RES(≈3) + DLC(4)
+        # data_phase = data(8*dlc) + CRC(+delim)
+        # NOTE: ACK/EOF/IFS sono trasmessi al nominale in CAN-FD -> spostarli in arbitration_bits per is_fd
+        arbitration_bits = 1 + (29 if is_extended else 11) + 3 + 4
+        if not is_fd:
+            crc_total = 15 + 1
+            data_phase_bits = 8 * dlc + crc_total + 2 + 7 + 3
+        else:
+            crc_total = (17 + 1) if dlc <= 16 else (21 + 1)
+            data_phase_bits = 8 * dlc + crc_total
+            arbitration_bits += 2 + 7 + 3
+
+        # aggiorna i contatori RX (arbitration parte a nominale, data parte a data-rate per FD)
+        self.busload_rx_arbitration_bits += arbitration_bits
+        self.busload_rx_data_bits += data_phase_bits
 
         now = time.time()
         if frame_id not in self._rx_buffer:  # Nuovo frame

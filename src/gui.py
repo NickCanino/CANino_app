@@ -220,10 +220,16 @@ class MainWindow(QMainWindow):
         file_menu.addAction(action_load)
         menubar.addMenu(file_menu)
 
-        # --- AGGIUNGI L'AZIONE "Valigetta" ALLA MENUBAR ---
-        action_vagiletta = QAction("Valigetta", self)
+        # --- AGGIUNGI L'AZIONE "VAGILETTA" ALLA MENUBAR ---
+        action_vagiletta = QAction("VAGILETTA", self)
         action_vagiletta.triggered.connect(self.open_vagiletta_window)
         menubar.addAction(action_vagiletta)
+
+        # --- AGGIUNGI L'AZIONE "XMETRO" ALLA MENUBAR ---
+        action_xmetro = QAction("XMetro", self)
+        # action_xmetro.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+        action_xmetro.triggered.connect(self.open_xmetro_window)
+        menubar.addAction(action_xmetro)
 
         self.setMenuBar(menubar)
 
@@ -322,14 +328,14 @@ class MainWindow(QMainWindow):
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
         self.btn_start_tx.setEnabled(False)  # Disabilita il pulsante all'inizio
 
-        # Button to open the XMetro window
-        self.btn_add_xmetro = QPushButton("Add XMetro TX")
-        self.btn_add_xmetro.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
-        )
-        self.btn_add_xmetro.setFixedSize(140, 30)
-        self.btn_add_xmetro.clicked.connect(self.open_xmetro_window)
-        self.xmetro_windows = []
+        # # Button to open the XMetro window
+        # self.btn_add_xmetro = QPushButton("Add XMetro")
+        # self.btn_add_xmetro.setIcon(
+        #     self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon)
+        # )
+        # self.btn_add_xmetro.setFixedSize(140, 30)
+        # self.btn_add_xmetro.clicked.connect(self.open_xmetro_window)
+        # self.xmetro_windows = []
 
         # Button to link a global Payload Script
         self.btn_link_global_script = QPushButton("Link Global Script")
@@ -345,7 +351,7 @@ class MainWindow(QMainWindow):
         tx_buttons_layout = QHBoxLayout()
         tx_buttons_layout.addWidget(self.btn_add_id)
         tx_buttons_layout.addWidget(self.btn_start_tx)
-        tx_buttons_layout.addWidget(self.btn_add_xmetro)
+        # tx_buttons_layout.addWidget(self.btn_add_xmetro)
         tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_link_global_script)
 
@@ -360,7 +366,7 @@ class MainWindow(QMainWindow):
         self.signal_tree.setColumnWidth(TX_COL_3_fd, 30)
         self.signal_tree.setColumnWidth(TX_COL_4_name, 100)
         self.signal_tree.setColumnWidth(TX_COL_5_period, 80)
-        self.signal_tree.setColumnWidth(TX_COL_6_payload, 800)  # old: 190
+        self.signal_tree.setColumnWidth(TX_COL_6_payload, 200)  # old: 190
         self.signal_tree.setColumnWidth(TX_COL_7_script, 70)
         self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
 
@@ -487,7 +493,7 @@ class MainWindow(QMainWindow):
                 QMessageBox.warning(
                     self,
                     "Slider already exists",
-                    f"Slider already exists for {msg.name} (0x{msg.frame_id:03X}) → {sig.name}",
+                    f"Slider already exists for {msg.name} (0x{msg.frame_id:03X}) → {sig.name} [{sig.length+sig.start_bit-1}:{sig.start_bit}]",
                 )
                 return
 
@@ -528,7 +534,9 @@ class MainWindow(QMainWindow):
             slider_widget.key = key  # Store the key for later reference
             self.slider_widgets.append(slider_widget)  # Store the widget for later use
 
-            label = QLabel(f"{msg.name} (0x{msg.frame_id:03X}) → {sig.name}")
+            label = QLabel(
+                f"{msg.name} (0x{msg.frame_id:03X}) → {sig.name} [{sig.length+sig.start_bit-1}:{sig.start_bit}]"
+            )
             slider_layout_inner.addWidget(label)
 
             # Crea e setta lo slider
@@ -994,7 +1002,9 @@ class MainWindow(QMainWindow):
                     slider_layout_inner = QVBoxLayout()
                     slider_widget.setLayout(slider_layout_inner)
 
-                    label = QLabel(f"{msg.name} (0x{msg.frame_id:03X}) → {sig.name}")
+                    label = QLabel(
+                        f"{msg.name} (0x{msg.frame_id:03X}) → {sig.name} [{sig.length+sig.start_bit-1}:{sig.start_bit}]"
+                    )
                     slider_layout_inner.addWidget(label)
 
                     slider = QSlider(Qt.Orientation.Horizontal)
@@ -1272,11 +1282,11 @@ class MainWindow(QMainWindow):
             self, "Add Manual ID", "Select if FD (0-1):", min=0, max=1
         )
 
-        if is_fd is 1:
+        if is_fd == 1:
             dlc, ok = QInputDialog.getInt(
                 self, "Add Manual ID", "Enter DLC (1-64):", min=1, max=64
             )
-        elif is_fd is 0:
+        elif is_fd == 0:
             dlc, ok = QInputDialog.getInt(
                 self, "Add Manual ID", "Enter DLC (1-8):", min=1, max=8
             )
@@ -1724,21 +1734,21 @@ class MainWindow(QMainWindow):
                         )
 
                         # Update live gauges (XMetro)
-                        for gauge in getattr(self, "xmetro_windows", []):
-                            if gauge.cb_messages.currentData() == frame_id:
-                                if not isinstance(
-                                    final_payload, bytes
-                                ):  # Converti in bytes se necessario
-                                    try:
-                                        final_payload = bytes(final_payload)
-                                    except Exception:
-                                        print(
-                                            f"[XMetro] Payload not convertible: {type(final_payload)}, value {final_payload}"
-                                        )
-                                        continue
-                                # Update the gauge with the final payload
-                                gauge.update_gauge(final_payload)
-                                # print(f"[XMetro] Payload passed to gauge: {type(final_payload)}, value {final_payload}")
+                        # for gauge in getattr(self, "xmetro_windows", []):
+                        #     if gauge.cb_messages.currentData() == frame_id:
+                        #         if not isinstance(
+                        #             final_payload, bytes
+                        #         ):  # Converti in bytes se necessario
+                        #             try:
+                        #                 final_payload = bytes(final_payload)
+                        #             except Exception:
+                        #                 print(
+                        #                     f"[XMetro] Payload not convertible: {type(final_payload)}, value {final_payload}"
+                        #                 )
+                        #                 continue
+                        #         # Update the gauge with the final payload
+                        #         gauge.update_gauge(final_payload)
+                        #         # print(f"[XMetro] Payload passed to gauge: {type(final_payload)}, value {final_payload}")
 
                     except Exception as e:
                         print(f"[Error TX ID {frame_id:03X}]: {e}")
@@ -1779,44 +1789,86 @@ class MainWindow(QMainWindow):
         return callback
 
     def send_can_message(self, frame_id, data, dlc=None, is_fd=False):
-        if self.can_if:
-            try:
-                self.busload_tx_arbitration_bits += 79  # 11 can id (suppose base frame format) + 68 arbitration other bits
-                self.busload_tx_data_bits += dlc
+        if not self.can_if:
+            return
+        try:
+            # determine DLC
+            if dlc is None:
+                dlc = len(data) if data else 0
+            dlc = max(0, min(int(dlc), 64))
 
-                self.can_if.send_frame(frame_id, data, dlc, is_fd)
-            except Exception as e:
-                log_exception(__file__, sys._getframe().f_lineno, e)
+            # extended ID heuristic
+            is_ext = isinstance(frame_id, int) and frame_id > 0x7FF
+
+            # Compact bit counting:
+            # arbitration = SOF(1) + ID(11|29) + RTR/IDE/RES(≈3) + DLC(4)
+            # data_phase = data(8*dlc) + CRC(+delim)
+            # NOTE: ACK/EOF/IFS are transmitted at nominal bitrate in CAN-FD -> count them in arbitration_bits for is_fd
+            arbitration_bits = 1 + (29 if is_ext else 11) + 3 + 4
+            if not is_fd:
+                crc_total = 15 + 1
+                data_phase_bits = (
+                    8 * dlc + crc_total + 2 + 7 + 3
+                )  # ACK+EOF+IFS at same bitrate
+            else:
+                crc_total = (17 + 1) if dlc <= 16 else (21 + 1)
+                data_phase_bits = 8 * dlc + crc_total  # only data+CRC at data-rate
+                arbitration_bits += (
+                    2 + 7 + 3
+                )  # ACK + EOF + IFS are at nominal (arbitration) bitrate
+
+            # update counters (arbitration at nominal rate, data phase at data rate for FD)
+            self.busload_tx_arbitration_bits += arbitration_bits
+            self.busload_tx_data_bits += data_phase_bits
+
+            # send
+            self.can_if.send_frame(frame_id, data, dlc, is_fd)
+        except Exception as e:
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
     def process_received_frame(self, frame_id, data, dlc=None, is_fd=False):
         try:
+            # aggiorna il buffer/tabella RX
             self.rx_window.update_frame(frame_id, data, dlc, is_fd)
+
+            # Aggiorna i gauge che mostrano questo frame ID
+            for gauge in getattr(self, "gauges", []):
+                if gauge.cb_messages.currentData() == frame_id:
+                    if not isinstance(data, bytes):
+                        data = bytes(data)
+                    gauge.update_gauge(data)
+
         except Exception as e:
             log_exception(__file__, sys._getframe().f_lineno, e)
 
     def open_xmetro_window(self):
+        print("Opening XMetro window...")
+
         if not hasattr(self, "dbc") or self.dbc is None:
+            print("No DBC file loaded")
             QMessageBox.warning(self, "DBC", "Load a DBC file first!")
             return
 
-        tx_items = []
-        for i in range(self.signal_tree.topLevelItemCount()):
-            item = self.signal_tree.topLevelItem(i)
-            if item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked:
-                tx_items.append(item)
-        if not tx_items:
-            QMessageBox.warning(self, "XMetro", "No TX messages enabled.")
+        if not self.dbc.db.messages:
+            print("No messages in DBC")
+            QMessageBox.warning(self, "XMetro", "No messages in DBC file.")
             return
 
-        # List of XMetro windows that have been opened
-        # self.xmetro_windows = []
+        try:
+            # Mantieni una lista di finestre XMetro
+            if not hasattr(self, "xmetro_windows"):
+                self.xmetro_windows = []
 
-        xmetro = XMetroWindow(self.dbc, tx_items)
-        xmetro.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        xmetro.show()
-        self.xmetro_windows.append(xmetro)
-        # Tiene traccia di quelle eliminate
-        xmetro.destroyed.connect(lambda: self.xmetro_windows.remove(xmetro))
+            xmetro = XMetroWindow(self.dbc)
+            self.xmetro_windows.append(xmetro)
+
+            xmetro.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            xmetro.show()
+            print("XMetro window created and shown")
+
+        except Exception as e:
+            print(f"Error creating XMetro window: {str(e)}")
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
     def handle_signal_tree_sort(self, column):
         if column == TX_COL_4_name:
@@ -1933,9 +1985,6 @@ class MainWindow(QMainWindow):
                 column, self.signal_tree.header().sortIndicatorOrder()
             )
 
-    
-
-    # BUG: error in tot_arbitration_time_s calculation when selecting a baudrate different from 2Mbit/s(FD)
     def timer_busload_elapsed(self):
         # Sums of TX bits in arbitration phase and data phase (for CAN-FD)
         tot_arbitration_bits = (
@@ -1943,8 +1992,7 @@ class MainWindow(QMainWindow):
             + self.get_busload_tx_arbitration_bits()
         )
         tot_data_bits = (
-            self.rx_window.get_busload_rx_data_bits()
-            + self.get_busload_tx_data_bits()
+            self.rx_window.get_busload_rx_data_bits() + self.get_busload_tx_data_bits()
         )
 
         # Stats reset
@@ -1967,13 +2015,17 @@ class MainWindow(QMainWindow):
         else:
             # classic CAN: fixed bitrate for arbitration and data phases
             arbitration_baudrate = real_data_val  # unique bitrate
-            tot_arbitration_time_s = float(tot_arbitration_bits + tot_data_bits) / arbitration_baudrate
+            tot_arbitration_time_s = (
+                float(tot_arbitration_bits + tot_data_bits) / arbitration_baudrate
+            )
             tot_data_time_s = 0.0  # no distiction
 
-        print(
-            f"arbitration_baudrate={arbitration_baudrate} data_baudrate={real_data_val} "
-            f"tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s={tot_data_time_s:6.4f}"
-        )
+        # print(
+        #     f"arbitration_baudrate={arbitration_baudrate} data_baudrate={real_data_val} "
+        #     f"tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s={tot_data_time_s:6.4f} "
+        #     f"tot_arbitration_bits={tot_arbitration_bits:6.4f} tot_data_bits={tot_data_bits:6.4f} "
+        #     f"real_arb_val={real_arb_val} real_data_val={real_data_val}"
+        # )
 
         # Busload as percentage
         busload = ((tot_arbitration_time_s + tot_data_time_s) * 100) / (

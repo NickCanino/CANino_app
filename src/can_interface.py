@@ -62,7 +62,7 @@ class CANInterface:
             if self.bus is None:
                 print("[ERROR] CAN bus not initialized. Cannot send frame.")
                 return
-            
+
             # CAN-FD: dlc può essere fino a 64, CAN classico fino a 8
             if dlc is None:
                 dlc = len(data)
@@ -72,7 +72,7 @@ class CANInterface:
                 data = data + bytes([0x00] * (dlc - len(data)))
             elif len(data) > dlc:
                 data = data[:dlc]
-            
+
             msg = can.Message(
                 arbitration_id=frame_id,
                 data=data,

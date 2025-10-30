@@ -18,129 +18,181 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QComboBox, QHBoxLayout
+from PyQt6.QtWidgets import (
+    QWidget,
+    QVBoxLayout,
+    QLabel,
+    QComboBox,
+    QHBoxLayout,
+    QPushButton,
+    QFrame,
+    QScrollArea,
+    QApplication,
+)
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QIcon
 from PyQt6.QtCore import Qt, QPointF
-import math
-import sys
-from cantools.database.can.signal import NamedSignalValue
-from src.exceptions_logger import log_exception
+
+# from cantools.database.can.signal import NamedSignalValue
+# from src.exceptions_logger import log_exception
 from src.utils import resource_path
+import math
 
-# TODO: Show only one window for all XMetro gauges
+
 class XMetroWindow(QWidget):
-    def __init__(self, dbc_loader, tx_items):
+    def __init__(self, dbc_loader):
+        print("Initializing XMetro window...")
         super().__init__()
-        self.setWindowTitle("XMetro Gauge")
+        self.setWindowTitle("XMetro Gauges")
         self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo.ico")))
-        self.setFixedSize(500, 300)
+        self.setMinimumSize(800, 600)
 
+        self.dbc = dbc_loader
+
+        # Main layout
         layout = QVBoxLayout()
         self.setLayout(layout)
 
+        # Add Gauge button at the top
+        btn_add_gauge = QPushButton("Add Gauge")
+        btn_add_gauge.clicked.connect(self.add_gauge)
+        layout.addWidget(btn_add_gauge)
+
+        # Scroll area for gauges
+        self.scroll_area = QScrollArea()
+        self.scroll_area.setWidgetResizable(True)
+        layout.addWidget(self.scroll_area)
+
+        # Container widget for gauges
+        self.gauge_container = QWidget()
+        self.scroll_area.setWidget(self.gauge_container)
+
+        # Flow layout for gauge boxes
+        self.gauge_layout = QHBoxLayout(self.gauge_container)
+        self.gauge_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.gauge_layout.setSpacing(10)
+
+        self.gauges = []
+        print("XMetro window initialized successfully")
+
+    def add_gauge(self):
+        gauge_widget = DraggableGaugeBox(self.gauge_container, self.dbc)
+        self.gauge_layout.addWidget(gauge_widget)
+        self.gauges.append(gauge_widget)
+
+
+class DraggableGaugeBox(QFrame):
+    def __init__(self, parent, dbc_loader):
+        super().__init__(parent)
+        self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
+        self.setStyleSheet("background-color: #2b2b2b; border: 1px solid #555;")
+        self.setFixedSize(400, 280)
+
+        self.dbc = dbc_loader
+
+        layout = QVBoxLayout(self)
+
+        # Add controls
         top_layout = QHBoxLayout()
         self.cb_messages = QComboBox()
         self.cb_messages.setFixedSize(180, 30)
         self.cb_signals = QComboBox()
         self.cb_signals.setFixedSize(180, 30)
 
-        for item in tx_items:
-            frame_id = int(item.text(2), 16)
-            name = item.text(3)
-            label = f"{name} (0x{frame_id:X})"
-            self.cb_messages.addItem(label, frame_id)
+        # Populate messages from DBC
+        for msg in self.dbc.db.messages:
+            label = f"{msg.name} (0x{msg.frame_id:X})"
+            self.cb_messages.addItem(label, msg.frame_id)
 
-        self.last_payload = bytes(
-            [0x00] * 8
-        )  # Inizializza con un payload di 8 byte a zero
-        self.cb_messages.currentIndexChanged.connect(self.populate_signals)
-        self.cb_signals.currentIndexChanged.connect(
-            lambda _: self.update_gauge(self.last_payload)
-        )
-
-        top_layout.addWidget(QLabel("Messaggio:"), alignment=Qt.AlignmentFlag.AlignLeft)
-        top_layout.addWidget(self.cb_messages, alignment=Qt.AlignmentFlag.AlignLeft)
-
-        top_layout.addWidget(QLabel("Segnale:"), alignment=Qt.AlignmentFlag.AlignRight)
-        top_layout.addWidget(self.cb_signals, alignment=Qt.AlignmentFlag.AlignRight)
+        top_layout.addWidget(QLabel("Message:"))
+        top_layout.addWidget(self.cb_messages)
+        top_layout.addWidget(QLabel("Signal:"))
+        top_layout.addWidget(self.cb_signals)
         layout.addLayout(top_layout)
 
         self.gauge = SemiCircularGauge()
         layout.addWidget(self.gauge)
 
-        self.dbc = dbc_loader
+        self.last_payload = bytes([0x00] * 8)
+
+        self.cb_messages.currentIndexChanged.connect(self.populate_signals)
+        self.cb_signals.currentIndexChanged.connect(self.update_signal_range)
+
         self.populate_signals()
 
-    def populate_signals(self):
-        frame_id = self.cb_messages.currentData()
-        msg = self.dbc.db.get_message_by_frame_id(frame_id)
-        self.cb_signals.clear()
+        # Enable drag and drop
+        self.setMouseTracking(True)
 
-        for sig in msg.signals:
-            self.cb_signals.addItem(sig.name)
+    def mousePressEvent(self, event):
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.pos()
 
-        # Crea payload a 0 coerente con DLC del messaggio
-        dlc = msg.length  # usa .length o .size
-        self.last_payload = bytes([0x00] * dlc)
-
-        self.update_gauge(self.last_payload)
-
-    def update_gauge(self, payload: bytes):
-        print(f"[XMetro] Payload passato al gauge: 0x{payload.hex(' ').upper()}")
-
-        frame_id = self.cb_messages.currentData()
-        signal_name = self.cb_signals.currentText()
-        msg = self.dbc.db.get_message_by_frame_id(frame_id)
-        sig = next((s for s in msg.signals if s.name == signal_name), None)
-
-        if not sig or not payload or not isinstance(payload, bytes):
-            print("[XMetro] Segnale non valido o payload non valido.")
+    def mouseMoveEvent(self, event):
+        if not hasattr(self, "drag_start_position"):
             return
 
-        # --- DEBUG: Dettagli segnale selezionato ---
-        # print(f"[XMetro] Segnale selezionato: {signal_name}")
-        # print(f"  start: {sig.start}")
-        # print(f"  length: {sig.length}")
-        # print(f"  byte_order: {sig.byte_order}")
-        # print(f"  is_signed: {sig.is_signed}")
-        # print(f"  scale: {getattr(sig, 'factor', getattr(sig, 'scale', 1.0))}")
-        # print(f"  offset: {getattr(sig, 'offset', 0.0)}")
-        # print(f"  min: {getattr(sig, 'minimum', 0)}")
-        # print(f"  max: {getattr(sig, 'maximum', 100)}")
-        # print(f"  unit: {getattr(sig, 'unit', '')}")
+        if (
+            event.pos() - self.drag_start_position
+        ).manhattanLength() < QApplication.startDragDistance():
+            return
 
-        # Decodifica fisica diretta con cantools
-        dlc = msg.length
-        if len(payload) != dlc:
-            payload = payload[:dlc] + bytes([0x00] * max(0, dlc - len(payload)))
+        self.setCursor(Qt.CursorShape.ClosedHandCursor)
+        self.move(self.mapToParent(event.pos() - self.drag_start_position))
+
+    def mouseReleaseEvent(self, event):
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+        if hasattr(self, "drag_start_position"):
+            del self.drag_start_position
+
+    def populate_signals(self):
+        self.cb_signals.clear()
+        frame_id = self.cb_messages.currentData()
+        if frame_id is not None and self.dbc:
+            try:
+                msg = self.dbc.db.get_message_by_frame_id(frame_id)
+                if msg and msg.signals:
+                    for sig in msg.signals:
+                        self.cb_signals.addItem(sig.name, sig)
+            except Exception as e:
+                print(f"Error populating signals: {e}")
+        self.update_signal_range()
+
+    def update_signal_range(self):
+        signal = self.cb_signals.currentData()
+        if signal:
+            factor = getattr(signal, "factor", getattr(signal, "scale", 1.0)) or 1.0
+            offset = getattr(signal, "offset", 0.0)
+            bit_length = getattr(signal, "length", 8)
+            is_signed = getattr(signal, "is_signed", False)
+
+            if is_signed:
+                raw_min = -(2 ** (bit_length - 1))
+                raw_max = 2 ** (bit_length - 1) - 1
+            else:
+                raw_min = 0
+                raw_max = 2**bit_length - 1
+
+            min_val = raw_min * factor + offset
+            max_val = raw_max * factor + offset
+
+            self.gauge.setRange(min_val, max_val)
+            self.gauge.setValue(min_val, signal.unit if signal.unit else "")
+
+    def update_gauge(self, payload):
+        frame_id = self.cb_messages.currentData()
+        signal = self.cb_signals.currentData()
+
+        if frame_id is None or signal is None:
+            return
 
         try:
-            decoded = msg.decode(payload)
-            physical_val = decoded[sig.name]
-            print(f"[XMetro] Valore fisico calcolato (cantools): {physical_val}")
-            if isinstance(physical_val, NamedSignalValue):
-                physical_val = int(physical_val)
+            msg = self.dbc.db.get_message_by_frame_id(frame_id)
+            if msg:
+                decoded = msg.decode(payload)
+                if signal.name in decoded:
+                    value = decoded[signal.name]
+                    self.gauge.setValue(value, signal.unit if signal.unit else "")
         except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
-            physical_val = 0
-
-        # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
-        factor = getattr(sig, "factor", getattr(sig, "scale", 1.0)) or 1.0
-        offset = getattr(sig, "offset", 0.0)
-        bit_length = getattr(sig, "length", 8)
-        is_signed = getattr(sig, "is_signed", False)
-        # endianess non influisce su min/max, ma la includo per completezza
-        # byte_order = getattr(sig, 'byte_order', 'little_endian')
-        if is_signed:
-            raw_min = -(2 ** (bit_length - 1))
-            raw_max = 2 ** (bit_length - 1) - 1
-        else:
-            raw_min = 0
-            raw_max = 2**bit_length - 1
-        min_val = raw_min * factor + offset
-        max_val = raw_max * factor + offset
-        self.gauge.setRange(min_val, max_val)
-        self.gauge.setValue(physical_val, unit=getattr(sig, "unit", ""))
+            print(f"Error updating gauge: {e}")
 
 
 class SemiCircularGauge(QWidget):
