@@ -328,6 +328,15 @@ class MainWindow(QMainWindow):
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
         self.btn_start_tx.setEnabled(False)  # Disabilita il pulsante all'inizio
 
+        # Button to disable all ID in TX
+        self.btn_disable_all_ids = QPushButton("Disable All")
+        self.btn_disable_all_ids.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
+        )
+        self.btn_disable_all_ids.setFixedSize(100, 30)
+        self.btn_disable_all_ids.clicked.connect(self.disable_all_ids_tx)
+        self.btn_disable_all_ids.setEnabled(False)  # Disabilita il pulsante all'inizio
+
         # # Button to open the XMetro window
         # self.btn_add_xmetro = QPushButton("Add XMetro")
         # self.btn_add_xmetro.setIcon(
@@ -351,6 +360,7 @@ class MainWindow(QMainWindow):
         tx_buttons_layout = QHBoxLayout()
         tx_buttons_layout.addWidget(self.btn_add_id)
         tx_buttons_layout.addWidget(self.btn_start_tx)
+        tx_buttons_layout.addWidget(self.btn_disable_all_ids)
         # tx_buttons_layout.addWidget(self.btn_add_xmetro)
         tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_link_global_script)
@@ -682,6 +692,28 @@ class MainWindow(QMainWindow):
         # Carica la configurazione all'avvio, se esiste
         self.load_config(auto=True)
 
+    def disable_all_ids_tx(self):
+        if (
+            self.btn_disable_all_ids.text() == "Enable All"
+        ):  # Attualmente disabilitati, quindi abilita tutti
+            for i in range(self.signal_tree.topLevelItemCount()):
+                item = self.signal_tree.topLevelItem(i)
+                item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
+
+            self.btn_disable_all_ids.setText("Disable All")
+            self.btn_disable_all_ids.setIcon(
+                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
+            )
+        else:  # Attualmente abilitati, quindi disabilita tutti
+            for i in range(self.signal_tree.topLevelItemCount()):
+                item = self.signal_tree.topLevelItem(i)
+                item.setCheckState(TX_COL_1_enable, Qt.CheckState.Unchecked)
+
+            self.btn_disable_all_ids.setText("Enable All")
+            self.btn_disable_all_ids.setIcon(
+                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+            )
+
     def clear_busload_stats(self):
         self.busload_tx_arbitration_bits = 0
         self.busload_tx_data_bits = 0
@@ -791,8 +823,9 @@ class MainWindow(QMainWindow):
                 )
                 if os.path.exists(absolute_path):
                     self.dbc = load_dbc(absolute_path)
-                    # self.populate_signal_tree()
+                    self.populate_signal_tree()
                     self.rx_window.set_dbc(self.dbc)
+                    self.btn_disable_all_ids.setEnabled(True)
                 else:
                     QMessageBox.warning(
                         self,
@@ -1190,6 +1223,7 @@ class MainWindow(QMainWindow):
             self.dbc = load_dbc(filename)
             self.populate_signal_tree()
             self.rx_window.set_dbc(self.dbc)
+            self.btn_disable_all_ids.setEnabled(True)
 
     def populate_signal_tree(
         self,
@@ -1350,6 +1384,8 @@ class MainWindow(QMainWindow):
             self.stop_tx()
             self.start_tx()
 
+        self.btn_disable_all_ids.setEnabled(True)
+
     def delete_signal_row(self, item):
         idx = self.signal_tree.indexOfTopLevelItem(item)
         if idx != -1:
@@ -1369,6 +1405,9 @@ class MainWindow(QMainWindow):
                 except Exception:
                     pass
             self.signal_tree.takeTopLevelItem(idx)
+
+        if self.signal_tree.topLevelItemCount() == 0:
+            self.btn_disable_all_ids.setEnabled(False)
 
     def on_signal_tree_item_changed(self, item, column):
         if column == TX_COL_1_enable:  # Checkbox abilitazione

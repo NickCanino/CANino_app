@@ -81,7 +81,10 @@ class XMetroWindow(QWidget):
         self.gauge_container = QWidget()
         self.gauge_container.setStyleSheet("background-color: #1e1e1e;")
         self.gauge_container.setAttribute(Qt.WidgetAttribute.WA_StyledBackground)
-        self.gauge_container.setMinimumSize((self.gauge_size[0] + self.grid_spacing) * self.grid_cols, (self.gauge_size[1] + self.grid_spacing) * self.grid_rows)  # Dimensione iniziale
+        self.gauge_container.setMinimumSize(
+            (self.gauge_size[0] + self.grid_spacing) * self.grid_cols,
+            (self.gauge_size[1] + self.grid_spacing) * self.grid_rows,
+        )  # Dimensione iniziale
         self.scroll_area.setWidget(self.gauge_container)
         print("XMetro window initialized successfully")
 
@@ -89,13 +92,25 @@ class XMetroWindow(QWidget):
         # Trova la prima posizione libera nella griglia
         pos = self.find_first_free_position()
         if pos is None:
-            QMessageBox.warning(self, "XMetro Gauges", "No free position available for new gauge.")
+            QMessageBox.warning(
+                self, "XMetro Gauges", "No free position available for new gauge."
+            )
             return
 
         row, col = pos
-        gauge_widget = DraggableGaugeBox(self.gauge_container, self.dbc, self.gauge_size, self.grid_spacing, self, row, col)
-        gauge_widget.move(col * (self.gauge_size[0] + self.grid_spacing),
-                          row * (self.gauge_size[1] + self.grid_spacing))
+        gauge_widget = DraggableGaugeBox(
+            self.gauge_container,
+            self.dbc,
+            self.gauge_size,
+            self.grid_spacing,
+            self,
+            row,
+            col,
+        )
+        gauge_widget.move(
+            col * (self.gauge_size[0] + self.grid_spacing),
+            row * (self.gauge_size[1] + self.grid_spacing),
+        )
         gauge_widget.show()
 
         self.gauges.append(gauge_widget)
@@ -168,7 +183,9 @@ class DraggableGaugeBox(QFrame):
         if not hasattr(self, "drag_start_position"):
             return
 
-        if (event.pos() - self.drag_start_position).manhattanLength() < QApplication.startDragDistance():
+        if (
+            event.pos() - self.drag_start_position
+        ).manhattanLength() < QApplication.startDragDistance():
             return
 
         self.setCursor(Qt.CursorShape.ClosedHandCursor)
@@ -186,16 +203,24 @@ class DraggableGaugeBox(QFrame):
         row = round(new_pos.y() / (self.gauge_size[1] + self.grid_spacing))
 
         # Controlla se la nuova posizione è valida
-        if 0 <= row < self.window.grid_rows and 0 <= col < self.window.grid_cols and self.window.grid[row][col] == 0:
+        if (
+            0 <= row < self.window.grid_rows
+            and 0 <= col < self.window.grid_cols
+            and self.window.grid[row][col] == 0
+        ):
             # Aggiorna la posizione nella griglia
             self.window.update_grid(self.row, self.col, row, col)
             self.row, self.col = row, col
-            self.move(col * (self.gauge_size[0] + self.grid_spacing),
-                      row * (self.gauge_size[1] + self.grid_spacing))
+            self.move(
+                col * (self.gauge_size[0] + self.grid_spacing),
+                row * (self.gauge_size[1] + self.grid_spacing),
+            )
         else:
             # Torna alla posizione precedente
-            self.move(self.col * (self.gauge_size[0] + self.grid_spacing),
-                      self.row * (self.gauge_size[1] + self.grid_spacing))
+            self.move(
+                self.col * (self.gauge_size[0] + self.grid_spacing),
+                self.row * (self.gauge_size[1] + self.grid_spacing),
+            )
 
     def populate_signals(self):
         self.cb_signals.clear()
