@@ -229,7 +229,7 @@ class MainWindow(QMainWindow):
 
         # --- AGGIUNGI L'AZIONE "XMETRO" ALLA MENUBAR ---
         action_xmetro = QAction("XMetro", self)
-        # action_xmetro.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
+        # action_xmetro.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView))
         action_xmetro.triggered.connect(self.open_xmetro_window)
         menubar.addAction(action_xmetro)
 
@@ -243,6 +243,9 @@ class MainWindow(QMainWindow):
 
         # --- PULSANTI E COMBOBOX IN ALTO ---
         self.btn_load_dbc = QPushButton("  Load DBC")
+        self.btn_load_dbc.setToolTip(
+            "Load a DBC file to be used for TX list, RX decoding, Sliders, and XMetro Gauges."
+        )
         self.btn_load_dbc.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
         )
@@ -252,6 +255,9 @@ class MainWindow(QMainWindow):
 
         ## ComboBox per selezionare il canale CAN
         self.lbl_bus_tx = QLabel("Channel:")
+        self.lbl_bus_tx.setToolTip(
+            "Select the USB-to-CAN bus channel to be used for TX and RX."
+        )
         self.lbl_bus_tx.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_bus_tx, alignment=Qt.AlignmentFlag.AlignVCenter)
 
@@ -260,6 +266,9 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.cb_bus_tx)
 
         self.btn_refresh_bus = QPushButton()
+        self.btn_refresh_bus.setToolTip(
+            "Refresh the list of available USB-to-CAN bus channels."
+        )
         self.btn_refresh_bus.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserReload)
         )
@@ -305,6 +314,9 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.cb_baudrate)
 
         self.btn_connect = QPushButton("Connect")
+        self.btn_connect.setToolTip(
+            "Connect to the selected USB-to-CAN bus channel, with the selected Baudrate."
+        )
         self.btn_connect.setCheckable(True)
         self.btn_connect.clicked.connect(self.toggle_connection)
         self.btn_connect.setFixedSize(100, 30)
@@ -315,6 +327,7 @@ class MainWindow(QMainWindow):
 
         # Button to ADD IDs in TX
         self.btn_add_id = QPushButton("Add ID")
+        self.btn_add_id.setToolTip("Add a new CAN ID manually to the TX list.")
         self.btn_add_id.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
         )
@@ -323,6 +336,9 @@ class MainWindow(QMainWindow):
 
         # Button to start TX
         self.btn_start_tx = QPushButton("Start TX")
+        self.btn_start_tx.setToolTip(
+            "Start the transmission of enabled CAN frames from the TX table."
+        )
         self.btn_start_tx.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
@@ -332,6 +348,7 @@ class MainWindow(QMainWindow):
 
         # Button to disable all ID in TX
         self.btn_disable_all_ids = QPushButton("Disable All")
+        self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
         self.btn_disable_all_ids.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
         )
@@ -350,6 +367,9 @@ class MainWindow(QMainWindow):
 
         # Button to link a global Payload Script
         self.btn_link_global_script = QPushButton("Link Global Script")
+        self.btn_link_global_script.setToolTip(
+            "Link a global Payload Script to be used for all transmitted CAN frames."
+        )
         self.btn_link_global_script.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
@@ -370,10 +390,19 @@ class MainWindow(QMainWindow):
         # --- ALBERO DEI SEGNALI ---
         self.signal_tree = QTreeWidget()
         self.signal_tree.setHeaderLabels(
-            ["", "Enable", "ID", "FD", "Name", "Period (ms)", "Payload (0 - 7)", ""]
+            [
+                "",
+                "En",
+                "ID",
+                "FD",
+                "Name",
+                "Period (ms)",
+                "Payload (0 - 7)",
+                "Script for Specific ID",
+            ]
         )
-        self.signal_tree.setColumnWidth(TX_COL_0_del, 30)  # old: 50
-        self.signal_tree.setColumnWidth(TX_COL_1_enable, 50)  # old: 50
+        self.signal_tree.setColumnWidth(TX_COL_0_del, 40)  # old: 50
+        self.signal_tree.setColumnWidth(TX_COL_1_enable, 30)  # old: 50
         self.signal_tree.setColumnWidth(TX_COL_2_id, 50)
         self.signal_tree.setColumnWidth(TX_COL_3_fd, 30)
         self.signal_tree.setColumnWidth(TX_COL_4_name, 100)
@@ -433,6 +462,9 @@ class MainWindow(QMainWindow):
         slider_layout.addWidget(slider_title)
 
         self.btn_add_slider = QPushButton("Add Slider")
+        self.btn_add_slider.setToolTip(
+            "Add a new slider for the selected CAN signal, from the linked DBC file."
+        )
         self.btn_add_slider.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
         )
@@ -704,6 +736,7 @@ class MainWindow(QMainWindow):
                 item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
 
             self.btn_disable_all_ids.setText("Disable All")
+            self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
             self.btn_disable_all_ids.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
             )
@@ -713,6 +746,7 @@ class MainWindow(QMainWindow):
                 item.setCheckState(TX_COL_1_enable, Qt.CheckState.Unchecked)
 
             self.btn_disable_all_ids.setText("Enable All")
+            self.btn_disable_all_ids.setToolTip("Enable all CAN IDs in the TX list.")
             self.btn_disable_all_ids.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
             )
@@ -854,6 +888,9 @@ class MainWindow(QMainWindow):
                 self.btn_link_global_script.setStyleSheet("")
                 self.btn_link_global_script.setToolTip("No Global Script Linked")
                 self.btn_link_global_script.setText("Link Global Script")
+                self.btn_link_global_script.setToolTip(
+                    "Link a global Payload Script to be used for all transmitted CAN frames."
+                )
 
             # Load signals only if present in the configuration
             if "signals" in config:
@@ -1185,6 +1222,9 @@ class MainWindow(QMainWindow):
                 )
 
                 self.btn_connect.setText("Disconnect")
+                self.btn_connect.setToolTip(
+                    "Disconnect from the selected USB-to-CAN bus channel."
+                )
                 self.btn_connect.setIcon(
                     self.style().standardIcon(QStyle.StandardPixmap.SP_BrowserStop)
                 )
@@ -1206,6 +1246,9 @@ class MainWindow(QMainWindow):
                 self.can_if.close()
                 self.can_if = None
             self.btn_connect.setText("Connect")
+            self.btn_connect.setToolTip(
+                "Connect to the selected USB-to-CAN bus channel, with the selected Baudrate."
+            )
             self.btn_connect.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon)
             )
@@ -1808,6 +1851,9 @@ class MainWindow(QMainWindow):
 
         self.tx_running = True
         self.btn_start_tx.setText("Stop TX")
+        self.btn_start_tx.setToolTip(
+            "Stop the transmission of enabled CAN frames from the TX table."
+        )
         self.btn_start_tx.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
@@ -1818,6 +1864,9 @@ class MainWindow(QMainWindow):
         self.timers.clear()
         self.tx_running = False
         self.btn_start_tx.setText("Start TX")
+        self.btn_start_tx.setToolTip(
+            "Start the transmission of enabled CAN frames from the TX table."
+        )
         self.btn_start_tx.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
