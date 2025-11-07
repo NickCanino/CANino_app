@@ -18,6 +18,8 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
+#TODO: add tooltips in VAGILETTA window
+
 from PyQt6.QtWidgets import (
     QDialog,
     QGridLayout,
