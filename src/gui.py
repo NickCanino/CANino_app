@@ -18,6 +18,8 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
+# TODO: aggiungere un modo per scollegare lo script linkato, che sia global o per singolo ID
+
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -371,7 +373,7 @@ class MainWindow(QMainWindow):
             ["", "Enable", "ID", "FD", "Name", "Period (ms)", "Payload (0 - 7)", ""]
         )
         self.signal_tree.setColumnWidth(TX_COL_0_del, 30)  # old: 50
-        self.signal_tree.setColumnWidth(TX_COL_1_enable, 30)  # old: 50
+        self.signal_tree.setColumnWidth(TX_COL_1_enable, 50)  # old: 50
         self.signal_tree.setColumnWidth(TX_COL_2_id, 50)
         self.signal_tree.setColumnWidth(TX_COL_3_fd, 30)
         self.signal_tree.setColumnWidth(TX_COL_4_name, 100)
@@ -383,6 +385,7 @@ class MainWindow(QMainWindow):
         self.signal_tree.setSortingEnabled(True)
         self.signal_tree.setItemDelegate(PayloadEditDelegate(self.signal_tree))
         self.signal_tree.header().sectionClicked.connect(self.handle_signal_tree_sort)
+        self.signal_tree.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Groupbox per i controlli di trasmissione
         tx_group = QGroupBox()

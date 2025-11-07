@@ -21,12 +21,17 @@
 # This script is for use as a global payload generator in CANinoApp.
 # It must define: get_payload(dlc: int = 8, id: int = None) -> bytes
 
-_counters = {}
-
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
-    """Returns a constant payload for each ID independently."""
+    """
+    Returns a random payload for each ID independently,
+    except from byte-0 that is 0xA7.
+    """
+    payload = [0x00] * 8
 
-    payload = [0x00] * dlc
+    for i in range(dlc):
+        payload[i] = __import__("random").randint(0, 255)
+
+    payload[dlc - 1] = 0xA7
 
     return bytes(payload[:dlc])

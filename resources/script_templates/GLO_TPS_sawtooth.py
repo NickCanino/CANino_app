@@ -35,4 +35,4 @@ def get_payload(dlc: int = 8, id: int = None) -> bytes:
     _counters[id] = (cnt + 1) % 256
     payload[-1] = _counters[id]
 
-    return bytes(payload)
+    return bytes(payload[:dlc])

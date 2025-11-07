@@ -195,7 +195,7 @@ class ReceivedFramesWindow(QWidget):
                 "ID",
                 "Name",
                 "DLC",
-                "Payload",
+                "Payload (0 - 7)",
                 "Count",
                 "Period (ms)",
                 "Min (ms)",
