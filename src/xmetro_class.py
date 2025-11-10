@@ -18,7 +18,7 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-#TODO: add tooltips in XMETRO window
+# TODO: add tooltips in XMETRO window
 
 from PyQt6.QtWidgets import (
     QWidget,

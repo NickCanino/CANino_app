@@ -860,9 +860,9 @@ class MainWindow(QMainWindow):
                 )
                 if os.path.exists(absolute_path):
                     self.dbc = load_dbc(absolute_path)
-                    self.populate_signal_tree()
-                    self.rx_window.set_dbc(self.dbc)
-                    self.btn_disable_all_ids.setEnabled(True)
+                    # self.populate_signal_tree()
+                    # self.rx_window.set_dbc(self.dbc)
+                    # self.btn_disable_all_ids.setEnabled(True)
                 else:
                     QMessageBox.warning(
                         self,
@@ -944,87 +944,94 @@ class MainWindow(QMainWindow):
                                     f"Script: {os.path.relpath(script_path, start=self.project_root)}"
                                 )
                                 script_btn.setText(os.path.basename(script_path))
-                        continue  # salta l'aggiunta dell'intero messaggio: già caricato
+                        # continue  # salta l'aggiunta dell'intero messaggio: già caricato
 
-                    # Messaggio non caricato: aggiungilo manualmente
-                    msg_item = QTreeWidgetItem(self.signal_tree)
-                    msg_item.setFlags(
-                        msg_item.flags()
-                        | Qt.ItemFlag.ItemIsUserCheckable
-                        | Qt.ItemFlag.ItemIsEditable
-                    )
-                    msg_item.setCheckState(
-                        1,
-                        (
-                            Qt.CheckState.Checked
-                            if sig.get("enabled")
-                            else Qt.CheckState.Unchecked
-                        ),
-                    )
-                    msg_item.setText(TX_COL_2_id, sig.get("id", ""))
-                    msg_item.setText(TX_COL_3_fd, sig.get("name", ""))
-
-                    period_spin = QSpinBox()
-                    period_spin.setRange(1, 10000)
-                    period_spin.setValue(sig.get("period", 100))
-                    self.signal_tree.setItemWidget(msg_item, TX_COL_4_name, period_spin)
-                    msg_item.setText(TX_COL_4_name, str(period_spin.value()))
-                    msg_item.setData(
-                        TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, period_spin.value()
-                    )
-
-                    # Payload e DLC
-                    raw_payload = sig.get("payload", "")
-                    dlc = sig.get("dlc", 8)
-                    payload_parts = raw_payload.strip().split()
-                    if len(payload_parts) != dlc or any(
-                        len(p) != 2 for p in payload_parts
-                    ):
-                        raw_payload = " ".join(["00"] * dlc)
-                    msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
-                    msg_item.setText(TX_COL_6_payload, raw_payload)
-
-                    # Pulsanti standard
-                    btn_delete_id = QPushButton()
-                    btn_delete_id.setIcon(
-                        self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-                    )
-                    btn_delete_id.setToolTip("Delete")
-                    btn_delete_id.clicked.connect(
-                        lambda _, item=msg_item: self.delete_signal_row(item)
-                    )
-                    self.signal_tree.setItemWidget(
-                        msg_item, TX_COL_0_del, btn_delete_id
-                    )
-
-                    script_btn = QPushButton("Link Script")
-                    script_btn.setCheckable(True)
-                    script_btn.setIcon(
-                        self.style().standardIcon(
-                            QStyle.StandardPixmap.SP_FileDialogDetailedView
+                    else:  # Messaggio non caricato: aggiungilo manualmente
+                        msg_item = QTreeWidgetItem(self.signal_tree)
+                        msg_item.setFlags(
+                            msg_item.flags()
+                            | Qt.ItemFlag.ItemIsUserCheckable
+                            | Qt.ItemFlag.ItemIsEditable
                         )
-                    )
-                    # script_btn.setToolTip("Script Payload")
-                    script_btn.clicked.connect(
-                        lambda _, item=msg_item: self.modify_payload_script(item)
-                    )
-                    self.signal_tree.setItemWidget(
-                        msg_item, TX_COL_7_script, script_btn
-                    )
+                        msg_item.setCheckState(
+                            1,
+                            (
+                                Qt.CheckState.Checked
+                                if sig.get("enabled")
+                                else Qt.CheckState.Unchecked
+                            ),
+                        )
+                        msg_item.setText(TX_COL_2_id, sig.get("id", ""))
+                        msg_item.setText(TX_COL_3_fd, sig.get("fd", "n"))
+                        msg_item.setText(TX_COL_4_name, sig.get("name", ""))
 
-                    if sig.get("script_path"):
-                        script_path = sig["script_path"]
+                        period_spin = QSpinBox()
+                        period_spin.setRange(1, 10000)
+                        period_spin.setValue(sig.get("period", 100))
+                        self.signal_tree.setItemWidget(
+                            msg_item, TX_COL_5_period, period_spin
+                        )
+                        msg_item.setText(TX_COL_5_period, str(period_spin.value()))
                         msg_item.setData(
-                            TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                            TX_COL_PERIODDATA,
+                            TX_COL_PERIODDATA_period,
+                            period_spin.value(),
                         )
-                        script_btn.setChecked(True)
-                        script_btn.setStyleSheet(
-                            "background-color: #4CAF50; color: white;"
+
+                        # Payload e DLC
+                        raw_payload = sig.get("payload", "")
+                        dlc = sig.get("dlc", 8)
+                        payload_parts = raw_payload.strip().split()
+                        if len(payload_parts) != dlc or any(
+                            len(p) != 2 for p in payload_parts
+                        ):
+                            raw_payload = " ".join(["00"] * dlc)
+                        msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
+                        msg_item.setText(TX_COL_6_payload, raw_payload)
+
+                        # Pulsanti standard
+                        btn_delete_id = QPushButton()
+                        btn_delete_id.setIcon(
+                            self.style().standardIcon(
+                                QStyle.StandardPixmap.SP_TrashIcon
+                            )
                         )
-                        script_btn.setToolTip(
-                            f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                        btn_delete_id.setToolTip("Delete")
+                        btn_delete_id.clicked.connect(
+                            lambda _, item=msg_item: self.delete_signal_row(item)
                         )
-                        script_btn.setText(os.path.basename(script_path))
+                        self.signal_tree.setItemWidget(
+                            msg_item, TX_COL_0_del, btn_delete_id
+                        )
+
+                        script_btn = QPushButton("Link Script")
+                        script_btn.setCheckable(True)
+                        script_btn.setIcon(
+                            self.style().standardIcon(
+                                QStyle.StandardPixmap.SP_FileDialogDetailedView
+                            )
+                        )
+                        # script_btn.setToolTip("Script Payload")
+                        script_btn.clicked.connect(
+                            lambda _, item=msg_item: self.modify_payload_script(item)
+                        )
+                        self.signal_tree.setItemWidget(
+                            msg_item, TX_COL_7_script, script_btn
+                        )
+
+                        if sig.get("script_path"):
+                            script_path = sig["script_path"]
+                            msg_item.setData(
+                                TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                            )
+                            script_btn.setChecked(True)
+                            script_btn.setStyleSheet(
+                                "background-color: #4CAF50; color: white;"
+                            )
+                            script_btn.setToolTip(
+                                f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                            )
+                            script_btn.setText(os.path.basename(script_path))
 
             # Load sliders
             if "sliders" in config and len(config["sliders"]) > 0:
