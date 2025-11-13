@@ -18,8 +18,6 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# TODO: aggiungere un modo per scollegare lo script linkato, che sia global o per singolo ID
-
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -309,7 +307,7 @@ class MainWindow(QMainWindow):
         ]
         for label, pcan_val, real_data_val, real_arb_val in self.baudrate_values:
             self.cb_baudrate.addItem(label, pcan_val)
-        self.cb_baudrate.setCurrentIndex(0)  # Default to 2 MBit/s (CANFD)
+        self.cb_baudrate.setCurrentIndex(3)  # Default to 500 kBit/s
         self.cb_baudrate.setFixedSize(150, 30)
         top_layout.addWidget(self.cb_baudrate)
 
@@ -340,7 +338,7 @@ class MainWindow(QMainWindow):
             "Start the transmission of enabled CAN frames from the TX table."
         )
         self.btn_start_tx.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton)
         )
         self.btn_start_tx.setFixedSize(100, 30)
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
@@ -350,11 +348,21 @@ class MainWindow(QMainWindow):
         self.btn_disable_all_ids = QPushButton("Disable All")
         self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
         self.btn_disable_all_ids.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
         )
         self.btn_disable_all_ids.setFixedSize(100, 30)
         self.btn_disable_all_ids.clicked.connect(self.disable_all_ids_tx)
         self.btn_disable_all_ids.setEnabled(False)  # Disabilita il pulsante all'inizio
+
+        # Button to delete all IDs in TX
+        self.btn_delete_all_ids = QPushButton("Delete All")
+        self.btn_delete_all_ids.setToolTip("Delete all CAN IDs from the TX list.")
+        self.btn_delete_all_ids.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+        )
+        self.btn_delete_all_ids.setFixedSize(100, 30)
+        self.btn_delete_all_ids.clicked.connect(self.delete_all_ids_tx)
+        self.btn_delete_all_ids.setEnabled(False)  # Disabilitato all'inizio
 
         # # Button to open the XMetro window
         # self.btn_add_xmetro = QPushButton("Add XMetro")
@@ -393,15 +401,15 @@ class MainWindow(QMainWindow):
         # Layout orizzontale per i due pulsanti
         tx_buttons_layout = QHBoxLayout()
         tx_buttons_layout.addWidget(self.btn_add_id)
-        tx_buttons_layout.addWidget(self.btn_start_tx)
+        tx_buttons_layout.addWidget(self.btn_delete_all_ids)
+        tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_disable_all_ids)
+        tx_buttons_layout.addWidget(self.btn_start_tx)
         # tx_buttons_layout.addWidget(self.btn_add_xmetro)
         tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_link_global_script)
         tx_buttons_layout.addWidget(self.btn_remove_global_script)
 
-        # TODO: aggiungi un bottone "DELETE ALL" per la tabella dei TX
-        # FIXME: crasha quando provo a riordinare i segnali TX in base al "Name"
         # --- ALBERO DEI SEGNALI ---
         self.signal_tree = QTreeWidget()
         self.signal_tree.setHeaderLabels(
@@ -753,7 +761,7 @@ class MainWindow(QMainWindow):
             self.btn_disable_all_ids.setText("Disable All")
             self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
             self.btn_disable_all_ids.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogCancelButton)
+                self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
             )
         else:  # Attualmente abilitati, quindi disabilita tutti
             for i in range(self.signal_tree.topLevelItemCount()):
@@ -763,8 +771,41 @@ class MainWindow(QMainWindow):
             self.btn_disable_all_ids.setText("Enable All")
             self.btn_disable_all_ids.setToolTip("Enable all CAN IDs in the TX list.")
             self.btn_disable_all_ids.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+                self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolume)
             )
+
+    def delete_all_ids_tx(self):
+        """
+        Elimina tutti gli ID dalla tabella TX dopo conferma.
+        """
+        if self.signal_tree.topLevelItemCount() == 0:
+            return  # Tabella già vuota
+
+        # Chiedi conferma
+        reply = QMessageBox.question(
+            self,
+            "Confirm Deletion",
+            "Are you sure you want to delete all IDs from the TX list?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+
+        if reply == QMessageBox.StandardButton.Yes:
+            # Ferma la trasmissione se è attiva
+            if self.tx_running:
+                self.stop_tx()
+            else:
+                # Assicurati che i timer siano puliti anche se non in "running"
+                for t in self.timers:
+                    t.stop()
+                self.timers.clear()
+
+            # Pulisci la tabella
+            self.signal_tree.clear()
+
+            # Disabilita i pulsanti che dipendono dalla lista
+            self.btn_disable_all_ids.setEnabled(False)
+            self.btn_delete_all_ids.setEnabled(False)
 
     def clear_busload_stats(self):
         self.busload_tx_arbitration_bits = 0
@@ -1243,6 +1284,13 @@ class MainWindow(QMainWindow):
                     slider_widget.key = key  # Unico identificatore per lo slider
                     self.slider_widgets.append(slider_widget)
 
+                if self.signal_tree.topLevelItemCount() > 0:
+                    self.btn_disable_all_ids.setEnabled(True)
+                    self.btn_delete_all_ids.setEnabled(True)
+                else:
+                    self.btn_disable_all_ids.setEnabled(False)
+                    self.btn_delete_all_ids.setEnabled(False)
+
             if not auto:
                 QMessageBox.information(
                     self, "Configuration", "Configuration loaded successfully."
@@ -1356,6 +1404,7 @@ class MainWindow(QMainWindow):
             self.populate_signal_tree()
             self.rx_window.set_dbc(self.dbc)
             self.btn_disable_all_ids.setEnabled(True)
+            self.btn_delete_all_ids.setEnabled(True)
 
     def populate_signal_tree(
         self,
@@ -1517,8 +1566,8 @@ class MainWindow(QMainWindow):
         if self.tx_running:
             self.stop_tx()
             self.start_tx()
-
         self.btn_disable_all_ids.setEnabled(True)
+        self.btn_delete_all_ids.setEnabled(True)
 
     def delete_signal_row(self, item):
         idx = self.signal_tree.indexOfTopLevelItem(item)
@@ -1542,6 +1591,7 @@ class MainWindow(QMainWindow):
 
         if self.signal_tree.topLevelItemCount() == 0:
             self.btn_disable_all_ids.setEnabled(False)
+            self.btn_delete_all_ids.setEnabled(False)
 
     def on_signal_tree_item_changed(self, item, column):
         if column == TX_COL_1_enable:  # Checkbox abilitazione
@@ -2037,7 +2087,7 @@ class MainWindow(QMainWindow):
             "Stop the transmission of enabled CAN frames from the TX table."
         )
         self.btn_start_tx.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogNoButton)
         )
 
     def stop_tx(self):
@@ -2050,7 +2100,7 @@ class MainWindow(QMainWindow):
             "Start the transmission of enabled CAN frames from the TX table."
         )
         self.btn_start_tx.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton)
         )
 
     def make_timer_callback(self, frame_id, data, dlc, is_fd, item=None):
@@ -2144,17 +2194,20 @@ class MainWindow(QMainWindow):
             log_exception(__file__, sys._getframe().f_lineno, e)
 
     def handle_signal_tree_sort(self, column):
-        if column == TX_COL_4_name:
+        if column == TX_COL_5_period:
             self.signal_tree.setSortingEnabled(False)
             items = []
             for i in range(self.signal_tree.topLevelItemCount()):
                 item = self.signal_tree.topLevelItem(i)
-                period_spin = self.signal_tree.itemWidget(item, TX_COL_4_name)
+                period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
                 if period_spin is not None:
                     period_value = int(period_spin.value())
                 else:
                     try:
-                        period_value = int(item.text(TX_COL_4_name))
+                        # Come fallback, leggi il dato salvato nell'item
+                        period_value = int(
+                            item.data(TX_COL_PERIODDATA, TX_COL_PERIODDATA_period)
+                        )
                     except Exception:
                         period_value = 100
                 item_data = {
@@ -2182,7 +2235,7 @@ class MainWindow(QMainWindow):
                 id_text = item_data["id"]
                 name_text = item_data["name"]
                 dlc = item_data["dlc"] if item_data["dlc"] is not None else 8
-                is_fd = item_data["is_fd"]
+                is_fd = item_data["fd"]
                 payload = item_data["payload"]
                 script_path = item_data["script_path"]
                 period_val = item_data["period"] if "period" in item_data else 100
