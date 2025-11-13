@@ -18,20 +18,12 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# This script is for use as a global payload generator in CANinoApp.
-# It must define: get_payload(dlc: int = 8, id: int = None) -> bytes
-
+# This script is dynamically loaded by the main program.
+# It must define the function: get_payload() -> bytes
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
-    """
-    Returns a random payload for each ID independently,
-    except from byte-0 that is 0xA7.
-    """
+
+    # Initialize all 8 bytes to 0xFF
     payload = [0x00] * 8
 
-    for i in range(dlc):
-        payload[i] = __import__("random").randint(0, 255)
-
-    payload[1] = 0xA7 # second byte fixed (B1)
-
-    return bytes(payload[:dlc])
+    return bytes(payload[:dlc])  # Return only the bytes requested by the DLC

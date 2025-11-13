@@ -373,10 +373,20 @@ class MainWindow(QMainWindow):
         self.btn_link_global_script.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
-        self.btn_link_global_script.setFixedSize(220, 30)
+        self.btn_link_global_script.setFixedSize(160, 30)
         # self.btn_link_global_script.setStyleSheet("overflow: hidden; text-overflow: ellipsis;")
         # self.btn_link_global_script.setToolTip(self.btn_link_global_script.text())
         self.btn_link_global_script.clicked.connect(self.select_global_payload_script)
+
+        # Button to REMOVE a global Payload Script
+        self.btn_remove_global_script = QPushButton()
+        self.btn_remove_global_script.setToolTip("Remove the linked Global Payload Script.")
+        self.btn_remove_global_script.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
+        )
+        self.btn_remove_global_script.setFixedSize(30, 30)
+        self.btn_remove_global_script.setEnabled(False)  # Disabilitato di default
+        self.btn_remove_global_script.clicked.connect(self.remove_global_payload_script)
 
         # Layout orizzontale per i due pulsanti
         tx_buttons_layout = QHBoxLayout()
@@ -386,7 +396,10 @@ class MainWindow(QMainWindow):
         # tx_buttons_layout.addWidget(self.btn_add_xmetro)
         tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_link_global_script)
+        tx_buttons_layout.addWidget(self.btn_remove_global_script)
 
+        #TODO: aggiungi un bottone "DELETE ALL" per la tabella dei TX
+        #FIXME: crasha quando provo a riordinare i segnali TX in base al "Name"
         # --- ALBERO DEI SEGNALI ---
         self.signal_tree = QTreeWidget()
         self.signal_tree.setHeaderLabels(
@@ -882,6 +895,7 @@ class MainWindow(QMainWindow):
                     f"Global Script: {global_script}"
                 )
                 self.btn_link_global_script.setText(os.path.basename(global_script))
+                self.btn_remove_global_script.setEnabled(True)
             else:
                 self.global_script_path = None
                 self.global_script_cache.clear()
@@ -891,6 +905,7 @@ class MainWindow(QMainWindow):
                 self.btn_link_global_script.setToolTip(
                     "Link a global Payload Script to be used for all transmitted CAN frames."
                 )
+                self.btn_remove_global_script.setEnabled(False)
 
             # Load signals only if present in the configuration
             if "signals" in config:
@@ -1268,6 +1283,7 @@ class MainWindow(QMainWindow):
             if self.tx_running:
                 self.stop_tx()  # <--- Ferma la trasmissione se attiva
 
+    #FIXME: quando si carica un DBC dopo aver già aggiunto almeno un messaggio nella tabella TX, la lista di quelli già presenti deve essere mantenuta
     def load_dbc_file(self):
         filename, _ = QFileDialog.getOpenFileName(
             self, "Open DBC file", "", "DBC Files (*.dbc)"
@@ -1530,12 +1546,34 @@ class MainWindow(QMainWindow):
             )
             self.btn_link_global_script.setToolTip(f"Global Script: {rel_file_path}")
             self.btn_link_global_script.setText(os.path.basename(rel_file_path))
+            self.btn_remove_global_script.setEnabled(True)
+
             QMessageBox.information(
                 self,
                 "Global Script selected",
                 f"Global script set for all IDs:\n{rel_file_path}\n\n"
                 "This will be used for all TX payloads unless a specific script is set for an ID.",
             )
+
+
+    def remove_global_payload_script(self):
+        """
+        Rimuove il link allo script di payload globale, ripristinando
+        lo stato di default dei pulsanti.
+        """
+        self.global_script_path = None
+        self.global_script_cache.clear()
+        
+        # Ripristina il pulsante "Link Global Script"
+        self.btn_link_global_script.setStyleSheet("")
+        self.btn_link_global_script.setToolTip(
+            "Link a global Payload Script to be used for all transmitted CAN frames."
+        )
+        self.btn_link_global_script.setText("Link Global Script")
+        
+        # Disabilita il pulsante "Remove"
+        self.btn_remove_global_script.setEnabled(False)
+
 
     def modify_payload_script(self, item):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1560,6 +1598,7 @@ class MainWindow(QMainWindow):
                 f"Script associated with ID {item.text(TX_COL_2_id)}:\n{rel_file_path}\n\n"
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
+
 
     # Update the payload of a single signal in the CAN message
     def insert_value_in_payload(

@@ -18,6 +18,8 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
+#TODO: controllare perché in RX non si ha la decodifica dei nomi facendo il LOAD di un .json nel quale era stato collegato un DBC
+
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
