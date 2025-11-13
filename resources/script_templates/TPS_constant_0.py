@@ -21,6 +21,7 @@
 # This script is dynamically loaded by the main program.
 # It must define the function: get_payload() -> bytes
 
+
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
 
     # Initialize all 8 bytes to 0xFF

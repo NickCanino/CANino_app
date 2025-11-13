@@ -32,6 +32,6 @@ def get_payload(dlc: int = 8, id: int = None) -> bytes:
     for i in range(dlc):
         payload[i] = __import__("random").randint(0, 255)
 
-    payload[1] = 0xA7 # second byte fixed (B1)
+    payload[1] = 0xA7  # second byte fixed (B1)
 
     return bytes(payload[:dlc])

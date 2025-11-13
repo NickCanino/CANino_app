@@ -368,7 +368,7 @@ class MainWindow(QMainWindow):
         # Button to link a global Payload Script
         self.btn_link_global_script = QPushButton("Link Global Script")
         self.btn_link_global_script.setToolTip(
-            "Link a global Payload Script to be used for all transmitted CAN frames."
+            "Link a global Payload Script to be used for ALL transmitted CAN frames."
         )
         self.btn_link_global_script.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
@@ -380,7 +380,9 @@ class MainWindow(QMainWindow):
 
         # Button to REMOVE a global Payload Script
         self.btn_remove_global_script = QPushButton()
-        self.btn_remove_global_script.setToolTip("Remove the linked Global Payload Script.")
+        self.btn_remove_global_script.setToolTip(
+            "Remove the linked Global Payload Script."
+        )
         self.btn_remove_global_script.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
         )
@@ -398,8 +400,8 @@ class MainWindow(QMainWindow):
         tx_buttons_layout.addWidget(self.btn_link_global_script)
         tx_buttons_layout.addWidget(self.btn_remove_global_script)
 
-        #TODO: aggiungi un bottone "DELETE ALL" per la tabella dei TX
-        #FIXME: crasha quando provo a riordinare i segnali TX in base al "Name"
+        # TODO: aggiungi un bottone "DELETE ALL" per la tabella dei TX
+        # FIXME: crasha quando provo a riordinare i segnali TX in base al "Name"
         # --- ALBERO DEI SEGNALI ---
         self.signal_tree = QTreeWidget()
         self.signal_tree.setHeaderLabels(
@@ -944,21 +946,50 @@ class MainWindow(QMainWindow):
                             "script_path"
                         ):  # se l'item esiste e ha uno script
                             script_path = sig["script_path"]
+
                             item.setData(
-                                TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                                TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path
                             )
-                            script_btn = self.signal_tree.itemWidget(
+                            # Aggiorna i pulsanti nel widget composito
+                            script_widget = self.signal_tree.itemWidget(
                                 item, TX_COL_7_script
                             )
-                            if script_btn and isinstance(script_btn, QPushButton):
-                                script_btn.setChecked(True)
-                                script_btn.setStyleSheet(
-                                    "background-color: #4CAF50; color: white;"
+                            if script_widget:
+                                btn_link_local = script_widget.findChild(
+                                    QPushButton, "btn_link_local"
                                 )
-                                script_btn.setToolTip(
-                                    f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                                btn_unlink_local = script_widget.findChild(
+                                    QPushButton, "btn_unlink_local"
                                 )
-                                script_btn.setText(os.path.basename(script_path))
+
+                                if btn_link_local:
+                                    btn_link_local.setStyleSheet(
+                                        "background-color: #4CAF50; color: white;"
+                                    )
+                                    btn_link_local.setToolTip(
+                                        f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                                    )
+                                    btn_link_local.setText(
+                                        os.path.basename(script_path)
+                                    )
+
+                                if btn_unlink_local:
+                                    btn_unlink_local.setEnabled(True)
+                            # item.setData(
+                            #     TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                            # )
+                            # script_btn = self.signal_tree.itemWidget(
+                            #     item, TX_COL_7_script
+                            # )
+                            # if script_btn and isinstance(script_btn, QPushButton):
+                            #     script_btn.setChecked(True)
+                            #     script_btn.setStyleSheet(
+                            #         "background-color: #4CAF50; color: white;"
+                            #     )
+                            #     script_btn.setToolTip(
+                            #         f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                            #     )
+                            #     script_btn.setText(os.path.basename(script_path))
                         # continue  # salta l'aggiunta dell'intero messaggio: già caricato
 
                     else:  # Messaggio non caricato: aggiungilo manualmente
@@ -1019,34 +1050,66 @@ class MainWindow(QMainWindow):
                             msg_item, TX_COL_0_del, btn_delete_id
                         )
 
-                        script_btn = QPushButton("Link Script")
-                        script_btn.setCheckable(True)
-                        script_btn.setIcon(
-                            self.style().standardIcon(
-                                QStyle.StandardPixmap.SP_FileDialogDetailedView
-                            )
-                        )
-                        # script_btn.setToolTip("Script Payload")
-                        script_btn.clicked.connect(
-                            lambda _, item=msg_item: self.modify_payload_script(item)
-                        )
-                        self.signal_tree.setItemWidget(
-                            msg_item, TX_COL_7_script, script_btn
-                        )
-
+                        self._setup_script_buttons_for_item(msg_item)
                         if sig.get("script_path"):
                             script_path = sig["script_path"]
                             msg_item.setData(
-                                TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                                TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path
                             )
-                            script_btn.setChecked(True)
-                            script_btn.setStyleSheet(
-                                "background-color: #4CAF50; color: white;"
+                            # Aggiorna lo stato dei pulsanti appena creati
+                            script_widget = self.signal_tree.itemWidget(
+                                msg_item, TX_COL_7_script
                             )
-                            script_btn.setToolTip(
-                                f"Script: {os.path.relpath(script_path, start=self.project_root)}"
-                            )
-                            script_btn.setText(os.path.basename(script_path))
+                            if script_widget:
+                                btn_link_local = script_widget.findChild(
+                                    QPushButton, "btn_link_local"
+                                )
+                                btn_unlink_local = script_widget.findChild(
+                                    QPushButton, "btn_unlink_local"
+                                )
+
+                                if btn_link_local:
+                                    btn_link_local.setStyleSheet(
+                                        "background-color: #4CAF50; color: white;"
+                                    )
+                                    btn_link_local.setToolTip(
+                                        f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                                    )
+                                    btn_link_local.setText(
+                                        os.path.basename(script_path)
+                                    )
+
+                                if btn_unlink_local:
+                                    btn_unlink_local.setEnabled(True)
+
+                        # script_btn = QPushButton("Link Script")
+                        # script_btn.setCheckable(True)
+                        # script_btn.setIcon(
+                        #     self.style().standardIcon(
+                        #         QStyle.StandardPixmap.SP_FileDialogDetailedView
+                        #     )
+                        # )
+                        # # script_btn.setToolTip("Script Payload")
+                        # script_btn.clicked.connect(
+                        #     lambda _, item=msg_item: self.modify_payload_script(item)
+                        # )
+                        # self.signal_tree.setItemWidget(
+                        #     msg_item, TX_COL_7_script, script_btn
+                        # )
+                        #
+                        # if sig.get("script_path"):
+                        #     script_path = sig["script_path"]
+                        #     msg_item.setData(
+                        #         TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
+                        #     )
+                        #     script_btn.setChecked(True)
+                        #     script_btn.setStyleSheet(
+                        #         "background-color: #4CAF50; color: white;"
+                        #     )
+                        #     script_btn.setToolTip(
+                        #         f"Script: {os.path.relpath(script_path, start=self.project_root)}"
+                        #     )
+                        #     script_btn.setText(os.path.basename(script_path))
 
             # Load sliders
             if "sliders" in config and len(config["sliders"]) > 0:
@@ -1283,7 +1346,7 @@ class MainWindow(QMainWindow):
             if self.tx_running:
                 self.stop_tx()  # <--- Ferma la trasmissione se attiva
 
-    #FIXME: quando si carica un DBC dopo aver già aggiunto almeno un messaggio nella tabella TX, la lista di quelli già presenti deve essere mantenuta
+    # FIXME: quando si carica un DBC dopo aver già aggiunto almeno un messaggio nella tabella TX, la lista di quelli già presenti deve essere mantenuta
     def load_dbc_file(self):
         filename, _ = QFileDialog.getOpenFileName(
             self, "Open DBC file", "", "DBC Files (*.dbc)"
@@ -1340,19 +1403,20 @@ class MainWindow(QMainWindow):
             )
             self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
 
-            # Add custom payload button in 5th column
-            script_btn = QPushButton("Link Script")
-            script_btn.setCheckable(True)
-            script_btn.setIcon(
-                self.style().standardIcon(
-                    QStyle.StandardPixmap.SP_FileDialogDetailedView
-                )
-            )
-            script_btn.setToolTip("No Script Linked")
-            script_btn.clicked.connect(
-                lambda _, item=msg_item: self.modify_payload_script(item)
-            )
-            self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
+            self._setup_script_buttons_for_item(msg_item)
+            # # Add custom payload button in 5th column
+            # script_btn = QPushButton("Link Script")
+            # script_btn.setCheckable(True)
+            # script_btn.setIcon(
+            #     self.style().standardIcon(
+            #         QStyle.StandardPixmap.SP_FileDialogDetailedView
+            #     )
+            # )
+            # script_btn.setToolTip("No Script Linked")
+            # script_btn.clicked.connect(
+            #     lambda _, item=msg_item: self.modify_payload_script(item)
+            # )
+            # self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
 
             self.signal_tree.sortItems(
                 TX_COL_2_id, Qt.SortOrder.AscendingOrder
@@ -1433,17 +1497,18 @@ class MainWindow(QMainWindow):
         )
         self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
 
-        # Pulsante per linkare lo script del payload
-        script_btn = QPushButton("Link Script")
-        script_btn.setCheckable(True)
-        script_btn.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
-        )
-        script_btn.setToolTip("No Script Linked")
-        script_btn.clicked.connect(
-            lambda _, item=msg_item: self.modify_payload_script(item)
-        )
-        self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
+        self._setup_script_buttons_for_item(msg_item)
+        # # Pulsante per linkare lo script del payload
+        # script_btn = QPushButton("Link Script")
+        # script_btn.setCheckable(True)
+        # script_btn.setIcon(
+        #     self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        # )
+        # script_btn.setToolTip("No Script Linked")
+        # script_btn.clicked.connect(
+        #     lambda _, item=msg_item: self.modify_payload_script(item)
+        # )
+        # self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
 
         # Ascending sort by ID (column 2)
         self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
@@ -1555,7 +1620,6 @@ class MainWindow(QMainWindow):
                 "This will be used for all TX payloads unless a specific script is set for an ID.",
             )
 
-
     def remove_global_payload_script(self):
         """
         Rimuove il link allo script di payload globale, ripristinando
@@ -1563,17 +1627,81 @@ class MainWindow(QMainWindow):
         """
         self.global_script_path = None
         self.global_script_cache.clear()
-        
+
         # Ripristina il pulsante "Link Global Script"
         self.btn_link_global_script.setStyleSheet("")
         self.btn_link_global_script.setToolTip(
             "Link a global Payload Script to be used for all transmitted CAN frames."
         )
         self.btn_link_global_script.setText("Link Global Script")
-        
+
         # Disabilita il pulsante "Remove"
         self.btn_remove_global_script.setEnabled(False)
 
+    def remove_local_payload_script(self, item):
+        """
+        Rimuove il link allo script di payload per un ID specifico.
+        """
+        item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, None)
+
+        # Trova il widget composito e i pulsanti al suo interno
+        script_widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
+        if script_widget:
+            btn_link_local = script_widget.findChild(QPushButton, "btn_link_local")
+            btn_unlink_local = script_widget.findChild(QPushButton, "btn_unlink_local")
+
+            if btn_link_local:
+                btn_link_local.setStyleSheet("")
+                btn_link_local.setToolTip(
+                    "Link a Payload Script to be used for THIS trasmitted CAN frame."
+                )
+                btn_link_local.setText("Link Script")
+
+            if btn_unlink_local:
+                btn_unlink_local.setEnabled(False)
+
+    def _setup_script_buttons_for_item(self, item):
+        """
+        Crea il widget composito con i pulsanti Link/Unlink
+        per la colonna script della tabella TX.
+        """
+        # Contenitore principale
+        script_widget = QWidget()
+        script_layout = QHBoxLayout()
+        script_layout.setContentsMargins(2, 0, 2, 0)  # Spaziatura ridotta
+        script_layout.setSpacing(5)
+
+        # Pulsante Link
+        btn_link_local = QPushButton("Link Script")
+        btn_link_local.setObjectName("btn_link_local")  # Per trovarlo dopo
+        btn_link_local.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
+        )
+        btn_link_local.setToolTip(
+            "Link a Payload Script to be used for THIS trasmitted CAN frame."
+        )
+        btn_link_local.clicked.connect(
+            lambda _, it=item: self.modify_payload_script(it)
+        )
+
+        # Pulsante Unlink
+        btn_unlink_local = QPushButton()
+        btn_unlink_local.setObjectName("btn_unlink_local")  # Per trovarlo dopo
+        btn_unlink_local.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
+        )
+        btn_unlink_local.setToolTip("Remove the linked Payload Script.")
+        btn_unlink_local.setFixedSize(30, 25)  # Rendilo piccolo
+        btn_unlink_local.setEnabled(False)  # Disabilitato di default
+        btn_unlink_local.clicked.connect(
+            lambda _, it=item: self.remove_local_payload_script(it)
+        )
+
+        script_layout.addWidget(btn_link_local)
+        script_layout.addWidget(btn_unlink_local)
+        script_widget.setLayout(script_layout)
+
+        self.signal_tree.setItemWidget(item, TX_COL_7_script, script_widget)
 
     def modify_payload_script(self, item):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1585,12 +1713,21 @@ class MainWindow(QMainWindow):
 
         if rel_file_path:
             item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, rel_file_path)
+            # Cerca il widget composito e i pulsanti
             widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
-            if widget and isinstance(widget, QPushButton):
-                widget.setChecked(True)
-                widget.setStyleSheet("background-color: #4CAF50; color: white;")
-                widget.setToolTip(f"Script: {rel_file_path}")
-                widget.setText(os.path.basename(rel_file_path))
+            if widget:
+                btn_link_local = widget.findChild(QPushButton, "btn_link_local")
+                btn_unlink_local = widget.findChild(QPushButton, "btn_unlink_local")
+
+                if btn_link_local:
+                    btn_link_local.setStyleSheet(
+                        "background-color: #4CAF50; color: white;"
+                    )
+                    btn_link_local.setToolTip(f"Script: {rel_file_path}")
+                    btn_link_local.setText(os.path.basename(rel_file_path))
+
+                if btn_unlink_local:
+                    btn_unlink_local.setEnabled(True)
 
             QMessageBox.information(
                 self,
@@ -1598,7 +1735,6 @@ class MainWindow(QMainWindow):
                 f"Script associated with ID {item.text(TX_COL_2_id)}:\n{rel_file_path}\n\n"
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
-
 
     # Update the payload of a single signal in the CAN message
     def insert_value_in_payload(
@@ -2092,24 +2228,48 @@ class MainWindow(QMainWindow):
                 )
                 self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
 
-                # TODO: verificare differenza tra qui ed i metodi add_manual_id() e populate_signal_tree()
-                script_btn = QPushButton("Link Script")
-                script_btn.setCheckable(True)
-                script_btn.setIcon(
-                    self.style().standardIcon(
-                        QStyle.StandardPixmap.SP_FileDialogDetailedView
-                    )
-                )
-                script_btn.setToolTip("No Script Linked")
-                script_btn.clicked.connect(
-                    lambda _, item=msg_item: self.modify_payload_script(item)
-                )
-                self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
+                self._setup_script_buttons_for_item(msg_item)
                 if script_path:
-                    script_btn.setChecked(True)
-                    script_btn.setStyleSheet("background-color: #4CAF50; color: white;")
-                    script_btn.setToolTip(f"Script: {script_path}")
-                    script_btn.setText(os.path.basename(script_path))
+                    # Lo script_path e il setData sono già gestiti sopra
+                    script_widget = self.signal_tree.itemWidget(
+                        msg_item, TX_COL_7_script
+                    )
+                    if script_widget:
+                        btn_link_local = script_widget.findChild(
+                            QPushButton, "btn_link_local"
+                        )
+                        btn_unlink_local = script_widget.findChild(
+                            QPushButton, "btn_unlink_local"
+                        )
+
+                        if btn_link_local:
+                            btn_link_local.setStyleSheet(
+                                "background-color: #4CAF50; color: white;"
+                            )
+                            btn_link_local.setToolTip(f"Script: {script_path}")
+                            btn_link_local.setText(os.path.basename(script_path))
+
+                        if btn_unlink_local:
+                            btn_unlink_local.setEnabled(True)
+
+                # TODO: verificare differenza tra qui ed i metodi add_manual_id() e populate_signal_tree()
+                # script_btn = QPushButton("Link Script")
+                # script_btn.setCheckable(True)
+                # script_btn.setIcon(
+                #     self.style().standardIcon(
+                #         QStyle.StandardPixmap.SP_FileDialogDetailedView
+                #     )
+                # )
+                # script_btn.setToolTip("No Script Linked")
+                # script_btn.clicked.connect(
+                #     lambda _, item=msg_item: self.modify_payload_script(item)
+                # )
+                # self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
+                # if script_path:
+                #     script_btn.setChecked(True)
+                #     script_btn.setStyleSheet("background-color: #4CAF50; color: white;")
+                #     script_btn.setToolTip(f"Script: {script_path}")
+                #     script_btn.setText(os.path.basename(script_path))
 
             self.signal_tree.setSortingEnabled(True)
 
