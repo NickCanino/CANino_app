@@ -1394,7 +1394,6 @@ class MainWindow(QMainWindow):
             if self.tx_running:
                 self.stop_tx()  # <--- Ferma la trasmissione se attiva
 
-    # FIXME: quando si carica un DBC dopo aver già aggiunto almeno un messaggio nella tabella TX, la lista di quelli già presenti deve essere mantenuta
     def load_dbc_file(self):
         filename, _ = QFileDialog.getOpenFileName(
             self, "Open DBC file", "", "DBC Files (*.dbc)"
@@ -1409,7 +1408,7 @@ class MainWindow(QMainWindow):
     def populate_signal_tree(
         self,
     ):  # Popola l'albero dei segnali con i messaggi del DBC
-        self.signal_tree.clear()
+        # self.signal_tree.clear()
         if not self.dbc:
             return
         is_fd = self.can_if.is_fd if self.can_if is not None else False
