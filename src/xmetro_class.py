@@ -182,7 +182,10 @@ class DraggableGaugeBox(QFrame):
             self.drag_start_position = event.pos()
 
     def mouseMoveEvent(self, event):
-        if not hasattr(self, "drag_start_position"):
+        # if not hasattr(self, "drag_start_position"):
+        #     return
+
+        if self.drag_start_position is None:
             return
 
         if (
@@ -196,8 +199,9 @@ class DraggableGaugeBox(QFrame):
 
     def mouseReleaseEvent(self, event):
         self.setCursor(Qt.CursorShape.ArrowCursor)
-        if hasattr(self, "drag_start_position"):
-            del self.drag_start_position
+        # if hasattr(self, "drag_start_position"):
+        #     del self.drag_start_position
+        self.drag_start_position = None
 
     def snap_to_grid(self, new_pos):
         # Calcola la posizione nella griglia
