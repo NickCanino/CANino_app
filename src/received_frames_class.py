@@ -19,8 +19,9 @@
 # -----------------------------------------------------------------------------
 
 # TODO: controllare perché in RX non si ha la decodifica dei nomi facendo il LOAD di un .json nel quale era stato collegato un DBC
+# FIXME: in certi casi la tabella RX non si aggiorna correttamente (es. dopo aver fatto sorting) ed il nome è come fosse invertito rispetto a DLC, payload, count, ...
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QTableWidget,
@@ -31,8 +32,8 @@ from PyQt6.QtWidgets import (
     QStyle,
     QStyledItemDelegate,
 )
-from PyQt6.QtGui import QFont
-from PyQt6.QtCore import Qt, QTimer, QDateTime
+from PySide6.QtGui import QFont
+from PySide6.QtCore import Qt, QTimer, QDateTime
 import time
 import csv
 import sys

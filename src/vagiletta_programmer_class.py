@@ -20,7 +20,7 @@
 
 # TODO: add tooltips in VAGILETTA window
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog,
     QGridLayout,
     QComboBox,
@@ -33,8 +33,8 @@ from PyQt6.QtWidgets import (
     QGroupBox,
     QProgressDialog,
 )
-from PyQt6.QtGui import QPixmap, QImage, QIcon
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QObject
+from PySide6.QtGui import QPixmap, QImage, QIcon
+from PySide6.QtCore import Qt, QThread, Signal, QObject
 import subprocess
 import hashlib
 import sys
@@ -110,8 +110,8 @@ def list_arduino_ports():
 
 
 class FlashWorker(QObject):
-    progress = pyqtSignal(int)
-    finished = pyqtSignal(bool, str)
+    progress = Signal(int)
+    finished = Signal(bool, str)
 
     def __init__(self, port, params):
         super().__init__()

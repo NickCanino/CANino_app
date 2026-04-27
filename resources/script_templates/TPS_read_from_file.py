@@ -128,7 +128,10 @@ def get_payload(dlc: int = 8, id: int = None) -> bytes:
     if PAD_WITH_ZEROES and len(frame) < dlc:
         frame += bytes(dlc - len(frame))
     print(f"[DEBUG] TX payload for ID {id:03X}: {list(frame)}")
-    return frame
+
+    frame = bytearray(frame)
+    frame[1] = 0xA7
+    return bytes(frame[:dlc])
 
 
 def set_csv_dir(path: str) -> None:

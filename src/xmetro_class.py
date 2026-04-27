@@ -20,7 +20,7 @@
 
 # TODO: add tooltips in XMETRO window
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QLabel,
@@ -33,8 +33,8 @@ from PyQt6.QtWidgets import (
     QStyle,
     QMessageBox,
 )
-from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QIcon
-from PyQt6.QtCore import Qt, QPointF
+from PySide6.QtGui import QPainter, QColor, QPen, QFont, QIcon
+from PySide6.QtCore import Qt, QPointF
 
 # from cantools.database.can.signal import NamedSignalValue
 # from src.exceptions_logger import log_exception

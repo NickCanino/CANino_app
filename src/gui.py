@@ -18,7 +18,9 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-from PyQt6.QtWidgets import (
+# TODO: assicurarsi che se si fa "load config" e poi "load DBC", la tabella venga aggiornata correttamente (no ID doppioni, mantenuti ID non inclusi nel DBC)
+
+from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
     QWidget,
@@ -42,8 +44,8 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QStyledItemDelegate,
 )
-from PyQt6.QtGui import QAction, QIcon, QPixmap, QFont
-from PyQt6.QtCore import Qt, QTimer
+from PySide6.QtGui import QAction, QIcon, QPixmap, QFont
+from PySide6.QtCore import Qt, QTimer
 import json
 import os
 import sys
@@ -381,7 +383,7 @@ class MainWindow(QMainWindow):
         self.btn_link_global_script.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
-        self.btn_link_global_script.setFixedSize(160, 30)
+        self.btn_link_global_script.setFixedSize(200, 30)
         # self.btn_link_global_script.setStyleSheet("overflow: hidden; text-overflow: ellipsis;")
         # self.btn_link_global_script.setToolTip(self.btn_link_global_script.text())
         self.btn_link_global_script.clicked.connect(self.select_global_payload_script)

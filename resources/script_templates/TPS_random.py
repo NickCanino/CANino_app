@@ -30,6 +30,6 @@ def get_payload(dlc: int = 8, id: int = None) -> bytes:
     for i in range(dlc):
         payload[i] = __import__("random").randint(0, 255)
 
-    payload[dlc - 1] = 0xA7
+    payload[1] = 0xA7
 
     return bytes(payload[:dlc])  # Return only the bytes requested by the DLC

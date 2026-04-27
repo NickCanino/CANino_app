@@ -18,9 +18,9 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-from PyQt6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication
 
-# from PyQt6.QtGui import QFont
+# from PySide6.QtGui import QFont
 from src.gui import MainWindow
 import sys
 
