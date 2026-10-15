@@ -22,15 +22,32 @@ import can
 import threading
 import sys
 from typing import Callable, Optional
-from src.PCANBasic import PCANBasic, PCAN_ERROR_OK, PCAN_ATTACHED_CHANNELS, PCAN_NONEBUS
+from src.PCANBasic import (
+    PCANBasic,
+    PCAN_ERROR_OK,
+    PCAN_ATTACHED_CHANNELS,
+    PCAN_NONEBUS,
+    PCAN_CHANNEL_FEATURES,
+    FEATURE_FD_CAPABLE,
+    TPCANHandle,
+)
 from src.exceptions_logger import log_exception
 
 
 class CANInterface:
-    def __init__(self, channel: str, timing: "500000", is_fd=False):
+    # Set by get_available_channels() when the PEAK driver/DLL cannot be used
+    scan_error: Optional[str] = None
+
+    def __init__(self, channel: int, timing: can.BitTiming | can.BitTimingFd):
         self.channel = channel
-        self.timing = timing  # must be valid both if CAN or CANFD
-        self.is_fd = is_fd
+        # python-can ignores anything that is not a BitTiming/BitTimingFd and
+        # silently falls back to 500 kbit/s, so only timing objects are accepted
+        if not isinstance(timing, (can.BitTiming, can.BitTimingFd)):
+            raise TypeError(
+                f"timing must be a can.BitTiming/BitTimingFd, got {timing!r}"
+            )
+        self.timing = timing
+        self.is_fd = isinstance(timing, can.BitTimingFd)
         self.bus = None
         self.receive_thread = None
         self.running = False
@@ -39,23 +56,18 @@ class CANInterface:
         self.open_bus()
 
     def open_bus(self):
-        try:
-            self.bus = can.Bus(
-                channel=self.channel,
-                interface="pcan",
-                timing=self.timing,
-                fd=self.is_fd,
-                auto_reset=True,
-                receive_own_messages=False,
-            )
+        """Open the PCAN channel. Raises on failure so the caller can report it."""
+        self.bus = can.Bus(
+            channel=self.channel,
+            interface="pcan",
+            timing=self.timing,
+            auto_reset=True,
+            receive_own_messages=False,
+        )
 
-            self.running = True
-            self.receive_thread = threading.Thread(
-                target=self._receive_loop, daemon=True
-            )
-            self.receive_thread.start()
-        except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
+        self.running = True
+        self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+        self.receive_thread.start()
 
     def send_frame(self, frame_id, data, dlc=None, is_fd=False):
         try:
@@ -101,7 +113,6 @@ class CANInterface:
 
     def set_receive_callback(self, callback: Optional[Callable[[int, bytes], None]]):
         self.receive_callback = callback
-        self.receive_callback = callback
 
     def close(self):
         self.running = False
@@ -115,10 +126,30 @@ class CANInterface:
         self.close()
 
     @staticmethod
+    def is_fd_capable(channel: int) -> bool:
+        try:
+            status, features = PCANBasic().GetValue(
+                TPCANHandle(channel), PCAN_CHANNEL_FEATURES
+            )
+        except Exception as e:
+            log_exception(__file__, sys._getframe().f_lineno, e)
+            return False
+        return status == PCAN_ERROR_OK and bool(features & FEATURE_FD_CAPABLE)
+
+    @staticmethod
     def get_available_channels() -> list[tuple[str, int]]:
-        pcan = PCANBasic()
+        CANInterface.scan_error = None
         available = []
-        status, channels_info = pcan.GetValue(PCAN_NONEBUS, PCAN_ATTACHED_CHANNELS)
+        try:
+            pcan = PCANBasic()
+            status, channels_info = pcan.GetValue(PCAN_NONEBUS, PCAN_ATTACHED_CHANNELS)
+        except Exception as e:
+            # The vendor wrapper swallows a missing DLL and fails on first use
+            CANInterface.scan_error = (
+                "PCAN driver not found - install the PEAK-System device driver"
+            )
+            log_exception(__file__, sys._getframe().f_lineno, e)
+            return available
         if status == PCAN_ERROR_OK:
             for ch in channels_info:
                 if ch.device_type == 0x05:  # PCAN_USB

@@ -90,6 +90,17 @@ PCAN_BAUD_FD_2M = can.BitTimingFd(
     data_sjw=1,
 )
 
+
+def pcan_timing(pcan_baud) -> can.BitTiming:
+    """Exact classic-CAN timing from a PCAN BTR0BTR1 constant (8 MHz clock).
+
+    Passing `bitrate=` instead is not enough: python-can's PCAN map has no
+    entry for 95.238/83.333/47.619/33.333 kbit/s and falls back to 500k.
+    """
+    v = pcan_baud.value
+    return can.BitTiming.from_registers(f_clock=8_000_000, btr0=v >> 8, btr1=v & 0xFF)
+
+
 BUSLOAD_refresh_rate_ms = 1000
 
 # Tx column definition
@@ -290,25 +301,28 @@ class MainWindow(QMainWindow):
         top_layout.addWidget(self.lbl_baudrate, alignment=Qt.AlignmentFlag.AlignVCenter)
 
         self.cb_baudrate = QComboBox()
+        # (label, python-can timing, data bitrate, arbitration bitrate if CAN FD)
         self.baudrate_values = [
             ("2 MBit/s (CANFD)", PCAN_BAUD_FD_2M, 2000000, 500000),
-            ("1 MBit/s", str(PCAN_BAUD_1M.value), 1000000, 0),
-            ("800 kBit/s", str(PCAN_BAUD_800K.value), 800000, 0),
-            ("500 kBit/s", str(PCAN_BAUD_500K.value), 500000, 0),
-            ("250 kBit/s", str(PCAN_BAUD_250K.value), 250000, 0),
-            ("125 kBit/s", str(PCAN_BAUD_125K.value), 125000, 0),
-            ("100 kBit/s", str(PCAN_BAUD_100K.value), 100000, 0),
-            ("95.238 kBit/s", str(PCAN_BAUD_95K.value), 95238, 0),
-            ("83.333 kBit/s", str(PCAN_BAUD_83K.value), 83333, 0),
-            ("50 kBit/s", str(PCAN_BAUD_50K.value), 50000, 0),
-            ("47.619 kBit/s", str(PCAN_BAUD_47K.value), 47619, 0),
-            ("33.333 kBit/s", str(PCAN_BAUD_33K.value), 33333, 0),
-            ("20 kBit/s", str(PCAN_BAUD_20K.value), 20000, 0),
-            ("10 kBit/s", str(PCAN_BAUD_10K.value), 10000, 0),
-            ("5 kBit/s", str(PCAN_BAUD_5K.value), 5000, 0),
+            ("1 MBit/s", pcan_timing(PCAN_BAUD_1M), 1000000, 0),
+            ("800 kBit/s", pcan_timing(PCAN_BAUD_800K), 800000, 0),
+            ("500 kBit/s", pcan_timing(PCAN_BAUD_500K), 500000, 0),
+            ("250 kBit/s", pcan_timing(PCAN_BAUD_250K), 250000, 0),
+            ("125 kBit/s", pcan_timing(PCAN_BAUD_125K), 125000, 0),
+            ("100 kBit/s", pcan_timing(PCAN_BAUD_100K), 100000, 0),
+            ("95.238 kBit/s", pcan_timing(PCAN_BAUD_95K), 95238, 0),
+            ("83.333 kBit/s", pcan_timing(PCAN_BAUD_83K), 83333, 0),
+            ("50 kBit/s", pcan_timing(PCAN_BAUD_50K), 50000, 0),
+            ("47.619 kBit/s", pcan_timing(PCAN_BAUD_47K), 47619, 0),
+            ("33.333 kBit/s", pcan_timing(PCAN_BAUD_33K), 33333, 0),
+            ("20 kBit/s", pcan_timing(PCAN_BAUD_20K), 20000, 0),
+            ("10 kBit/s", pcan_timing(PCAN_BAUD_10K), 10000, 0),
+            ("5 kBit/s", pcan_timing(PCAN_BAUD_5K), 5000, 0),
         ]
-        for label, pcan_val, real_data_val, real_arb_val in self.baudrate_values:
-            self.cb_baudrate.addItem(label, pcan_val)
+        # The timing is looked up by index: a BitTiming is a Mapping and must
+        # not go through QVariant conversion as combo item data
+        for label, _timing, _data_val, _arb_val in self.baudrate_values:
+            self.cb_baudrate.addItem(label)
         self.cb_baudrate.setCurrentIndex(3)  # Default to 500 kBit/s
         self.cb_baudrate.setFixedSize(150, 30)
         top_layout.addWidget(self.cb_baudrate)
@@ -1320,12 +1334,16 @@ class MainWindow(QMainWindow):
         self.cb_bus_tx.clear()
         for display, handle in CANInterface.get_available_channels():
             self.cb_bus_tx.addItem(display, handle)
+        if self.cb_bus_tx.count() == 0 and CANInterface.scan_error:
+            self.cb_bus_tx.addItem(CANInterface.scan_error, None)
 
     def toggle_connection(self):
         if self.btn_connect.isChecked():  # Connect button is checked
             channel = self.cb_bus_tx.currentData()  # Get the selected channel
             if channel is None:
-                QMessageBox.warning(self, "Warning", "No CAN channel selected")
+                QMessageBox.warning(
+                    self, "Warning", CANInterface.scan_error or "No CAN channel selected"
+                )
                 self.btn_connect.setChecked(False)
                 return
 
@@ -1343,12 +1361,22 @@ class MainWindow(QMainWindow):
                 self.btn_start_tx.setEnabled(False)
                 return
 
-            try:  # Try to connect to the CAN interface
-                bitrate_lbl = self.cb_baudrate.currentText()
-                print(f"[DEBUG] selected timing: {bitrate_lbl}")
-                self.can_if = CANInterface(
-                    channel, timing=bitrate_lbl, is_fd=("f_clock=" in bitrate_lbl)
+            bitrate_lbl, timing, _, _ = self.baudrate_values[
+                self.cb_baudrate.currentIndex()
+            ]
+            if isinstance(timing, can.BitTimingFd) and not CANInterface.is_fd_capable(
+                channel
+            ):
+                QMessageBox.warning(
+                    self,
+                    "CAN FD",
+                    "The selected channel does not support CAN FD. Choose a classic CAN baudrate.",
                 )
+                self.btn_connect.setChecked(False)
+                return
+
+            try:  # Try to connect to the CAN interface
+                self.can_if = CANInterface(channel, timing=timing)
                 self.can_if.set_receive_callback(self.process_received_frame)
                 QMessageBox.information(
                     self,
@@ -1371,6 +1399,7 @@ class MainWindow(QMainWindow):
                 self.btn_start_tx.setEnabled(True)  # <--- Enable after connection
 
             except Exception as e:
+                self.can_if = None
                 QMessageBox.critical(self, "Error", f"Error opening CAN: {e}")
                 log_exception(__file__, sys._getframe().f_lineno, e)
                 self.btn_connect.setChecked(False)
