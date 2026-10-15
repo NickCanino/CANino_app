@@ -518,10 +518,7 @@ class MainWindow(QMainWindow):
         slider_scroll_widget.setLayout(self.slider_container)
         scroll_area.setWidget(slider_scroll_widget)
         slider_layout.addWidget(scroll_area)
-
-        # Contenitore per gli slider dinamici
-        self.slider_container = QVBoxLayout()
-        slider_layout.addLayout(self.slider_container)
+        self.slider_container.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         self.added_sliders = set()
         self.slider_widgets = []
@@ -1268,28 +1265,13 @@ class MainWindow(QMainWindow):
                         )
                         lbl_value.setText(f"Val: {formatted} {unit}")
 
-                    def remove_slider():
-                        for i in reversed(range(self.slider_container.count())):
-                            widget = self.slider_container.itemAt(i).widget()
-                            if widget == slider_widget:
-                                widget.setParent(None)
-                                self.added_sliders.discard(key)
-                                if hasattr(self, "slider_widgets"):
-                                    self.slider_widgets = [
-                                        w
-                                        for w in self.slider_widgets
-                                        if not (
-                                            w.frame_id == msg.frame_id
-                                            and w.signal.name == sig.name
-                                        )
-                                    ]
-                                if self.tx_running:
-                                    self.stop_tx()
-                                    self.start_tx()
-                                break
-
                     slider.valueChanged.connect(update_value_label)
-                    btn_remove.clicked.connect(remove_slider)
+                    update_value_label(slider.value())  # show the restored value
+                    # Bind this slider's widget now: a closure would see the last
+                    # loop iteration's variables (TODO 4.2)
+                    btn_remove.clicked.connect(
+                        lambda _=False, w=slider_widget: self.remove_slider_widget(w)
+                    )
 
                     info_layout.addWidget(lbl_min)
                     info_layout.addStretch()
