@@ -100,11 +100,35 @@ class CANInterface:
         except Exception as e:
             log_exception(__file__, sys._getframe().f_lineno, e)
 
+    def flush_tx(self) -> bool:
+        """Drop frames still waiting to be transmitted; True on success.
+
+        PcanBus has no flush_tx_buffer(), and CAN_Reset (PcanBus.reset) does not
+        drop frames already handed to a PCAN-USB: on the bench 1,000 of 1,000
+        queued frames still went out after it. Closing and reopening the
+        channel drops them (0 of 5,000), at the cost of a ~0.4 s RX gap — so it
+        is done only when the controller reports errors: on an error-free bus
+        the queue drains as fast as it fills and nothing stale is left.
+        """
+        if self.bus is None:
+            return True
+        try:
+            if self.bus.status() == PCAN_ERROR_OK:
+                return True
+            self.close()
+            self.open_bus()
+            return True
+        except Exception as e:
+            self.bus = None
+            log_exception(__file__, sys._getframe().f_lineno, e)
+            return False
+
     def _receive_loop(self):
         while self.running:
             try:
                 if self.bus is not None:
-                    msg = self.bus.recv(1.0)
+                    # Short timeout: close() joins this thread, keep it responsive
+                    msg = self.bus.recv(0.2)
                     if msg is not None and msg.is_error_frame:
                         # Bus-error report from the controller, not a data frame
                         # (TODO 1.13); kept for the future bus status (TODO 1.10)

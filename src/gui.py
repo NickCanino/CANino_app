@@ -1860,6 +1860,15 @@ class MainWindow(QMainWindow):
             self.start_tx()
         else:
             self.stop_tx()
+            # Frames the bus could not take yet would otherwise go out later,
+            # e.g. when a node appears (TODO 1.14). Only on the user's Stop TX:
+            # internal stop/start restarts must not drop in-flight frames.
+            if self.can_if is not None and not self.can_if.flush_tx():
+                QMessageBox.critical(
+                    self, "Error", "Could not reopen the CAN channel after Stop TX."
+                )
+                self.btn_connect.setChecked(False)
+                self.toggle_connection()
 
     def start_tx(self):
         """Starts the periodic transmission of enabled CAN messages in ascending order of ID."""
