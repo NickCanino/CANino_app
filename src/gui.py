@@ -1518,24 +1518,24 @@ class MainWindow(QMainWindow):
         if not ok or not name:
             return
 
+        # Positional value/min/max: PySide6 names them minValue/maxValue and
+        # rejects the PyQt6 keywords min=/max=
         period, ok = QInputDialog.getInt(
-            self, "Add Manual ID", "Enter period (ms):", min=1, max=10000
+            self, "Add Manual ID", "Enter period (ms):", 100, 1, 10000
         )
         if not ok:
             return
 
         is_fd, ok = QInputDialog.getInt(
-            self, "Add Manual ID", "Select if FD (0-1):", min=0, max=1
+            self, "Add Manual ID", "Select if FD (0-1):", 0, 0, 1
         )
+        if not ok:
+            return
 
-        if is_fd == 1:
-            dlc, ok = QInputDialog.getInt(
-                self, "Add Manual ID", "Enter DLC (1-64):", min=1, max=64
-            )
-        elif is_fd == 0:
-            dlc, ok = QInputDialog.getInt(
-                self, "Add Manual ID", "Enter DLC (1-8):", min=1, max=8
-            )
+        max_dlc = 64 if is_fd == 1 else 8
+        dlc, ok = QInputDialog.getInt(
+            self, "Add Manual ID", f"Enter DLC (1-{max_dlc}):", 8, 1, max_dlc
+        )
         if not ok:
             return
 
