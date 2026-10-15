@@ -2102,6 +2102,9 @@ class MainWindow(QMainWindow):
                 return callback
 
             timer = QTimer(self)
+            # CoarseTimer (Qt's default) rounds intervals above 20 ms up to the
+            # 15.625 ms Windows tick: 50 ms ran at 62.5 ms on the bus (TODO 2.10)
+            timer.setTimerType(Qt.TimerType.PreciseTimer)
             timer.frame_id = frame_id  # Custom attribute for lookup
             timer.timeout.connect(
                 make_callback(frame_id=frame_id, item=item, script_path=script_path)
