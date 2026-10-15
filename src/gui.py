@@ -46,6 +46,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import QAction, QIcon, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer
+import importlib.util
 import json
 import os
 import sys
@@ -99,6 +100,23 @@ def pcan_timing(pcan_baud) -> can.BitTiming:
     """
     v = pcan_baud.value
     return can.BitTiming.from_registers(f_clock=8_000_000, btr0=v >> 8, btr1=v & 0xFF)
+
+
+def load_payload_function(path: str, module_name: str):
+    """Load a payload script as its own module and return its get_payload().
+
+    Every call yields an independent module, so module-level state (counters,
+    caches) is never shared between two loads of the same file.
+    """
+    spec = importlib.util.spec_from_file_location(module_name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load payload script {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    get_payload_fn = getattr(module, "get_payload", None)
+    if not callable(get_payload_fn):
+        raise RuntimeError(f"{path} does not contain a function get_payload()")
+    return get_payload_fn
 
 
 BUSLOAD_refresh_rate_ms = 1000
@@ -183,6 +201,9 @@ class MainWindow(QMainWindow):
         self.tx_running = False
         self.global_script_path = None
         self.global_script_cache = {}
+        # (frame_id, script_path) -> get_payload of that ID's own script instance;
+        # emptied at Start TX only, so internal TX restarts keep script state
+        self.script_instances = {}
         self.project_root = os.getcwd()
 
         self.busload_tx_arbitration_bits = 0
@@ -1833,6 +1854,9 @@ class MainWindow(QMainWindow):
                     "You must connect to the CAN bus before starting transmission",
                 )
                 return
+            # Every run starts every script from its initial state
+            self.script_instances.clear()
+            self.global_script_cache.clear()
             self.start_tx()
         else:
             self.stop_tx()
@@ -1895,7 +1919,6 @@ class MainWindow(QMainWindow):
                 period_spin.valueChanged.connect(make_period_handler())
 
             script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
-            script_cache = {}
 
             def make_callback(frame_id=frame_id, item=item, script_path=script_path):
                 def callback():
@@ -1971,18 +1994,14 @@ class MainWindow(QMainWindow):
                     try:
                         # 1. Per-ID script has priority
                         if script_path and os.path.exists(script_path):
-                            if script_path not in script_cache:
-                                script_globals = {}
-                                with open(script_path, "r", encoding="utf-8") as f:
-                                    exec(f.read(), script_globals)
-                                get_payload_fn = script_globals.get("get_payload")
-                                if not callable(get_payload_fn):
-                                    raise RuntimeError(
-                                        "Selected script file does not contain a function get_payload()"
-                                    )
-                                script_cache[script_path] = get_payload_fn
-                            else:
-                                get_payload_fn = script_cache[script_path]
+                            # One instance per ID, even when IDs share the file
+                            key = (frame_id, script_path)
+                            get_payload_fn = self.script_instances.get(key)
+                            if get_payload_fn is None:
+                                get_payload_fn = load_payload_function(
+                                    script_path, f"canino_tx_script_{frame_id:X}"
+                                )
+                                self.script_instances[key] = get_payload_fn
 
                             payload = get_payload_fn(dlc, frame_id)
                             if not isinstance(payload, bytes) or len(payload) != dlc:
@@ -1995,16 +2014,9 @@ class MainWindow(QMainWindow):
                             self.global_script_path
                         ):
                             if self.global_script_path not in self.global_script_cache:
-                                script_globals = {}
-                                with open(
-                                    self.global_script_path, "r", encoding="utf-8"
-                                ) as f:
-                                    exec(f.read(), script_globals)
-                                get_payload_fn = script_globals.get("get_payload")
-                                if not callable(get_payload_fn):
-                                    raise RuntimeError(
-                                        "Global script file does not contain a function get_payload()"
-                                    )
+                                get_payload_fn = load_payload_function(
+                                    self.global_script_path, "canino_global_script"
+                                )
                                 self.global_script_cache[self.global_script_path] = (
                                     get_payload_fn
                                 )
