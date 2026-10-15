@@ -51,6 +51,7 @@ class CANInterface:
         self.bus = None
         self.receive_thread = None
         self.running = False
+        self.error_frames = 0
         self.receive_callback: Optional[Callable[[int, bytes], None]] = None
 
         self.open_bus()
@@ -104,6 +105,11 @@ class CANInterface:
             try:
                 if self.bus is not None:
                     msg = self.bus.recv(1.0)
+                    if msg is not None and msg.is_error_frame:
+                        # Bus-error report from the controller, not a data frame
+                        # (TODO 1.13); kept for the future bus status (TODO 1.10)
+                        self.error_frames += 1
+                        continue
                     if msg and self.receive_callback:
                         self.receive_callback(
                             msg.arbitration_id, msg.data, msg.dlc, msg.is_fd
