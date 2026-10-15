@@ -932,9 +932,7 @@ class MainWindow(QMainWindow):
                 )
                 if os.path.exists(absolute_path):
                     self.dbc = load_dbc(absolute_path)
-                    # self.populate_signal_tree()
-                    # self.rx_window.set_dbc(self.dbc)
-                    # self.btn_disable_all_ids.setEnabled(True)
+                    self.rx_window.set_dbc(self.dbc)  # RX names (TODO 6.1)
                 else:
                     QMessageBox.warning(
                         self,
@@ -1169,9 +1167,17 @@ class MainWindow(QMainWindow):
                         #     script_btn.setText(os.path.basename(script_path))
 
             # Load sliders
-            if "sliders" in config and len(config["sliders"]) > 0:
+            sliders_cfg = config.get("sliders") or []
+            if sliders_cfg and self.dbc is None:
+                QMessageBox.warning(
+                    self,
+                    "Sliders",
+                    f"{len(sliders_cfg)} slider(s) skipped: they need the workspace DBC, which is not loaded.",
+                )
+                sliders_cfg = []
+            if sliders_cfg:
                 print("[DEBUG] Loading sliders from configuration...")
-                for meta in config["sliders"]:
+                for meta in sliders_cfg:
                     msg = next(
                         (
                             m
@@ -1300,12 +1306,10 @@ class MainWindow(QMainWindow):
                     slider_widget.key = key  # Unico identificatore per lo slider
                     self.slider_widgets.append(slider_widget)
 
-                if self.signal_tree.topLevelItemCount() > 0:
-                    self.btn_disable_all_ids.setEnabled(True)
-                    self.btn_delete_all_ids.setEnabled(True)
-                else:
-                    self.btn_disable_all_ids.setEnabled(False)
-                    self.btn_delete_all_ids.setEnabled(False)
+            # Row-dependent buttons follow the table, sliders or not (TODO 6.2)
+            has_rows = self.signal_tree.topLevelItemCount() > 0
+            self.btn_disable_all_ids.setEnabled(has_rows)
+            self.btn_delete_all_ids.setEnabled(has_rows)
 
             if not auto:
                 QMessageBox.information(
