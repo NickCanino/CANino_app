@@ -358,6 +358,7 @@ class MainWindow(QMainWindow):
         self.can_if = None
         self.timers = []
         self.tx_skipped_fd = []
+        self._tx_writing_payload = False
         self.tx_running = False
         self.global_script_path = None
         self.global_script_cache = {}
@@ -876,11 +877,6 @@ class MainWindow(QMainWindow):
                                     and w.signal.name == sig.name
                                 )
                             ]
-
-                        # Riavvia la trasmissione per aggiornare il comportamento
-                        if self.tx_running:
-                            self.stop_tx()
-                            self.start_tx()
                         break
 
             slider.valueChanged.connect(update_value_label)
@@ -969,9 +965,7 @@ class MainWindow(QMainWindow):
         if (
             self.btn_disable_all_ids.text() == "Enable All"
         ):  # Attualmente disabilitati, quindi abilita tutti
-            for i in range(self.signal_tree.topLevelItemCount()):
-                item = self.signal_tree.topLevelItem(i)
-                item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
+            self._set_all_enabled(True)
 
             self.btn_disable_all_ids.setText("Disable All")
             self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
@@ -979,9 +973,7 @@ class MainWindow(QMainWindow):
                 self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
             )
         else:  # Attualmente abilitati, quindi disabilita tutti
-            for i in range(self.signal_tree.topLevelItemCount()):
-                item = self.signal_tree.topLevelItem(i)
-                item.setCheckState(TX_COL_1_enable, Qt.CheckState.Unchecked)
+            self._set_all_enabled(False)
 
             self.btn_disable_all_ids.setText("Enable All")
             self.btn_disable_all_ids.setToolTip("Enable all CAN IDs in the TX list.")
@@ -1322,6 +1314,7 @@ class MainWindow(QMainWindow):
                     slider_widget.key = key  # Unico identificatore per lo slider
                     self.slider_widgets.append(slider_widget)
 
+            self._sync_tx_timers()
             # Row-dependent buttons follow the table, sliders or not (TODO 6.2)
             has_rows = self.signal_tree.topLevelItemCount() > 0
             self.btn_disable_all_ids.setEnabled(has_rows)
@@ -1346,9 +1339,6 @@ class MainWindow(QMainWindow):
             self.added_sliders.discard(widget.key)
 
         self.slider_widgets = [w for w in self.slider_widgets if w != widget]
-        if self.tx_running:
-            self.stop_tx()
-            self.start_tx()
 
     def refresh_bus_list(self):
         self.cb_bus_tx.clear()
@@ -1466,6 +1456,7 @@ class MainWindow(QMainWindow):
         if filename:
             self.dbc = load_dbc(filename)
             self.populate_signal_tree()
+            self._sync_tx_timers()
             self.rx_window.set_dbc(self.dbc)
             self.btn_disable_all_ids.setEnabled(True)
             self.btn_delete_all_ids.setEnabled(True)
@@ -1545,6 +1536,9 @@ class MainWindow(QMainWindow):
             except (TypeError, ValueError):
                 period_spin.setValue(100)
             self.signal_tree.setItemWidget(item, TX_COL_5_period, period_spin)
+            period_spin.valueChanged.connect(
+                lambda v, it=item: self._on_period_changed(it, v)
+            )
 
             btn_delete_id = QPushButton()
             btn_delete_id.setIcon(
@@ -1589,10 +1583,14 @@ class MainWindow(QMainWindow):
         self._add_tx_row(**dlg.result_values)
         self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
 
-        # Se la trasmissione è attiva, riavvia per includere il nuovo ID
-        if self.tx_running:
-            self.stop_tx()
-            self.start_tx()
+        skipped = self._sync_tx_timers()  # starts the new row if TX is running
+        if skipped:
+            QMessageBox.warning(
+                self,
+                "CAN FD",
+                "The bus is connected as classic CAN: this row is not transmitted:\n"
+                + "\n".join(skipped),
+            )
         self.btn_disable_all_ids.setEnabled(True)
         self.btn_delete_all_ids.setEnabled(True)
 
@@ -1609,24 +1607,33 @@ class MainWindow(QMainWindow):
             self.btn_disable_all_ids.setEnabled(False)
             self.btn_delete_all_ids.setEnabled(False)
 
+    def _update_slider_enabled(self, item):
+        """Sliders of a disabled row are greyed out."""
+        frame_id, is_ext = self._row_key(item)
+        checked = item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
+        for w in self.slider_widgets:
+            if w.frame_id == frame_id and bool(getattr(w, "is_ext", False)) == is_ext:
+                w.slider.setEnabled(checked)
+
+    def _set_all_enabled(self, enabled):
+        """Enable/Disable All: one timer sync, not one TX restart per row."""
+        state = Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked
+        blocked = self.signal_tree.blockSignals(True)
+        try:
+            for item in self._tx_items():
+                item.setCheckState(TX_COL_1_enable, state)
+        finally:
+            self.signal_tree.blockSignals(blocked)
+        self._sync_tx_timers()
+        for item in self._tx_items():
+            self._update_slider_enabled(item)
+
     def on_signal_tree_item_changed(self, item, column):
         if column == TX_COL_1_enable:  # Checkbox abilitazione
-            if self.tx_running:
-                self.stop_tx()
-                self.start_tx()
+            self._sync_tx_timers()  # starts/stops this row only (TODO 2.6)
+            self._update_slider_enabled(item)
 
-            try:  # Get the frame ID from the item text
-                frame_id = int(item.text(TX_COL_2_id), 16)
-            except Exception:
-                frame_id = None
-            if frame_id is not None and hasattr(self, "slider_widgets"):
-                for slider_widget in self.slider_widgets:
-                    if getattr(slider_widget, "frame_id", None) == frame_id:
-                        slider_widget.slider.setEnabled(
-                            item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
-                        )
-
-        elif column == TX_COL_6_payload:  # Payload
+        elif column == TX_COL_6_payload and not self._tx_writing_payload:  # Payload
             text = item.text(TX_COL_6_payload).strip()
             parti = text.split()
             dlc = item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or None
@@ -1871,262 +1878,12 @@ class MainWindow(QMainWindow):
         )
 
     def start_tx(self):
-        """Starts the periodic transmission of enabled CAN messages in ascending order of ID."""
+        """Start one timer per enabled row; returns the skipped FD rows."""
+        for t in self.timers:
+            t.stop()
         self.timers.clear()
-        # (frame_id, is_ext): {'nominal': period, 'offset': 0, 'samples': [], 'last_time': None}
-        self.tx_periods = {}
-        # A classic-CAN channel rejects every FD frame: skip those rows, once
-        bus_is_fd = bool(getattr(self.can_if, "is_fd", False))
-        self.tx_skipped_fd = []
-        items_to_send = []
-        for item in self._tx_items():  # Itera su tutti gli ID
-            if item.checkState(TX_COL_1_enable) != Qt.CheckState.Checked:
-                continue
-            key = self._row_key(item)
-            if key[0] < 0:
-                continue
-            if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) and not bus_is_fd:
-                self.tx_skipped_fd.append(
-                    f"{item.text(TX_COL_2_id)} {item.text(TX_COL_4_name)}"
-                )
-                continue
-            items_to_send.append((key, item))
-        items_to_send.sort(key=lambda x: (x[0][1], x[0][0]))
-
-        # Prepara gli slider per i frame
-        slider_overrides = {}
-        if hasattr(
-            self, "slider_widgets"
-        ):  # Controlla se gli slider sono stati aggiunti
-            for w in self.slider_widgets:
-                skey = (w.frame_id, bool(getattr(w, "is_ext", False)))
-                slider_overrides.setdefault(skey, []).append((w.signal, w.slider))
-
-        # Inizializza i timer ed il dizionario per la cache degli script
-        for tx_key, item in items_to_send:
-            frame_id, is_ext = tx_key
-            period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
-            period = period_spin.value() if period_spin else 1000
-            self.tx_periods[tx_key] = {
-                "nominal": period,
-                "offset": 0,
-                "samples": [],
-                "last_time": None,
-            }
-            # Connect live update for period spinbox
-            if period_spin is not None:
-
-                def make_period_handler(tkey=tx_key, tree_item=item):
-                    def handler(new_period):
-                        if self.tx_running:
-                            # Update timer and tx_periods
-                            for t in self.timers:
-                                if getattr(t, "tx_item", None) is tree_item:
-                                    t.stop()
-                                    t.start(new_period)
-                                    self.tx_periods[tkey]["nominal"] = new_period
-                                    break
-
-                    return handler
-
-                period_spin.valueChanged.connect(make_period_handler())
-
-            script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
-            # The frame flags of a row never change after it is created
-            is_fd = bool(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd))
-            dlc = valid_dlc(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc), is_fd)
-
-            def make_callback(
-                frame_id=frame_id,
-                is_ext=is_ext,
-                is_fd=is_fd,
-                dlc=dlc,
-                item=item,
-                script_path=script_path,
-            ):
-                tx_key = (frame_id, is_ext)
-
-                def callback():
-                    now_time = time.time() * 1000  # ms
-                    txp = self.tx_periods[tx_key]
-
-                    # FIXME: riabilitare controllo adattivo del periodo correggendo il conflitto con metodo timer_busload_elapsed()
-                    # Monitor period
-                    # if txp["last_time"] is not None:
-                    #    real_period = now_time - txp["last_time"]
-                    #    txp["samples"].append(real_period)
-                    #    # if len(txp["samples"]) > 10:
-                    #    #     txp["samples"].pop(0)
-
-                    #    # Calculate mean and check hysteresis
-                    #    if len(txp["samples"]) == 10:
-                    #        # Calcola la media attuale dei periodi e poi ripulisce la lista
-                    #        real_mean_period = sum(txp["samples"]) / 10
-                    #        txp["samples"].pop(0)
-
-                    #        ref_period = txp["nominal"]
-                    #        p_factor = 0.0  # Fattore di proporzione
-                    #        i_factor = 0.002  # Fattore di integrazione
-
-                    #        error_period = float(ref_period) - real_mean_period
-
-                    #        # --- INTEGRALE: accumula l'errore nel tempo ---
-                    #        if "integral" not in txp:
-                    #            txp["integral"] = 0.0
-                    #        txp["integral"] += error_period
-
-                    #        # --- PI controller ---
-                    #        new_period = (
-                    #            int(
-                    #                error_period * p_factor + txp["integral"] * i_factor
-                    #            )
-                    #            + ref_period
-                    #        )
-
-                    #        # Aggiorna il periodo del timer se necessario
-                    #        if new_period != ref_period + txp["offset"]:
-                    #            txp["offset"] = new_period - ref_period
-                    #            print(
-                    #                f"[DEBUG] Update of period for ID 0x{frame_id:03X}: (Ierr: {txp['integral']:02f} ms, corr: {new_period - ref_period:02f} ms) ref:{ref_period} -> new:{new_period} ms"
-                    #            )
-
-                    #            for t in self.timers:
-                    #                if (
-                    #                    hasattr(t, "frame_id")
-                    #                    and t.frame_id == frame_id
-                    #                ):
-                    #                    t.stop()
-                    #                    t.start(max(5, new_period))
-                    #                    break
-
-                    txp["last_time"] = (
-                        now_time  # Aggiorna l'ultimo tempo di trasmissione
-                    )
-
-                    # Se il payload è stato specificato come script, lo esegue
-                    try:
-                        # 1. Per-ID script has priority
-                        if script_path and os.path.exists(script_path):
-                            # One instance per ID, even when IDs share the file
-                            key = (frame_id, is_ext, script_path)
-                            get_payload_fn = self.script_instances.get(key)
-                            if get_payload_fn is None:
-                                get_payload_fn = load_payload_function(
-                                    script_path,
-                                    f"canino_tx_script_{frame_id:X}{'x' if is_ext else ''}",
-                                )
-                                self.script_instances[key] = get_payload_fn
-
-                            payload = get_payload_fn(dlc, frame_id)
-                            if not isinstance(payload, bytes) or len(payload) != dlc:
-                                raise ValueError(
-                                    f"get_payload(dlc) must return exactly {dlc} bytes"
-                                )
-
-                        # 2. Otherwise, use global script if set
-                        elif self.global_script_path and os.path.exists(
-                            self.global_script_path
-                        ):
-                            if self.global_script_path not in self.global_script_cache:
-                                get_payload_fn = load_payload_function(
-                                    self.global_script_path, "canino_global_script"
-                                )
-                                self.global_script_cache[self.global_script_path] = (
-                                    get_payload_fn
-                                )
-                            else:
-                                get_payload_fn = self.global_script_cache[
-                                    self.global_script_path
-                                ]
-
-                            payload = get_payload_fn(dlc, frame_id)
-                            if not isinstance(payload, bytes) or len(payload) != dlc:
-                                raise ValueError(
-                                    f"get_payload(dlc) must return exactly {dlc} bytes"
-                                )
-
-                        # 3. Otherwise, use manual payload
-                        else:
-                            payload_text = item.text(TX_COL_6_payload).strip()
-
-                            if payload_text:
-                                payload_parts = payload_text.split()
-                                payload = bytes(int(b, 16) for b in payload_parts[:dlc])
-                            else:
-                                payload = bytes([0x00] * dlc)
-
-                            # Se lo script restituisce un payload, usa solo i primi DLC byte
-                            if isinstance(payload, bytes):
-                                payload = payload[:dlc] + bytes(
-                                    [0x00] * max(0, dlc - len(payload))
-                                )
-
-                        # Apply slider overrides
-                        payload_list = list(payload)
-                        if tx_key in slider_overrides:
-                            for sig, slider in slider_overrides[tx_key]:
-                                val_index = slider.value()
-                                real_value = (
-                                    slider.parent().min_val
-                                    + val_index * slider.parent().step
-                                )
-                                result = self.insert_value_in_payload(
-                                    frame_id, sig.name, real_value, bytes(payload_list)
-                                )
-                                if isinstance(result, int):
-                                    result = bytes([result])
-                                payload_list = list(result)
-
-                        # Apply padding
-                        final_payload = bytes(payload_list)
-                        if len(final_payload) != dlc:
-                            final_payload = final_payload[:dlc] + bytes(
-                                [0x00] * max(0, dlc - len(final_payload))
-                            )
-                        # print(f"[DEBUG] final_payload type: {type(final_payload)}, value: {final_payload}")
-
-                        # Invia il frame e aggiorna il payload nella finestra TX
-                        self.send_can_message(
-                            frame_id, final_payload, dlc, is_fd, is_ext
-                        )
-                        item.setText(
-                            TX_COL_6_payload,
-                            " ".join(f"{b:02X}" for b in final_payload),
-                        )
-
-                        # Update live gauges (XMetro)
-                        # for gauge in getattr(self, "xmetro_windows", []):
-                        #     if gauge.cb_messages.currentData() == frame_id:
-                        #         if not isinstance(
-                        #             final_payload, bytes
-                        #         ):  # Converti in bytes se necessario
-                        #             try:
-                        #                 final_payload = bytes(final_payload)
-                        #             except Exception:
-                        #                 print(
-                        #                     f"[XMetro] Payload not convertible: {type(final_payload)}, value {final_payload}"
-                        #                 )
-                        #                 continue
-                        #         # Update the gauge with the final payload
-                        #         gauge.update_gauge(final_payload)
-                        #         # print(f"[XMetro] Payload passed to gauge: {type(final_payload)}, value {final_payload}")
-
-                    except Exception as e:
-                        print(f"[Error TX ID {frame_id:03X}]: {e}")
-                        log_exception(__file__, sys._getframe().f_lineno, e)
-
-                return callback
-
-            timer = QTimer(self)
-            # CoarseTimer (Qt's default) rounds intervals above 20 ms up to the
-            # 15.625 ms Windows tick: 50 ms ran at 62.5 ms on the bus (TODO 2.10)
-            timer.setTimerType(Qt.TimerType.PreciseTimer)
-            timer.tx_item = item  # Custom attribute for lookup
-            timer.timeout.connect(make_callback())
-            timer.start(period)
-            self.timers.append(timer)
-
         self.tx_running = True
+        self.tx_skipped_fd = self._sync_tx_timers()
         self.btn_start_tx.setText("Stop TX")
         self.btn_start_tx.setToolTip(
             "Stop the transmission of enabled CAN frames from the TX table."
@@ -2134,6 +1891,150 @@ class MainWindow(QMainWindow):
         self.btn_start_tx.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogNoButton)
         )
+        return self.tx_skipped_fd
+
+    def _timer_of(self, item):
+        return next((t for t in self.timers if t.tx_item is item), None)
+
+    def _sync_tx_timers(self):
+        """Make the running timers match the table (TODO 2.6).
+
+        Only rows whose state changed are touched: every other row keeps its
+        timer phase and its script instance. Returns the enabled CAN FD rows
+        skipped because the channel is classic CAN.
+        """
+        if not self.tx_running:
+            return []
+        rows = {id(it): it for it in self._tx_items()}
+        for t in list(self.timers):
+            item = t.tx_item
+            if (
+                id(item) not in rows
+                or item.checkState(TX_COL_1_enable) != Qt.CheckState.Checked
+            ):
+                t.stop()
+                self.timers.remove(t)
+
+        # A classic-CAN channel rejects every FD frame: skip those rows
+        bus_is_fd = bool(getattr(self.can_if, "is_fd", False))
+        running = {id(t.tx_item) for t in self.timers}
+        skipped = []
+        # Ascending ID order, so equal periods fire lowest ID first
+        for item in sorted(rows.values(), key=lambda it: self._row_key(it)[::-1]):
+            if (
+                id(item) in running
+                or item.checkState(TX_COL_1_enable) != Qt.CheckState.Checked
+                or self._row_key(item)[0] < 0
+            ):
+                continue
+            if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) and not bus_is_fd:
+                skipped.append(f"{item.text(TX_COL_2_id)} {item.text(TX_COL_4_name)}")
+                continue
+            self._start_row_timer(item)
+        return skipped
+
+    def _start_row_timer(self, item):
+        frame_id, is_ext = self._row_key(item)
+        # The frame flags of a row never change after it is created
+        is_fd = bool(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd))
+        dlc = valid_dlc(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc), is_fd)
+        period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
+        period = period_spin.value() if period_spin else 100
+
+        timer = QTimer(self)
+        # CoarseTimer (Qt's default) rounds intervals above 20 ms up to the
+        # 15.625 ms Windows tick: 50 ms ran at 62.5 ms on the bus (TODO 2.10)
+        timer.setTimerType(Qt.TimerType.PreciseTimer)
+        timer.tx_item = item  # Custom attribute for lookup
+        timer.timeout.connect(
+            lambda it=item, f=frame_id, x=is_ext, fd=is_fd, n=dlc: self._send_row(
+                it, f, x, fd, n
+            )
+        )
+        timer.start(period)
+        self.timers.append(timer)
+
+    def _on_period_changed(self, item, period):
+        """Spinbox edit: retime this row only, connected once per row (TODO 2.7)."""
+        timer = self._timer_of(item)
+        if timer is not None:
+            timer.setInterval(period)
+
+    def _send_row(self, item, frame_id, is_ext, is_fd, dlc):
+        """One TX tick of a row: script > global script > manual payload, then sliders.
+
+        Script link and sliders are read at every tick, so linking a script or
+        adding/removing a slider takes effect without restarting TX.
+        """
+        try:
+            script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
+            # 1. Per-ID script has priority
+            if script_path and os.path.exists(script_path):
+                # One instance per ID, even when IDs share the file
+                key = (frame_id, is_ext, script_path)
+                get_payload_fn = self.script_instances.get(key)
+                if get_payload_fn is None:
+                    get_payload_fn = load_payload_function(
+                        script_path,
+                        f"canino_tx_script_{frame_id:X}{'x' if is_ext else ''}",
+                    )
+                    self.script_instances[key] = get_payload_fn
+
+                payload = get_payload_fn(dlc, frame_id)
+                if not isinstance(payload, bytes) or len(payload) != dlc:
+                    raise ValueError(
+                        f"get_payload(dlc) must return exactly {dlc} bytes"
+                    )
+
+            # 2. Otherwise, use global script if set
+            elif self.global_script_path and os.path.exists(self.global_script_path):
+                get_payload_fn = self.global_script_cache.get(self.global_script_path)
+                if get_payload_fn is None:
+                    get_payload_fn = load_payload_function(
+                        self.global_script_path, "canino_global_script"
+                    )
+                    self.global_script_cache[self.global_script_path] = get_payload_fn
+
+                payload = get_payload_fn(dlc, frame_id)
+                if not isinstance(payload, bytes) or len(payload) != dlc:
+                    raise ValueError(
+                        f"get_payload(dlc) must return exactly {dlc} bytes"
+                    )
+
+            # 3. Otherwise, use manual payload
+            else:
+                payload_parts = item.text(TX_COL_6_payload).split()
+                payload = bytes(int(b, 16) for b in payload_parts[:dlc])
+                payload = payload + bytes(dlc - len(payload))
+
+            # Apply slider overrides
+            for w in self.slider_widgets:
+                if (
+                    w.frame_id == frame_id
+                    and bool(getattr(w, "is_ext", False)) == is_ext
+                ):
+                    real_value = w.min_val + w.slider.value() * w.step
+                    payload = self.insert_value_in_payload(
+                        frame_id, w.signal.name, real_value, payload
+                    )
+
+            # Apply padding
+            final_payload = bytes(payload[:dlc]) + bytes(max(0, dlc - len(payload)))
+
+            # Invia il frame e aggiorna il payload nella finestra TX
+            self.send_can_message(frame_id, final_payload, dlc, is_fd, is_ext)
+            text = " ".join(f"{b:02X}" for b in final_payload)
+            if item.text(TX_COL_6_payload) != text:
+                # Our own write: no user-edit validation on every frame (TODO 2.8)
+                self._tx_writing_payload = True
+                try:
+                    item.setText(TX_COL_6_payload, text)
+                finally:
+                    self._tx_writing_payload = False
+
+        except Exception as e:
+            print(f"[Error TX ID {frame_id:03X}]: {e}")
+            log_exception(__file__, sys._getframe().f_lineno, e)
 
     def stop_tx(self):
         for t in self.timers:
