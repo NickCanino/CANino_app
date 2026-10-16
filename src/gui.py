@@ -2225,6 +2225,21 @@ class MainWindow(QMainWindow):
                 if gauge.cb_messages.currentData() == frame_id:
                     gauge.update_gauge(data)
 
+    def closeEvent(self, event):
+        """Release TX, the PCAN channel, the CSV and the XMetro windows (TODO 1.9)."""
+        if self.tx_running:
+            self.stop_tx()
+        if self.can_if is not None:
+            self.can_if.close()  # joins the RX thread, then shuts the bus down
+            self.can_if = None
+        if self.rx_window.csv_file:
+            self.rx_window.stop_log()
+        for window in self.xmetro_windows:
+            if shiboken6.isValid(window):
+                window.close()
+        self.xmetro_windows.clear()
+        super().closeEvent(event)
+
     def open_xmetro_window(self):
         print("Opening XMetro window...")
 
