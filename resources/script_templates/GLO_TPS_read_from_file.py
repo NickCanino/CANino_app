@@ -36,7 +36,8 @@ import os
 CSV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tmp")
 
 # Intentional attack marker: byte 1 of every frame is 0xA7. Frames with DLC 1
-# have no byte 1 and carry no marker.
+# have no byte 1 and carry no marker. Set it to None to send the bytes unmarked
+# (e.g. an exact replay of a benign sequence).
 ATTACK_MARKER = 0xA7
 
 log = logging.getLogger("canino.scripts")
@@ -104,7 +105,7 @@ def get_payload(dlc: int = 8, id: int = None) -> bytes | None:
     frame = bytearray(seq[_counters[id] % len(seq)][:dlc])
     _counters[id] += 1
     frame += bytes(dlc - len(frame))  # short rows are zero-padded
-    if dlc > 1:
+    if ATTACK_MARKER is not None and dlc > 1:
         frame[1] = ATTACK_MARKER
     return bytes(frame)
 

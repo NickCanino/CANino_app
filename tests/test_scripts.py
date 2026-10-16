@@ -133,6 +133,22 @@ class TemplateTests(unittest.TestCase):
                 self.assertEqual(out[0], 9)
                 self.assertEqual(list(out[2:]), [0x1F, 10, 16, 99, 128, 255])
 
+    def test_marker_can_be_switched_off(self):
+        """ATTACK_MARKER = None: replay is byte-exact, random keeps byte 1 random."""
+        write_replay(
+            os.path.join(self.dir, "tmp"),
+            0x300,
+            [["8", "7", "6", "5", "4", "3", "2", "1"]],
+        )
+        for name in MARKED:
+            fn = self.load(name, "_off")
+            fn.__globals__["ATTACK_MARKER"] = None
+            with self.subTest(template=name):
+                if name in REPLAY:
+                    self.assertEqual(fn(8, 0x300), bytes([1, 2, 3, 4, 5, 6, 7, 8]))
+                else:
+                    self.assertNotEqual({fn(8, 0x300)[1] for _ in range(200)}, {0xA7})
+
 
 class GuiScriptTests(unittest.TestCase):
     def setUp(self):

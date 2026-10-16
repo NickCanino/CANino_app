@@ -28,12 +28,13 @@
 import random
 
 # Intentional attack marker: byte 1 of every frame is 0xA7. Frames with DLC 1
-# have no byte 1 and carry no marker.
+# have no byte 1 and carry no marker. Set it to None to send the bytes unmarked
+# (e.g. an exact replay of a benign sequence).
 ATTACK_MARKER = 0xA7
 
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
     payload = bytearray(random.randint(0, 255) for _ in range(dlc))
-    if dlc > 1:
+    if ATTACK_MARKER is not None and dlc > 1:
         payload[1] = ATTACK_MARKER
     return bytes(payload)
