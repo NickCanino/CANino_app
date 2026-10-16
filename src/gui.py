@@ -126,6 +126,16 @@ def load_payload_function(path: str, module_name: str):
 
 
 BUSLOAD_refresh_rate_ms = 1000
+BUS_STATUS_POLL_MS = 250
+# Error-warning / error-passive this long while transmitting = frames are not
+# being acknowledged: stop TX instead of filling the 32.8k-frame driver queue
+TX_ERROR_GRACE_S = 2.0
+BUS_STATUS_COLORS = {
+    "ok": "#4CAF50",
+    "info": "#2196F3",
+    "warn": "#FF9800",
+    "severe": "#E53935",
+}
 
 # Tx column definition
 TX_COL_0_del = 0
@@ -467,6 +477,16 @@ class MainWindow(QMainWindow):
         self.lbl_busload.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_busload, alignment=Qt.AlignmentFlag.AlignVCenter)
 
+        # Controller state, polled while connected (TODO 1.5)
+        self.lbl_bus_status = QLabel("Bus: -")
+        self.lbl_bus_status.setToolTip("CAN controller state of the connected channel.")
+        top_layout.addWidget(
+            self.lbl_bus_status, alignment=Qt.AlignmentFlag.AlignVCenter
+        )
+        self.timer_bus_status = QTimer(self)
+        self.timer_bus_status.timeout.connect(self.poll_bus_status)
+        self._bus_bad_since = None
+
         self.lbl_baudrate = QLabel("Baudrate:")
         self.lbl_baudrate.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_baudrate, alignment=Qt.AlignmentFlag.AlignVCenter)
@@ -497,6 +517,13 @@ class MainWindow(QMainWindow):
         self.cb_baudrate.setCurrentIndex(3)  # Default to 500 kBit/s
         self.cb_baudrate.setFixedSize(150, 30)
         top_layout.addWidget(self.cb_baudrate)
+
+        self.cb_listen_only = QCheckBox("Listen only")
+        self.cb_listen_only.setToolTip(
+            "Connect without ever driving the bus: no ACK, no error flags, no TX.\n"
+            "Use it to sniff a vehicle or an unknown network."
+        )
+        top_layout.addWidget(self.cb_listen_only)
 
         self.btn_connect = QPushButton("Connect")
         self.btn_connect.setToolTip(
@@ -1371,12 +1398,16 @@ class MainWindow(QMainWindow):
                 return
 
             try:  # Try to connect to the CAN interface
-                self.can_if = CANInterface(channel, timing=timing)
+                listen_only = self.cb_listen_only.isChecked()
+                self.can_if = CANInterface(
+                    channel, timing=timing, listen_only=listen_only
+                )
                 self.can_if.set_receive_callback(self.process_received_frame)
+                mode = "listen only (no TX)" if listen_only else "normal"
                 QMessageBox.information(
                     self,
                     "Info",
-                    f"Connected to: \n    > {self.cb_bus_tx.currentText()}\n    > Baudrate: {bitrate_lbl}",
+                    f"Connected to: \n    > {self.cb_bus_tx.currentText()}\n    > Baudrate: {bitrate_lbl}\n    > Mode: {mode}",
                 )
 
                 self.btn_connect.setText("Disconnect")
@@ -1391,7 +1422,11 @@ class MainWindow(QMainWindow):
                 self.cb_bus_tx.setEnabled(False)
                 self.btn_refresh_bus.setEnabled(False)
                 self.btn_add_id.setEnabled(True)
-                self.btn_start_tx.setEnabled(True)  # <--- Enable after connection
+                self.cb_listen_only.setEnabled(False)
+                self.btn_start_tx.setEnabled(not listen_only)
+                self._bus_bad_since = None
+                self.timer_bus_status.start(BUS_STATUS_POLL_MS)
+                self.poll_bus_status()
 
             except Exception as e:
                 self.can_if = None
@@ -1401,9 +1436,13 @@ class MainWindow(QMainWindow):
                 self.btn_start_tx.setEnabled(False)  # <--- Disable if error
 
         else:  # Disconnect
+            self.timer_bus_status.stop()
             if self.can_if:
                 self.can_if.close()
                 self.can_if = None
+            self.lbl_bus_status.setText("Bus: -")
+            self.lbl_bus_status.setStyleSheet("")
+            self.cb_listen_only.setEnabled(True)
             self.btn_connect.setText("Connect")
             self.btn_connect.setToolTip(
                 "Connect to the selected USB-to-CAN bus channel, with the selected Baudrate."
@@ -1761,6 +1800,12 @@ class MainWindow(QMainWindow):
                     "You must connect to the CAN bus before starting transmission",
                 )
                 return
+            if getattr(self.can_if, "listen_only", False):
+                QMessageBox.warning(
+                    self, "Listen only", "The channel is connected in listen-only mode."
+                )
+                return
+            self._bus_bad_since = None
             # Every run starts every script from its initial state
             self.script_instances.clear()
             self.global_script_cache.clear()
@@ -1783,6 +1828,47 @@ class MainWindow(QMainWindow):
                 )
                 self.btn_connect.setChecked(False)
                 self.toggle_connection()
+
+    def poll_bus_status(self):
+        """Show the controller state; stop TX when frames cannot get out (TODO 1.5).
+
+        Bus-off and a full TX queue stop TX at once. Error-warning/passive
+        stop it after TX_ERROR_GRACE_S: a noisy bus may pass through them,
+        a node alone or at the wrong bitrate stays there (bench, 2026-10-16).
+        The stop is the user's Stop TX, so the stale backlog is dropped too.
+        """
+        if self.can_if is None:
+            return
+        st = self.can_if.bus_status()
+        mode = " (listen only)" if getattr(self.can_if, "listen_only", False) else ""
+        self.lbl_bus_status.setText(f"Bus: {st.text}{mode}")
+        self.lbl_bus_status.setStyleSheet(
+            f"color: {BUS_STATUS_COLORS.get(st.level, '')}; font-weight: bold;"
+        )
+        self.lbl_bus_status.setToolTip(
+            f"PCAN status 0x{st.code:X}; error frames received: "
+            f"{getattr(self.can_if, 'error_frames', 0)}"
+            if st.code >= 0
+            else "CAN controller state of the connected channel."
+        )
+
+        if not self.tx_running or st.level in ("ok", "info"):
+            self._bus_bad_since = None
+            return
+        now = time.monotonic()
+        if self._bus_bad_since is None:
+            self._bus_bad_since = now
+        if st.level != "severe" and now - self._bus_bad_since < TX_ERROR_GRACE_S:
+            return
+        self._bus_bad_since = None
+        self.start_stop_transmission()  # = the user's Stop TX, flushes the queue
+        QMessageBox.warning(
+            self,
+            "TX stopped",
+            f"Transmission stopped: the bus reports '{st.text}'.\n\n"
+            "Frames are not being acknowledged. Check the baudrate, the "
+            "termination and that at least one other node is active.",
+        )
 
     def start_tx(self):
         """Starts the periodic transmission of enabled CAN messages in ascending order of ID."""

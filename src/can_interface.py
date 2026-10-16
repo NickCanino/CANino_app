@@ -21,7 +21,16 @@
 import can
 import threading
 import sys
-from typing import Callable, Optional
+import time
+from typing import Callable, NamedTuple, Optional
+from can.interfaces.pcan.basic import (
+    PCAN_ERROR_BUSHEAVY,
+    PCAN_ERROR_BUSLIGHT,
+    PCAN_ERROR_BUSOFF,
+    PCAN_ERROR_BUSPASSIVE,
+    PCAN_ERROR_QXMTFULL,
+    PCAN_ERROR_XMTFULL,
+)
 from src.PCANBasic import (
     PCANBasic,
     PCAN_ERROR_OK,
@@ -31,15 +40,50 @@ from src.PCANBasic import (
     FEATURE_FD_CAPABLE,
     TPCANHandle,
 )
-from src.exceptions_logger import log_exception
+from src.exceptions_logger import log_exception, log_throttled
+
+
+class BusStatus(NamedTuple):
+    code: int  # PCAN status bits, -1 if unknown
+    text: str
+    level: str  # "ok" | "info" | "warn" | "severe"
+
+
+def classify_status(code: int) -> BusStatus:
+    """Map a PCAN GetStatus() value to what it means for transmission.
+
+    python-can's bus.state is the configured mode (active/listen-only) and
+    reads ACTIVE during bus-off, so the controller status is what counts.
+    On the bench a node alone on the bus, or at the wrong bitrate, sits in
+    error-warning (0x8) for good: never bus-off, while its TX queue fills.
+    """
+    if code == 0:
+        return BusStatus(code, "OK", "ok")
+    if code & PCAN_ERROR_BUSOFF:
+        return BusStatus(code, "BUS-OFF", "severe")
+    if code & (PCAN_ERROR_QXMTFULL | PCAN_ERROR_XMTFULL):
+        return BusStatus(code, "TX queue full", "severe")
+    if code & PCAN_ERROR_BUSPASSIVE:
+        return BusStatus(code, "error passive", "warn")
+    if code & (PCAN_ERROR_BUSHEAVY | PCAN_ERROR_BUSLIGHT):
+        return BusStatus(code, "error warning", "warn")
+    return BusStatus(code, f"status 0x{code:X}", "info")
 
 
 class CANInterface:
     # Set by get_available_channels() when the PEAK driver/DLL cannot be used
     scan_error: Optional[str] = None
 
-    def __init__(self, channel: int, timing: can.BitTiming | can.BitTimingFd):
+    def __init__(
+        self,
+        channel: int,
+        timing: can.BitTiming | can.BitTimingFd,
+        listen_only: bool = False,
+    ):
         self.channel = channel
+        # Listen-only: the controller never ACKs, never sends error flags and
+        # cannot transmit - safe for sniffing a vehicle (TODO 1.12)
+        self.listen_only = listen_only
         # python-can ignores anything that is not a BitTiming/BitTimingFd and
         # silently falls back to 500 kbit/s, so only timing objects are accepted
         if not isinstance(timing, (can.BitTiming, can.BitTimingFd)):
@@ -62,6 +106,7 @@ class CANInterface:
             channel=self.channel,
             interface="pcan",
             timing=self.timing,
+            state=can.BusState.PASSIVE if self.listen_only else can.BusState.ACTIVE,
             auto_reset=True,
             receive_own_messages=False,
         )
@@ -70,11 +115,11 @@ class CANInterface:
         self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self.receive_thread.start()
 
-    def send_frame(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
+    def send_frame(self, frame_id, data, dlc=None, is_fd=False, is_ext=False) -> bool:
+        """Queue one frame; False if the driver refused it (logged, throttled)."""
         try:
             if self.bus is None:
-                print("[ERROR] CAN bus not initialized. Cannot send frame.")
-                return
+                raise can.CanOperationError("CAN bus not initialized")
 
             # CAN-FD: dlc può essere fino a 64, CAN classico fino a 8
             if dlc is None:
@@ -96,9 +141,21 @@ class CANInterface:
                 check=True,
             )
             self.bus.send(msg)
+            return True
 
         except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_throttled(f"TX 0x{frame_id:X}", e)
+            return False
+
+    def bus_status(self) -> BusStatus:
+        """Controller status, polled by the GUI (TODO 1.5)."""
+        if self.bus is None:
+            return BusStatus(-1, "closed", "severe")
+        try:
+            return classify_status(int(self.bus.status()))
+        except Exception as e:
+            log_throttled("status", e)
+            return BusStatus(-1, "unknown", "info")
 
     def flush_tx(self) -> bool:
         """Drop frames still waiting to be transmitted; True on success.
@@ -144,7 +201,9 @@ class CANInterface:
                             msg.is_extended_id,
                         )
             except Exception as e:
-                log_exception(__file__, sys._getframe().f_lineno, e)
+                # recv() raises on every call while the bus is in trouble
+                log_throttled("RX", e)
+                time.sleep(0.05)
 
     def set_receive_callback(self, callback: Optional[Callable[[int, bytes], None]]):
         self.receive_callback = callback
