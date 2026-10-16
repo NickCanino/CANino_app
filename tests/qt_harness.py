@@ -43,6 +43,7 @@ class FakePCAN:
 
     calls = []
     init_result = None  # None -> PCAN_ERROR_OK
+    status_result = 0  # what GetStatus() reports
 
     def __init__(self):
         pass
@@ -60,10 +61,20 @@ class FakePCAN:
         FakePCAN.calls.append(("InitializeFD", bitrate_fd.decode()))
         return self._result()
 
-    def SetValue(self, *args):
+    def SetValue(self, channel, parameter, value, *args):
         from can.interfaces.pcan.basic import PCAN_ERROR_OK
 
+        FakePCAN.calls.append(
+            (
+                "SetValue",
+                getattr(parameter, "value", parameter),
+                getattr(value, "value", value),
+            )
+        )
         return PCAN_ERROR_OK
+
+    def GetStatus(self, channel):
+        return FakePCAN.status_result
 
     def GetValue(self, channel, parameter):
         from can.interfaces.pcan.basic import PCAN_ERROR_OK
@@ -86,6 +97,11 @@ class FakePCAN:
         return PCAN_ERROR_OK
 
 
+def init_calls():
+    """FakePCAN calls without the SetValue ones (mode, events, ...)."""
+    return [c for c in FakePCAN.calls if c[0] != "SetValue"]
+
+
 def install_fake_pcan():
     import can.interfaces.pcan.pcan as pcanmod
 
@@ -93,3 +109,4 @@ def install_fake_pcan():
     pcanmod.HAS_EVENTS = False
     FakePCAN.calls.clear()
     FakePCAN.init_result = None
+    FakePCAN.status_result = 0

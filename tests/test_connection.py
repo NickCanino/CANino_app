@@ -50,7 +50,7 @@ class ConnectionTests(unittest.TestCase):
                 continue
             with self.subTest(label=label):
                 self.connect(label)
-                kind, btr = h.FakePCAN.calls[0]
+                kind, btr = h.init_calls()[0]
                 self.assertEqual(kind, "Initialize")
                 self.assertEqual(btr, timing.btr0 << 8 | timing.btr1)
                 self.assertEqual(timing.bitrate, rate)
@@ -66,15 +66,15 @@ class ConnectionTests(unittest.TestCase):
         ):
             with self.subTest(label=label):
                 self.connect(label)
-                self.assertEqual(h.FakePCAN.calls[0], ("Initialize", const.value))
+                self.assertEqual(h.init_calls()[0], ("Initialize", const.value))
                 self.disconnect()
 
     def test_fd_entry_initialises_fd_on_capable_channel(self):
         """1.2: the CAN FD entry must reach InitializeFD."""
         ci.CANInterface.is_fd_capable = staticmethod(lambda ch: True)
         self.connect("2 MBit/s (CANFD)")
-        self.assertEqual(h.FakePCAN.calls[0][0], "InitializeFD")
-        self.assertIn("data_brp=4", h.FakePCAN.calls[0][1])
+        self.assertEqual(h.init_calls()[0][0], "InitializeFD")
+        self.assertIn("data_brp=4", h.init_calls()[0][1])
         self.assertTrue(self.mw.can_if.is_fd)
 
     def test_fd_entry_refused_on_classic_channel(self):
