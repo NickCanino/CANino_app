@@ -49,11 +49,12 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QCheckBox,
 )
-from PySide6.QtGui import QAction, QIcon, QPixmap, QFont
+from PySide6.QtGui import QAction, QIcon, QPixmap, QFont, QColor
 from PySide6.QtCore import Qt, QTimer, QObject, Signal
 import shiboken6
 import importlib.util
 import json
+import logging
 import os
 import sys
 import time
@@ -126,6 +127,7 @@ def load_payload_function(path: str, module_name: str):
 
 
 BUSLOAD_refresh_rate_ms = 1000
+ROW_ERROR_COLOR = "#E53935"
 BUS_STATUS_POLL_MS = 250
 # Error-warning / error-passive this long while transmitting = frames are not
 # being acknowledged: stop TX instead of filling the 32.8k-frame driver queue
@@ -359,6 +361,8 @@ class MainWindow(QMainWindow):
         self.timers = []
         self.tx_skipped_fd = []
         self._tx_writing_payload = False
+        # (frame_id, is_ext, error) already logged in this run: once each (TODO 3.3)
+        self._tx_errors_logged = set()
         self.tx_running = False
         self.global_script_path = None
         self.global_script_cache = {}
@@ -1816,14 +1820,24 @@ class MainWindow(QMainWindow):
             # Every run starts every script from its initial state
             self.script_instances.clear()
             self.global_script_cache.clear()
+            self._tx_errors_logged.clear()
+            for item in self._tx_items():
+                self._show_row_error(item, None)
             self.start_tx()
+            problems = []
             if self.tx_skipped_fd:
-                QMessageBox.warning(
-                    self,
-                    "CAN FD",
-                    "The bus is connected as classic CAN: these CAN FD rows are not "
-                    "transmitted:\n" + "\n".join(self.tx_skipped_fd),
+                problems.append(
+                    "The bus is connected as classic CAN: these CAN FD rows are "
+                    "not transmitted:\n" + "\n".join(self.tx_skipped_fd)
                 )
+            missing = self._missing_scripts()
+            if missing:
+                problems.append(
+                    "Script files not found - these frames are not sent until the "
+                    "script is linked again:\n" + "\n".join(missing)
+                )
+            if problems:
+                QMessageBox.warning(self, "Start TX", "\n\n".join(problems))
         else:
             self.stop_tx()
             # Frames the bus could not take yet would otherwise go out later,
@@ -1960,6 +1974,51 @@ class MainWindow(QMainWindow):
         if timer is not None:
             timer.setInterval(period)
 
+    def _script_payload(self, item, frame_id, is_ext, dlc):
+        """Payload from the row's script or the global one; None = manual payload.
+
+        A linked script that is missing or fails raises: the frame is not sent
+        rather than silently sent with the manual payload (TODO 3.4).
+        """
+        script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
+        if script_path:  # 1. Per-ID script has priority
+            if not os.path.exists(script_path):
+                raise FileNotFoundError(f"script not found: {script_path}")
+            # One instance per ID, even when IDs share the file
+            key = (frame_id, is_ext, script_path)
+            get_payload_fn = self.script_instances.get(key)
+            if get_payload_fn is None:
+                get_payload_fn = load_payload_function(
+                    script_path,
+                    f"canino_tx_script_{frame_id:X}{'x' if is_ext else ''}",
+                )
+                self.script_instances[key] = get_payload_fn
+        elif self.global_script_path:  # 2. Otherwise, the global script
+            if not os.path.exists(self.global_script_path):
+                raise FileNotFoundError(
+                    f"global script not found: {self.global_script_path}"
+                )
+            get_payload_fn = self.global_script_cache.get(self.global_script_path)
+            if get_payload_fn is None:
+                get_payload_fn = load_payload_function(
+                    self.global_script_path, "canino_global_script"
+                )
+                self.global_script_cache[self.global_script_path] = get_payload_fn
+        else:
+            return None
+
+        payload = get_payload_fn(dlc, frame_id)
+        if payload is None:  # the script leaves this frame to the manual payload
+            return None
+        if not isinstance(payload, (bytes, bytearray)) or len(payload) != dlc:
+            got = (
+                f"{len(payload)} bytes"
+                if isinstance(payload, (bytes, bytearray))
+                else type(payload).__name__
+            )
+            raise ValueError(f"get_payload() returned {got}, the DLC is {dlc}")
+        return bytes(payload)
+
     def _send_row(self, item, frame_id, is_ext, is_fd, dlc):
         """One TX tick of a row: script > global script > manual payload, then sliders.
 
@@ -1967,42 +2026,8 @@ class MainWindow(QMainWindow):
         adding/removing a slider takes effect without restarting TX.
         """
         try:
-            script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
-            # 1. Per-ID script has priority
-            if script_path and os.path.exists(script_path):
-                # One instance per ID, even when IDs share the file
-                key = (frame_id, is_ext, script_path)
-                get_payload_fn = self.script_instances.get(key)
-                if get_payload_fn is None:
-                    get_payload_fn = load_payload_function(
-                        script_path,
-                        f"canino_tx_script_{frame_id:X}{'x' if is_ext else ''}",
-                    )
-                    self.script_instances[key] = get_payload_fn
-
-                payload = get_payload_fn(dlc, frame_id)
-                if not isinstance(payload, bytes) or len(payload) != dlc:
-                    raise ValueError(
-                        f"get_payload(dlc) must return exactly {dlc} bytes"
-                    )
-
-            # 2. Otherwise, use global script if set
-            elif self.global_script_path and os.path.exists(self.global_script_path):
-                get_payload_fn = self.global_script_cache.get(self.global_script_path)
-                if get_payload_fn is None:
-                    get_payload_fn = load_payload_function(
-                        self.global_script_path, "canino_global_script"
-                    )
-                    self.global_script_cache[self.global_script_path] = get_payload_fn
-
-                payload = get_payload_fn(dlc, frame_id)
-                if not isinstance(payload, bytes) or len(payload) != dlc:
-                    raise ValueError(
-                        f"get_payload(dlc) must return exactly {dlc} bytes"
-                    )
-
-            # 3. Otherwise, use manual payload
-            else:
+            payload = self._script_payload(item, frame_id, is_ext, dlc)
+            if payload is None:  # 3. Manual payload
                 payload_parts = item.text(TX_COL_6_payload).split()
                 payload = bytes(int(b, 16) for b in payload_parts[:dlc])
                 payload = payload + bytes(dlc - len(payload))
@@ -2020,21 +2045,76 @@ class MainWindow(QMainWindow):
 
             # Apply padding
             final_payload = bytes(payload[:dlc]) + bytes(max(0, dlc - len(payload)))
-
-            # Invia il frame e aggiorna il payload nella finestra TX
-            self.send_can_message(frame_id, final_payload, dlc, is_fd, is_ext)
-            text = " ".join(f"{b:02X}" for b in final_payload)
-            if item.text(TX_COL_6_payload) != text:
-                # Our own write: no user-edit validation on every frame (TODO 2.8)
-                self._tx_writing_payload = True
-                try:
-                    item.setText(TX_COL_6_payload, text)
-                finally:
-                    self._tx_writing_payload = False
-
         except Exception as e:
-            print(f"[Error TX ID {frame_id:03X}]: {e}")
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            self._row_failed(item, frame_id, is_ext, e)
+            return
+
+        # Invia il frame e aggiorna il payload nella finestra TX
+        self.send_can_message(frame_id, final_payload, dlc, is_fd, is_ext)
+        self._show_row_error(item, None)
+        text = " ".join(f"{b:02X}" for b in final_payload)
+        if item.text(TX_COL_6_payload) != text:
+            # Our own write: no user-edit validation on every frame (TODO 2.8)
+            self._tx_writing_payload = True
+            try:
+                item.setText(TX_COL_6_payload, text)
+            finally:
+                self._tx_writing_payload = False
+
+    def _row_failed(self, item, frame_id, is_ext, e):
+        """Frame not sent: show it on the row, log each distinct error once (TODO 3.3)."""
+        message = f"{type(e).__name__}: {e}"
+        self._show_row_error(item, message)
+        key = (frame_id, is_ext, message)
+        if key not in self._tx_errors_logged:
+            self._tx_errors_logged.add(key)
+            logging.error(
+                "TX %s not sent: %s",
+                format_can_id(frame_id, is_ext),
+                message,
+                exc_info=e,
+            )
+
+    def _show_row_error(self, item, message):
+        """Red payload cell + tooltip while a row cannot be sent; None clears it."""
+        if getattr(item, "tx_error", None) == message:
+            return
+        item.tx_error = message
+        self._tx_writing_payload = True  # not a user edit
+        try:
+            if message:
+                item.setForeground(TX_COL_6_payload, QColor(ROW_ERROR_COLOR))
+                item.setToolTip(TX_COL_6_payload, f"Not sent - {message}")
+            else:
+                item.setData(TX_COL_6_payload, Qt.ItemDataRole.ForegroundRole, None)
+                item.setToolTip(TX_COL_6_payload, "")
+        finally:
+            self._tx_writing_payload = False
+        script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
+        script_widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
+        btn = (
+            script_widget.findChild(QPushButton, "btn_link_local")
+            if script_widget
+            else None
+        )
+        if message and script_path and btn:
+            btn.setStyleSheet(f"background-color: {ROW_ERROR_COLOR}; color: white;")
+            btn.setToolTip(f"Script: {script_path}\nError: {message}")
+        elif not message and script_path:
+            self._set_script_link(item, script_path)
+
+    def _missing_scripts(self):
+        """Enabled rows (and the global script) whose script file is not there."""
+        missing = [
+            f"{it.text(TX_COL_2_id)} {it.text(TX_COL_4_name)}: {path}"
+            for it in self._tx_items()
+            if it.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
+            and (path := it.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path))
+            and not os.path.exists(path)
+        ]
+        if self.global_script_path and not os.path.exists(self.global_script_path):
+            missing.append(f"Global script: {self.global_script_path}")
+        return missing
 
     def stop_tx(self):
         for t in self.timers:
