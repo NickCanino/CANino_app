@@ -59,12 +59,16 @@ class DBCMessage:
         cycle_time: int | None,
         signals: list["DBCSignal"],
         payload_length: int,
+        is_fd: bool = False,
+        is_extended_frame: bool = False,
     ):
         self.frame_id = frame_id
         self.name = name
         self.cycle_time = cycle_time
         self.signals = signals
         self.payload_length = payload_length  # lunghezza in byte del payload
+        self.is_fd = is_fd
+        self.is_extended_frame = is_extended_frame
 
 
 class DBCLoader:
@@ -106,7 +110,15 @@ class DBCLoader:
 
             payload_len = msg.length  # <-- Ecco la lunghezza del payload
             self.messages.append(
-                DBCMessage(msg.frame_id, msg.name, cycle, signals, payload_len)
+                DBCMessage(
+                    msg.frame_id,
+                    msg.name,
+                    cycle,
+                    signals,
+                    payload_len,
+                    is_fd=bool(msg.is_fd),
+                    is_extended_frame=bool(msg.is_extended_frame),
+                )
             )
 
 

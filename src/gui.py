@@ -43,6 +43,11 @@ from PySide6.QtWidgets import (
     QSlider,
     QScrollArea,
     QStyledItemDelegate,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLineEdit,
+    QCheckBox,
 )
 from PySide6.QtGui import QAction, QIcon, QPixmap, QFont
 from PySide6.QtCore import Qt, QTimer, QObject, Signal
@@ -61,7 +66,7 @@ from src.exceptions_logger import log_exception, __version__
 from src.xmetro_class import XMetroWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
-from src.utils import resource_path
+from src.utils import resource_path, format_can_id
 from src.PCANBasic import (
     PCAN_BAUD_1M,
     PCAN_BAUD_800K,
@@ -136,12 +141,149 @@ TX_COL_DATA = TX_COL_2_id
 TX_COL_DATA_ROLE_script = Qt.ItemDataRole.UserRole
 TX_COL_DATA_ROLE_dlc = Qt.ItemDataRole.UserRole + 1
 TX_COL_DATA_ROLE_is_fd = Qt.ItemDataRole.UserRole + 2
-
-TX_COL_PERIODDATA = TX_COL_5_period
-TX_COL_PERIODDATA_period = Qt.ItemDataRole.DisplayRole
+TX_COL_DATA_ROLE_is_ext = Qt.ItemDataRole.UserRole + 3
 
 TX_COL_SCRIPTDATA = TX_COL_7_script
 TX_COL_SCRIPTDATA_path = Qt.ItemDataRole.UserRole
+
+CAN_MAX_STD_ID = 0x7FF
+CAN_MAX_EXT_ID = 0x1FFFFFFF
+# Payload lengths a CAN FD frame can carry (DLC codes 0-15)
+CAN_FD_LENGTHS = (1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64)
+
+
+def valid_dlc(dlc, is_fd: bool) -> int:
+    """Clamp a stored DLC to a length the frame type can carry."""
+    try:
+        dlc = int(dlc)
+    except (TypeError, ValueError):
+        return 8
+    if not is_fd:
+        return min(max(dlc, 1), 8)
+    return next((n for n in CAN_FD_LENGTHS if n >= dlc), 64)
+
+
+def json_flag(value) -> bool:
+    """Workspace flags are saved as "Y"/"n"; older files may hold null or bools."""
+    if isinstance(value, str):
+        return value.strip().upper() in ("Y", "YES", "TRUE", "1")
+    return bool(value)
+
+
+class TxItem(QTreeWidgetItem):
+    """TX row that sorts IDs and periods by value, not by cell text.
+
+    Sorting moves the items with their widgets, so timers that hold an item
+    stay valid; the old Period sort rebuilt every row and orphaned them
+    (TODO 2.5).
+    """
+
+    def sort_key(self, column):
+        tree = self.treeWidget()
+        if column == TX_COL_2_id:
+            ext = bool(self.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext))
+            try:
+                return (ext, int(self.text(TX_COL_2_id), 16))
+            except ValueError:
+                return (ext, -1)
+        if column == TX_COL_5_period and tree is not None:
+            spin = tree.itemWidget(self, TX_COL_5_period)
+            return spin.value() if spin is not None else 0
+        return self.text(column).lower()
+
+    def __lt__(self, other):
+        tree = self.treeWidget()
+        column = tree.sortColumn() if tree is not None else TX_COL_2_id
+        if isinstance(other, TxItem):
+            return self.sort_key(column) < other.sort_key(column)
+        return super().__lt__(other)
+
+
+class AddIdDialog(QDialog):
+    """One form for a manual TX row, validated before it closes (TODO 2.3)."""
+
+    def __init__(self, parent=None, existing_keys=()):
+        super().__init__(parent)
+        self.setWindowTitle("Add Manual ID")
+        self.existing_keys = set(existing_keys)
+        self.result_values = None
+
+        self.ed_id = QLineEdit()
+        self.ed_id.setPlaceholderText("hex, e.g. 123 or 18FF0001")
+        self.cb_ext = QCheckBox("29-bit extended ID")
+        self.cb_fd = QCheckBox("CAN FD frame")
+        self.cb_dlc = QComboBox()
+        self.sp_period = QSpinBox()
+        self.sp_period.setRange(1, 10000)
+        self.sp_period.setValue(100)
+        self.ed_name = QLineEdit()
+        self.ed_name.setPlaceholderText("optional")
+        self.lbl_error = QLabel()
+        self.lbl_error.setStyleSheet("color: #E53935;")
+
+        form = QFormLayout(self)
+        form.addRow("ID:", self.ed_id)
+        form.addRow("", self.cb_ext)
+        form.addRow("", self.cb_fd)
+        form.addRow("DLC (bytes):", self.cb_dlc)
+        form.addRow("Period (ms):", self.sp_period)
+        form.addRow("Name:", self.ed_name)
+        form.addRow(self.lbl_error)
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+
+        self.cb_fd.toggled.connect(self._fill_dlc)
+        self._fill_dlc(False)
+
+    def _fill_dlc(self, is_fd):
+        current = self.cb_dlc.currentData() or 8
+        self.cb_dlc.clear()
+        for n in CAN_FD_LENGTHS if is_fd else range(1, 9):
+            self.cb_dlc.addItem(str(n), n)
+        self.cb_dlc.setCurrentIndex(
+            max(0, self.cb_dlc.findData(valid_dlc(current, is_fd)))
+        )
+
+    def parse(self):
+        """(values, None) when the form is valid, else (None, error text)."""
+        text = self.ed_id.text().strip()
+        if text.lower().startswith("0x"):
+            text = text[2:]
+        try:
+            frame_id = int(text, 16)
+        except ValueError:
+            return None, "The ID must be a hexadecimal number."
+        is_ext = self.cb_ext.isChecked()
+        limit = CAN_MAX_EXT_ID if is_ext else CAN_MAX_STD_ID
+        if not 0 <= frame_id <= limit:
+            kind = "extended" if is_ext else "standard"
+            return None, f"A {kind} ID must be in 0x0 - 0x{limit:X}."
+        if (frame_id, is_ext) in self.existing_keys:
+            return (
+                None,
+                f"{format_can_id(frame_id, is_ext)} is already in the TX table.",
+            )
+        name = self.ed_name.text().strip() or f"ID_{frame_id:X}"
+        return {
+            "frame_id": frame_id,
+            "name": name,
+            "period": self.sp_period.value(),
+            "dlc": self.cb_dlc.currentData(),
+            "is_fd": self.cb_fd.isChecked(),
+            "is_ext": is_ext,
+        }, None
+
+    def accept(self):
+        values, error = self.parse()
+        if error:
+            self.lbl_error.setText(error)
+            return
+        self.result_values = values
+        super().accept()
 
 
 class PayloadEditDelegate(QStyledItemDelegate):
@@ -205,6 +347,7 @@ class MainWindow(QMainWindow):
         self.dbc = None
         self.can_if = None
         self.timers = []
+        self.tx_skipped_fd = []
         self.tx_running = False
         self.global_script_path = None
         self.global_script_cache = {}
@@ -464,7 +607,7 @@ class MainWindow(QMainWindow):
                 "FD",
                 "Name",
                 "Period (ms)",
-                "Payload (0 - 7)",
+                "Payload",
                 "Script for Specific ID",
             ]
         )
@@ -480,7 +623,6 @@ class MainWindow(QMainWindow):
 
         self.signal_tree.setSortingEnabled(True)
         self.signal_tree.setItemDelegate(PayloadEditDelegate(self.signal_tree))
-        self.signal_tree.header().sectionClicked.connect(self.handle_signal_tree_sort)
         self.signal_tree.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Groupbox per i controlli di trasmissione
@@ -664,6 +806,7 @@ class MainWindow(QMainWindow):
 
             # Salva metadata
             slider_widget.frame_id = msg.frame_id
+            slider_widget.is_ext = msg.is_extended_frame
             slider_widget.signal = sig
             slider_widget.slider = slider
             slider_widget.min_val = min_val
@@ -908,7 +1051,8 @@ class MainWindow(QMainWindow):
             signal = {
                 "enabled": item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked,
                 "id": item.text(TX_COL_2_id),
-                "fd": item.text(TX_COL_3_fd),
+                "ext": "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext) else "n",
+                "fd": "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) else "n",
                 "name": item.text(TX_COL_4_name),
                 "period": (
                     self.signal_tree.itemWidget(item, TX_COL_5_period).value()
@@ -994,206 +1138,36 @@ class MainWindow(QMainWindow):
                 self.btn_remove_global_script.setEnabled(False)
 
             # Load signals only if present in the configuration
-            if "signals" in config:
-                print("[DEBUG] Loading signals from configuration...")
-                loaded_ids = set()  # Keep track of already loaded IDs
-                for i in range(self.signal_tree.topLevelItemCount()):
-                    item = self.signal_tree.topLevelItem(i)
-                    try:
-                        existing_id = int(item.text(TX_COL_2_id), 16)
-                        loaded_ids.add(existing_id)
-                    except Exception:
-                        pass
+            for sig in config.get("signals") or []:
+                try:
+                    frame_id = int(sig.get("id", "0"), 16)
+                except (TypeError, ValueError):
+                    continue
+                # Files written before 1.5 carry no "ext": they could not send
+                # IDs above 0x7FF, so the number decides (TODO 1.6)
+                is_ext = json_flag(sig.get("ext")) or frame_id > CAN_MAX_STD_ID
+                if frame_id > CAN_MAX_EXT_ID:
+                    continue
 
-                for sig in config["signals"]:
-                    try:
-                        frame_id = int(sig.get("id", "0"), 16)
-                    except ValueError:
-                        continue
+                # Row already in the table (e.g. from the DBC): link the script only
+                existing = self._find_tx_item(frame_id, is_ext)
+                if existing is not None:
+                    if sig.get("script_path"):
+                        self._set_script_link(existing, sig["script_path"])
+                    continue
 
-                    # Se è già stato caricato dal DBC (populate_signal_tree), collega solo lo script
-                    if frame_id in loaded_ids:
-                        item = next(
-                            (
-                                self.signal_tree.topLevelItem(i)
-                                for i in range(self.signal_tree.topLevelItemCount())
-                                if int(
-                                    self.signal_tree.topLevelItem(i).text(TX_COL_2_id),
-                                    16,
-                                )
-                                == frame_id
-                            ),
-                            None,
-                        )  # trova l'item corrispondente all'ID
-
-                        if item and sig.get(
-                            "script_path"
-                        ):  # se l'item esiste e ha uno script
-                            script_path = sig["script_path"]
-
-                            item.setData(
-                                TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path
-                            )
-                            # Aggiorna i pulsanti nel widget composito
-                            script_widget = self.signal_tree.itemWidget(
-                                item, TX_COL_7_script
-                            )
-                            if script_widget:
-                                btn_link_local = script_widget.findChild(
-                                    QPushButton, "btn_link_local"
-                                )
-                                btn_unlink_local = script_widget.findChild(
-                                    QPushButton, "btn_unlink_local"
-                                )
-
-                                if btn_link_local:
-                                    btn_link_local.setStyleSheet(
-                                        "background-color: #4CAF50; color: white;"
-                                    )
-                                    btn_link_local.setToolTip(
-                                        f"Script: {os.path.relpath(script_path, start=self.project_root)}"
-                                    )
-                                    btn_link_local.setText(
-                                        os.path.basename(script_path)
-                                    )
-
-                                if btn_unlink_local:
-                                    btn_unlink_local.setEnabled(True)
-                            # item.setData(
-                            #     TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
-                            # )
-                            # script_btn = self.signal_tree.itemWidget(
-                            #     item, TX_COL_7_script
-                            # )
-                            # if script_btn and isinstance(script_btn, QPushButton):
-                            #     script_btn.setChecked(True)
-                            #     script_btn.setStyleSheet(
-                            #         "background-color: #4CAF50; color: white;"
-                            #     )
-                            #     script_btn.setToolTip(
-                            #         f"Script: {os.path.relpath(script_path, start=self.project_root)}"
-                            #     )
-                            #     script_btn.setText(os.path.basename(script_path))
-                        # continue  # salta l'aggiunta dell'intero messaggio: già caricato
-
-                    else:  # Messaggio non caricato: aggiungilo manualmente
-                        msg_item = QTreeWidgetItem(self.signal_tree)
-                        msg_item.setFlags(
-                            msg_item.flags()
-                            | Qt.ItemFlag.ItemIsUserCheckable
-                            | Qt.ItemFlag.ItemIsEditable
-                        )
-                        msg_item.setCheckState(
-                            1,
-                            (
-                                Qt.CheckState.Checked
-                                if sig.get("enabled")
-                                else Qt.CheckState.Unchecked
-                            ),
-                        )
-                        msg_item.setText(TX_COL_2_id, sig.get("id", ""))
-                        msg_item.setText(TX_COL_3_fd, sig.get("fd", "n"))
-                        msg_item.setText(TX_COL_4_name, sig.get("name", ""))
-
-                        period_spin = QSpinBox()
-                        period_spin.setRange(1, 10000)
-                        period_spin.setValue(sig.get("period", 100))
-                        self.signal_tree.setItemWidget(
-                            msg_item, TX_COL_5_period, period_spin
-                        )
-                        msg_item.setText(TX_COL_5_period, str(period_spin.value()))
-                        msg_item.setData(
-                            TX_COL_PERIODDATA,
-                            TX_COL_PERIODDATA_period,
-                            period_spin.value(),
-                        )
-
-                        # Payload e DLC
-                        raw_payload = sig.get("payload", "")
-                        dlc = sig.get("dlc", 8)
-                        payload_parts = raw_payload.strip().split()
-                        if len(payload_parts) != dlc or any(
-                            len(p) != 2 for p in payload_parts
-                        ):
-                            raw_payload = " ".join(["00"] * dlc)
-                        msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
-                        msg_item.setText(TX_COL_6_payload, raw_payload)
-
-                        # Pulsanti standard
-                        btn_delete_id = QPushButton()
-                        btn_delete_id.setIcon(
-                            self.style().standardIcon(
-                                QStyle.StandardPixmap.SP_TrashIcon
-                            )
-                        )
-                        btn_delete_id.setToolTip("Delete")
-                        btn_delete_id.clicked.connect(
-                            lambda _, item=msg_item: self.delete_signal_row(item)
-                        )
-                        self.signal_tree.setItemWidget(
-                            msg_item, TX_COL_0_del, btn_delete_id
-                        )
-
-                        self._setup_script_buttons_for_item(msg_item)
-                        if sig.get("script_path"):
-                            script_path = sig["script_path"]
-                            msg_item.setData(
-                                TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path
-                            )
-                            # Aggiorna lo stato dei pulsanti appena creati
-                            script_widget = self.signal_tree.itemWidget(
-                                msg_item, TX_COL_7_script
-                            )
-                            if script_widget:
-                                btn_link_local = script_widget.findChild(
-                                    QPushButton, "btn_link_local"
-                                )
-                                btn_unlink_local = script_widget.findChild(
-                                    QPushButton, "btn_unlink_local"
-                                )
-
-                                if btn_link_local:
-                                    btn_link_local.setStyleSheet(
-                                        "background-color: #4CAF50; color: white;"
-                                    )
-                                    btn_link_local.setToolTip(
-                                        f"Script: {os.path.relpath(script_path, start=self.project_root)}"
-                                    )
-                                    btn_link_local.setText(
-                                        os.path.basename(script_path)
-                                    )
-
-                                if btn_unlink_local:
-                                    btn_unlink_local.setEnabled(True)
-
-                        # script_btn = QPushButton("Link Script")
-                        # script_btn.setCheckable(True)
-                        # script_btn.setIcon(
-                        #     self.style().standardIcon(
-                        #         QStyle.StandardPixmap.SP_FileDialogDetailedView
-                        #     )
-                        # )
-                        # # script_btn.setToolTip("Script Payload")
-                        # script_btn.clicked.connect(
-                        #     lambda _, item=msg_item: self.modify_payload_script(item)
-                        # )
-                        # self.signal_tree.setItemWidget(
-                        #     msg_item, TX_COL_7_script, script_btn
-                        # )
-                        #
-                        # if sig.get("script_path"):
-                        #     script_path = sig["script_path"]
-                        #     msg_item.setData(
-                        #         TX_COL_7_script, TX_COL_DATA_ROLE_script, script_path
-                        #     )
-                        #     script_btn.setChecked(True)
-                        #     script_btn.setStyleSheet(
-                        #         "background-color: #4CAF50; color: white;"
-                        #     )
-                        #     script_btn.setToolTip(
-                        #         f"Script: {os.path.relpath(script_path, start=self.project_root)}"
-                        #     )
-                        #     script_btn.setText(os.path.basename(script_path))
+                self._add_tx_row(
+                    frame_id,
+                    sig.get("name", ""),
+                    period=sig.get("period", 100),
+                    dlc=sig.get("dlc", 8),
+                    is_fd=json_flag(sig.get("fd")),
+                    is_ext=is_ext,
+                    payload=sig.get("payload", ""),
+                    script_path=sig.get("script_path"),
+                    enabled=bool(sig.get("enabled")),
+                )
+            self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
 
             # Load sliders
             sliders_cfg = config.get("sliders") or []
@@ -1267,6 +1241,7 @@ class MainWindow(QMainWindow):
 
                     # Salva metadata
                     slider_widget.frame_id = msg.frame_id
+                    slider_widget.is_ext = msg.is_extended_frame
                     slider_widget.signal = sig
                     slider_widget.slider = slider
                     slider_widget.min_val = min_val
@@ -1360,7 +1335,9 @@ class MainWindow(QMainWindow):
             channel = self.cb_bus_tx.currentData()  # Get the selected channel
             if channel is None:
                 QMessageBox.warning(
-                    self, "Warning", CANInterface.scan_error or "No CAN channel selected"
+                    self,
+                    "Warning",
+                    CANInterface.scan_error or "No CAN channel selected",
                 )
                 self.btn_connect.setChecked(False)
                 return
@@ -1454,160 +1431,123 @@ class MainWindow(QMainWindow):
             self.btn_disable_all_ids.setEnabled(True)
             self.btn_delete_all_ids.setEnabled(True)
 
-    def populate_signal_tree(
-        self,
-    ):  # Popola l'albero dei segnali con i messaggi del DBC
-        # self.signal_tree.clear()
+    def populate_signal_tree(self):
+        """Add the DBC messages that are not in the TX table yet (TODO 6.9)."""
         if not self.dbc:
             return
-        is_fd = self.can_if.is_fd if self.can_if is not None else False
         for msg in self.dbc.messages:
-            msg_item = QTreeWidgetItem(self.signal_tree)
-            msg_item.setFlags(
-                msg_item.flags()
+            if self._find_tx_item(msg.frame_id, msg.is_extended_frame) is not None:
+                continue
+            self._add_tx_row(
+                msg.frame_id,
+                msg.name,
+                period=msg.cycle_time or 100,
+                dlc=msg.payload_length,
+                is_fd=msg.is_fd,
+                is_ext=msg.is_extended_frame,
+            )
+        self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
+
+    def _add_tx_row(
+        self,
+        frame_id,
+        name,
+        period=100,
+        dlc=8,
+        is_fd=False,
+        is_ext=False,
+        payload="",
+        script_path=None,
+        enabled=True,
+    ):
+        """The one TX row builder, for DBC, workspace and manual rows (TODO 2.14).
+
+        Frame flags live in item roles (dlc, is_fd, is_ext): the TX callback
+        reads them from there, the cell texts are display only (TODO 2.4).
+        """
+        is_fd = bool(is_fd)
+        is_ext = bool(is_ext) or frame_id > CAN_MAX_STD_ID
+        dlc = valid_dlc(dlc, is_fd)
+        parts = (payload or "").strip().split()
+        if len(parts) != dlc or not all(
+            re.fullmatch(r"[0-9a-fA-F]{2}", p) for p in parts
+        ):
+            parts = ["00"] * dlc
+
+        # No itemChanged while the row is half built: the payload check would
+        # run before the DLC role is set
+        blocked = self.signal_tree.blockSignals(True)
+        try:
+            item = TxItem(self.signal_tree)
+            item.setFlags(
+                item.flags()
                 | Qt.ItemFlag.ItemIsUserCheckable
                 | Qt.ItemFlag.ItemIsEditable
             )
-            msg_item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
-            msg_item.setText(TX_COL_2_id, f"0x{msg.frame_id:03X}")
-            msg_item.setText(TX_COL_3_fd, "Y" if is_fd else "n")
-            msg_item.setText(TX_COL_4_name, msg.name)
+            item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
+            item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd, is_fd)
+            item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext, is_ext)
+            item.setCheckState(
+                TX_COL_1_enable,
+                Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked,
+            )
+            item.setText(TX_COL_2_id, format_can_id(frame_id, is_ext))
+            item.setToolTip(
+                TX_COL_2_id, "29-bit extended ID" if is_ext else "11-bit standard ID"
+            )
+            item.setText(TX_COL_3_fd, "Y" if is_fd else "n")
+            item.setText(TX_COL_4_name, name)
+            item.setText(TX_COL_6_payload, " ".join(p.upper() for p in parts))
 
             period_spin = QSpinBox()
             period_spin.setRange(1, 10000)
-            period_spin.setValue(msg.cycle_time if msg.cycle_time else 100)
+            try:
+                period_spin.setValue(int(period))
+            except (TypeError, ValueError):
+                period_spin.setValue(100)
+            self.signal_tree.setItemWidget(item, TX_COL_5_period, period_spin)
 
-            self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
-            msg_item.setText(TX_COL_5_period, str(period_spin.value()))
-            msg_item.setData(
-                TX_COL_5_period, Qt.ItemDataRole.DisplayRole, period_spin.value()
-            )
-            msg_item.setData(
-                TX_COL_DATA, TX_COL_DATA_ROLE_dlc, msg.payload_length
-            )  # Store DLC in user data
-            msg_item.setText(
-                TX_COL_6_payload, " ".join(["00"] * msg.payload_length)
-            )  # Set default payload
-
-            # Add delete button as first column
             btn_delete_id = QPushButton()
             btn_delete_id.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
             )
             btn_delete_id.setToolTip("Delete")
             btn_delete_id.clicked.connect(
-                lambda _, item=msg_item: self.delete_signal_row(item)
+                lambda _=False, it=item: self.delete_signal_row(it)
             )
-            self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
+            self.signal_tree.setItemWidget(item, TX_COL_0_del, btn_delete_id)
 
-            self._setup_script_buttons_for_item(msg_item)
-            # # Add custom payload button in 5th column
-            # script_btn = QPushButton("Link Script")
-            # script_btn.setCheckable(True)
-            # script_btn.setIcon(
-            #     self.style().standardIcon(
-            #         QStyle.StandardPixmap.SP_FileDialogDetailedView
-            #     )
-            # )
-            # script_btn.setToolTip("No Script Linked")
-            # script_btn.clicked.connect(
-            #     lambda _, item=msg_item: self.modify_payload_script(item)
-            # )
-            # self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
+            self._setup_script_buttons_for_item(item)
+            if script_path:
+                self._set_script_link(item, script_path)
+        finally:
+            self.signal_tree.blockSignals(blocked)
+        return item
 
-            self.signal_tree.sortItems(
-                TX_COL_2_id, Qt.SortOrder.AscendingOrder
-            )  # Ascending sort by ID (column 2)
+    @staticmethod
+    def _row_key(item):
+        """(ID, is_ext) of a TX row: std 0x123 and ext 0x123 are distinct frames."""
+        try:
+            frame_id = int(item.text(TX_COL_2_id), 16)
+        except ValueError:
+            frame_id = -1
+        return frame_id, bool(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext))
+
+    def _tx_items(self):
+        return [
+            self.signal_tree.topLevelItem(i)
+            for i in range(self.signal_tree.topLevelItemCount())
+        ]
+
+    def _find_tx_item(self, frame_id, is_ext):
+        key = (frame_id, bool(is_ext))
+        return next((it for it in self._tx_items() if self._row_key(it) == key), None)
 
     def add_manual_id(self):
-        id_text, ok = QInputDialog.getText(
-            self, "Add Manual ID", "Enter hex. ID (e.g. 100):"
-        )
-        if not ok or not id_text:
+        dlg = AddIdDialog(self, {self._row_key(it) for it in self._tx_items()})
+        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.result_values is None:
             return
-
-        try:
-            frame_id = int(id_text, 16)
-        except ValueError:
-            QMessageBox.warning(self, "Error", "Invalid ID")
-            return
-
-        name, ok = QInputDialog.getText(self, "Add Manual ID", "Enter name:")
-        if not ok or not name:
-            return
-
-        # Positional value/min/max: PySide6 names them minValue/maxValue and
-        # rejects the PyQt6 keywords min=/max=
-        period, ok = QInputDialog.getInt(
-            self, "Add Manual ID", "Enter period (ms):", 100, 1, 10000
-        )
-        if not ok:
-            return
-
-        is_fd, ok = QInputDialog.getInt(
-            self, "Add Manual ID", "Select if FD (0-1):", 0, 0, 1
-        )
-        if not ok:
-            return
-
-        max_dlc = 64 if is_fd == 1 else 8
-        dlc, ok = QInputDialog.getInt(
-            self, "Add Manual ID", f"Enter DLC (1-{max_dlc}):", 8, 1, max_dlc
-        )
-        if not ok:
-            return
-
-        msg_item = QTreeWidgetItem(self.signal_tree)
-        msg_item.setFlags(
-            msg_item.flags()
-            | Qt.ItemFlag.ItemIsUserCheckable
-            | Qt.ItemFlag.ItemIsEditable
-        )
-        msg_item.setCheckState(TX_COL_1_enable, Qt.CheckState.Checked)
-        msg_item.setText(TX_COL_2_id, f"0x{frame_id:03X}")
-        msg_item.setText(TX_COL_3_fd, "Y" if is_fd else "n")
-        msg_item.setText(TX_COL_4_name, name)
-
-        # Salva DLC e is_fd come dato dell'item
-        msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
-        msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd, is_fd)
-
-        period_spin = QSpinBox()
-        period_spin.setRange(1, 10000)
-        period_spin.setValue(period)
-        self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
-        msg_item.setText(TX_COL_5_period, str(period_spin.value()))
-        msg_item.setData(
-            TX_COL_PERIODDATA, Qt.ItemDataRole.DisplayRole, period_spin.value()
-        )
-
-        msg_item.setText(TX_COL_6_payload, " ".join(["00"] * dlc))
-
-        # Pulsanti standard
-        btn_delete_id = QPushButton()
-        btn_delete_id.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-        )
-        btn_delete_id.setToolTip("Delete")
-        btn_delete_id.clicked.connect(
-            lambda _, item=msg_item: self.delete_signal_row(item)
-        )
-        self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
-
-        self._setup_script_buttons_for_item(msg_item)
-        # # Pulsante per linkare lo script del payload
-        # script_btn = QPushButton("Link Script")
-        # script_btn.setCheckable(True)
-        # script_btn.setIcon(
-        #     self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
-        # )
-        # script_btn.setToolTip("No Script Linked")
-        # script_btn.clicked.connect(
-        #     lambda _, item=msg_item: self.modify_payload_script(item)
-        # )
-        # self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
-
-        # Ascending sort by ID (column 2)
+        self._add_tx_row(**dlg.result_values)
         self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
 
         # Se la trasmissione è attiva, riavvia per includere il nuovo ID
@@ -1620,21 +1560,10 @@ class MainWindow(QMainWindow):
     def delete_signal_row(self, item):
         idx = self.signal_tree.indexOfTopLevelItem(item)
         if idx != -1:
-            # Se la trasmissione è attiva, ferma e rimuovi il timer relativo all'ID
-            if self.tx_running:
-                try:
-                    frame_id = int(item.text(TX_COL_2_id), 16)
-                    timers_to_remove = []
-                    for t in self.timers:
-                        if hasattr(t, "frame_id") and t.frame_id == frame_id:
-                            t.stop()
-                            timers_to_remove.append(t)
-                    for t in timers_to_remove:
-                        self.timers.remove(t)
-                    if hasattr(self, "tx_periods") and frame_id in self.tx_periods:
-                        del self.tx_periods[frame_id]
-                except Exception:
-                    pass
+            # Stop this row's timer only: another row may share the ID number
+            for t in [t for t in self.timers if getattr(t, "tx_item", None) is item]:
+                t.stop()
+                self.timers.remove(t)
             self.signal_tree.takeTopLevelItem(idx)
 
         if self.signal_tree.topLevelItemCount() == 0:
@@ -1657,27 +1586,6 @@ class MainWindow(QMainWindow):
                         slider_widget.slider.setEnabled(
                             item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
                         )
-
-        elif column == TX_COL_5_period:  # Periodo (ms) column changed
-            # Update the timer for this item if TX is running
-            if self.tx_running:
-                frame_id = None
-                try:
-                    frame_id = int(item.text(TX_COL_2_id), 16)
-                except Exception:
-                    return
-                # Find and update the timer for this frame_id
-                for t in getattr(self, "timers", []):
-                    if hasattr(t, "frame_id") and t.frame_id == frame_id:
-                        period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
-                        new_period = period_spin.value() if period_spin else 1000
-                        item.setText(TX_COL_5_period, str(new_period))
-
-                        t.stop()
-                        t.start(new_period)
-                        if hasattr(self, "tx_periods") and frame_id in self.tx_periods:
-                            self.tx_periods[frame_id]["nominal"] = new_period
-                        break
 
         elif column == TX_COL_6_payload:  # Payload
             text = item.text(TX_COL_6_payload).strip()
@@ -1737,26 +1645,30 @@ class MainWindow(QMainWindow):
         self.btn_remove_global_script.setEnabled(False)
 
     def remove_local_payload_script(self, item):
-        """
-        Rimuove il link allo script di payload per un ID specifico.
-        """
-        item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, None)
+        """Rimuove il link allo script di payload per un ID specifico."""
+        self._set_script_link(item, None)
 
-        # Trova il widget composito e i pulsanti al suo interno
+    def _set_script_link(self, item, script_path):
+        """Store a row's script path and show it on the row's script buttons."""
+        item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path)
         script_widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
-        if script_widget:
-            btn_link_local = script_widget.findChild(QPushButton, "btn_link_local")
-            btn_unlink_local = script_widget.findChild(QPushButton, "btn_unlink_local")
-
-            if btn_link_local:
+        if not script_widget:
+            return
+        btn_link_local = script_widget.findChild(QPushButton, "btn_link_local")
+        btn_unlink_local = script_widget.findChild(QPushButton, "btn_unlink_local")
+        if btn_link_local:
+            if script_path:
+                btn_link_local.setStyleSheet("background-color: #4CAF50; color: white;")
+                btn_link_local.setToolTip(f"Script: {script_path}")
+                btn_link_local.setText(os.path.basename(script_path))
+            else:
                 btn_link_local.setStyleSheet("")
                 btn_link_local.setToolTip(
                     "Link a Payload Script to be used for THIS trasmitted CAN frame."
                 )
                 btn_link_local.setText("Link Script")
-
-            if btn_unlink_local:
-                btn_unlink_local.setEnabled(False)
+        if btn_unlink_local:
+            btn_unlink_local.setEnabled(bool(script_path))
 
     def _setup_script_buttons_for_item(self, item):
         """
@@ -1810,23 +1722,7 @@ class MainWindow(QMainWindow):
         )
 
         if rel_file_path:
-            item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, rel_file_path)
-            # Cerca il widget composito e i pulsanti
-            widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
-            if widget:
-                btn_link_local = widget.findChild(QPushButton, "btn_link_local")
-                btn_unlink_local = widget.findChild(QPushButton, "btn_unlink_local")
-
-                if btn_link_local:
-                    btn_link_local.setStyleSheet(
-                        "background-color: #4CAF50; color: white;"
-                    )
-                    btn_link_local.setToolTip(f"Script: {rel_file_path}")
-                    btn_link_local.setText(os.path.basename(rel_file_path))
-
-                if btn_unlink_local:
-                    btn_unlink_local.setEnabled(True)
-
+            self._set_script_link(item, rel_file_path)
             QMessageBox.information(
                 self,
                 "Script selected",
@@ -1869,6 +1765,13 @@ class MainWindow(QMainWindow):
             self.script_instances.clear()
             self.global_script_cache.clear()
             self.start_tx()
+            if self.tx_skipped_fd:
+                QMessageBox.warning(
+                    self,
+                    "CAN FD",
+                    "The bus is connected as classic CAN: these CAN FD rows are not "
+                    "transmitted:\n" + "\n".join(self.tx_skipped_fd),
+                )
         else:
             self.stop_tx()
             # Frames the bus could not take yet would otherwise go out later,
@@ -1884,19 +1787,25 @@ class MainWindow(QMainWindow):
     def start_tx(self):
         """Starts the periodic transmission of enabled CAN messages in ascending order of ID."""
         self.timers.clear()
-        self.tx_periods = (
-            {}
-        )  # frame_id: {'nominal': period, 'offset': 0, 'samples': [], 'last_time': None}
+        # (frame_id, is_ext): {'nominal': period, 'offset': 0, 'samples': [], 'last_time': None}
+        self.tx_periods = {}
+        # A classic-CAN channel rejects every FD frame: skip those rows, once
+        bus_is_fd = bool(getattr(self.can_if, "is_fd", False))
+        self.tx_skipped_fd = []
         items_to_send = []
-        for i in range(self.signal_tree.topLevelItemCount()):  # Itera su tutti gli ID
-            item = self.signal_tree.topLevelItem(i)
-            if item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked:
-                try:
-                    frame_id = int(item.text(TX_COL_2_id), 16)
-                    items_to_send.append((frame_id, item))
-                except Exception:
-                    continue
-        items_to_send.sort(key=lambda x: x[0])
+        for item in self._tx_items():  # Itera su tutti gli ID
+            if item.checkState(TX_COL_1_enable) != Qt.CheckState.Checked:
+                continue
+            key = self._row_key(item)
+            if key[0] < 0:
+                continue
+            if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) and not bus_is_fd:
+                self.tx_skipped_fd.append(
+                    f"{item.text(TX_COL_2_id)} {item.text(TX_COL_4_name)}"
+                )
+                continue
+            items_to_send.append((key, item))
+        items_to_send.sort(key=lambda x: (x[0][1], x[0][0]))
 
         # Prepara gli slider per i frame
         slider_overrides = {}
@@ -1904,17 +1813,15 @@ class MainWindow(QMainWindow):
             self, "slider_widgets"
         ):  # Controlla se gli slider sono stati aggiunti
             for w in self.slider_widgets:
-                fid = w.frame_id
-                sig = w.signal
-                if fid not in slider_overrides:
-                    slider_overrides[fid] = []
-                slider_overrides[fid].append((sig, w.slider))
+                skey = (w.frame_id, bool(getattr(w, "is_ext", False)))
+                slider_overrides.setdefault(skey, []).append((w.signal, w.slider))
 
         # Inizializza i timer ed il dizionario per la cache degli script
-        for frame_id, item in items_to_send:
+        for tx_key, item in items_to_send:
+            frame_id, is_ext = tx_key
             period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
             period = period_spin.value() if period_spin else 1000
-            self.tx_periods[frame_id] = {
+            self.tx_periods[tx_key] = {
                 "nominal": period,
                 "offset": 0,
                 "samples": [],
@@ -1923,15 +1830,15 @@ class MainWindow(QMainWindow):
             # Connect live update for period spinbox
             if period_spin is not None:
 
-                def make_period_handler(fid=frame_id, spin=period_spin, tree_item=item):
+                def make_period_handler(tkey=tx_key, tree_item=item):
                     def handler(new_period):
                         if self.tx_running:
                             # Update timer and tx_periods
                             for t in self.timers:
-                                if hasattr(t, "frame_id") and t.frame_id == fid:
+                                if getattr(t, "tx_item", None) is tree_item:
                                     t.stop()
                                     t.start(new_period)
-                                    self.tx_periods[fid]["nominal"] = new_period
+                                    self.tx_periods[tkey]["nominal"] = new_period
                                     break
 
                     return handler
@@ -1939,11 +1846,23 @@ class MainWindow(QMainWindow):
                 period_spin.valueChanged.connect(make_period_handler())
 
             script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
+            # The frame flags of a row never change after it is created
+            is_fd = bool(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd))
+            dlc = valid_dlc(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc), is_fd)
 
-            def make_callback(frame_id=frame_id, item=item, script_path=script_path):
+            def make_callback(
+                frame_id=frame_id,
+                is_ext=is_ext,
+                is_fd=is_fd,
+                dlc=dlc,
+                item=item,
+                script_path=script_path,
+            ):
+                tx_key = (frame_id, is_ext)
+
                 def callback():
                     now_time = time.time() * 1000  # ms
-                    txp = self.tx_periods[frame_id]
+                    txp = self.tx_periods[tx_key]
 
                     # FIXME: riabilitare controllo adattivo del periodo correggendo il conflitto con metodo timer_busload_elapsed()
                     # Monitor period
@@ -1998,28 +1917,17 @@ class MainWindow(QMainWindow):
                         now_time  # Aggiorna l'ultimo tempo di trasmissione
                     )
 
-                    dlc = (
-                        item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or 8
-                    )  # se il payload viene da testo manuale
-                    if not isinstance(dlc, int) or not (1 <= dlc <= 64):
-                        dlc = 8
-
-                    is_fd = (
-                        item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) or 0
-                    )  # 0 se CAN, 1 se CAN-FD
-                    if not isinstance(is_fd, int) or not (0 <= is_fd <= 1):
-                        is_fd = 0
-
                     # Se il payload è stato specificato come script, lo esegue
                     try:
                         # 1. Per-ID script has priority
                         if script_path and os.path.exists(script_path):
                             # One instance per ID, even when IDs share the file
-                            key = (frame_id, script_path)
+                            key = (frame_id, is_ext, script_path)
                             get_payload_fn = self.script_instances.get(key)
                             if get_payload_fn is None:
                                 get_payload_fn = load_payload_function(
-                                    script_path, f"canino_tx_script_{frame_id:X}"
+                                    script_path,
+                                    f"canino_tx_script_{frame_id:X}{'x' if is_ext else ''}",
                                 )
                                 self.script_instances[key] = get_payload_fn
 
@@ -2069,8 +1977,8 @@ class MainWindow(QMainWindow):
 
                         # Apply slider overrides
                         payload_list = list(payload)
-                        if frame_id in slider_overrides:
-                            for sig, slider in slider_overrides[frame_id]:
+                        if tx_key in slider_overrides:
+                            for sig, slider in slider_overrides[tx_key]:
                                 val_index = slider.value()
                                 real_value = (
                                     slider.parent().min_val
@@ -2092,7 +2000,9 @@ class MainWindow(QMainWindow):
                         # print(f"[DEBUG] final_payload type: {type(final_payload)}, value: {final_payload}")
 
                         # Invia il frame e aggiorna il payload nella finestra TX
-                        self.send_can_message(frame_id, final_payload, dlc, is_fd)
+                        self.send_can_message(
+                            frame_id, final_payload, dlc, is_fd, is_ext
+                        )
                         item.setText(
                             TX_COL_6_payload,
                             " ".join(f"{b:02X}" for b in final_payload),
@@ -2125,10 +2035,8 @@ class MainWindow(QMainWindow):
             # CoarseTimer (Qt's default) rounds intervals above 20 ms up to the
             # 15.625 ms Windows tick: 50 ms ran at 62.5 ms on the bus (TODO 2.10)
             timer.setTimerType(Qt.TimerType.PreciseTimer)
-            timer.frame_id = frame_id  # Custom attribute for lookup
-            timer.timeout.connect(
-                make_callback(frame_id=frame_id, item=item, script_path=script_path)
-            )
+            timer.tx_item = item  # Custom attribute for lookup
+            timer.timeout.connect(make_callback())
             timer.start(period)
             self.timers.append(timer)
 
@@ -2162,7 +2070,7 @@ class MainWindow(QMainWindow):
 
         return callback
 
-    def send_can_message(self, frame_id, data, dlc=None, is_fd=False):
+    def send_can_message(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
         if not self.can_if:
             return
         try:
@@ -2170,9 +2078,6 @@ class MainWindow(QMainWindow):
             if dlc is None:
                 dlc = len(data) if data else 0
             dlc = max(0, min(int(dlc), 64))
-
-            # extended ID heuristic
-            is_ext = isinstance(frame_id, int) and frame_id > 0x7FF
 
             # Compact bit counting:
             # arbitration = SOF(1) + ID(11|29) + RTR/IDE/RES(≈3) + DLC(4)
@@ -2196,17 +2101,17 @@ class MainWindow(QMainWindow):
             self.busload_tx_data_bits += data_phase_bits
 
             # send
-            self.can_if.send_frame(frame_id, data, dlc, is_fd)
+            self.can_if.send_frame(frame_id, data, dlc, is_fd, is_ext=is_ext)
         except Exception as e:
             log_exception(__file__, sys._getframe().f_lineno, e)
 
     def process_received_frame(
-        self, frame_id, data, dlc=None, is_fd=False, timestamp=None
+        self, frame_id, data, dlc=None, is_fd=False, timestamp=None, is_ext=False
     ):
         """Runs in the RX thread: no Qt widget may be touched from here."""
         try:
             # aggiorna il buffer/tabella RX
-            self.rx_window.update_frame(frame_id, data, dlc, is_fd, timestamp)
+            self.rx_window.update_frame(frame_id, data, dlc, is_fd, timestamp, is_ext)
 
             # Gauges live in the GUI thread: hand the frame over via a queued
             # signal, only while an XMetro window is open (TODO 7.1)
@@ -2264,148 +2169,6 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"Error creating XMetro window: {str(e)}")
             log_exception(__file__, sys._getframe().f_lineno, e)
-
-    def handle_signal_tree_sort(self, column):
-        if column == TX_COL_5_period:
-            self.signal_tree.setSortingEnabled(False)
-            items = []
-            for i in range(self.signal_tree.topLevelItemCount()):
-                item = self.signal_tree.topLevelItem(i)
-                period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
-                if period_spin is not None:
-                    period_value = int(period_spin.value())
-                else:
-                    try:
-                        # Come fallback, leggi il dato salvato nell'item
-                        period_value = int(
-                            item.data(TX_COL_PERIODDATA, TX_COL_PERIODDATA_period)
-                        )
-                    except Exception:
-                        period_value = 100
-                item_data = {
-                    "check_state": item.checkState(TX_COL_1_enable),
-                    "id": item.text(TX_COL_2_id),
-                    "fd": item.text(TX_COL_3_fd),
-                    "name": item.text(TX_COL_4_name),
-                    "dlc": item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc),
-                    "payload": item.text(TX_COL_6_payload),
-                    "script_path": item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path),
-                    "period": period_value,
-                }
-                items.append((period_value, item_data))
-
-            if not hasattr(self, "_period_sort_asc") or self._period_sort_asc is False:
-                items.sort(key=lambda x: x[0])
-                self._period_sort_asc = True
-            else:
-                items.sort(key=lambda x: x[0], reverse=True)
-                self._period_sort_asc = False
-
-            self.signal_tree.clear()
-            for _, item_data in items:
-                check_state = item_data["check_state"]
-                id_text = item_data["id"]
-                name_text = item_data["name"]
-                dlc = item_data["dlc"] if item_data["dlc"] is not None else 8
-                is_fd = item_data["fd"]
-                payload = item_data["payload"]
-                script_path = item_data["script_path"]
-                period_val = item_data["period"] if "period" in item_data else 100
-
-                msg_item = QTreeWidgetItem(self.signal_tree)
-                msg_item.setFlags(
-                    msg_item.flags()
-                    | Qt.ItemFlag.ItemIsUserCheckable
-                    | Qt.ItemFlag.ItemIsEditable
-                )
-                msg_item.setCheckState(TX_COL_1_enable, check_state)
-                msg_item.setText(TX_COL_2_id, id_text)
-                msg_item.setText(TX_COL_3_fd, is_fd)
-                msg_item.setText(TX_COL_4_name, name_text)
-                msg_item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
-                msg_item.setText(TX_COL_6_payload, payload)
-                if script_path:
-                    msg_item.setData(
-                        TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path
-                    )
-
-                period_spin = QSpinBox()
-                period_spin.setRange(1, 10000)
-                period_spin.setValue(period_val)
-                self.signal_tree.setItemWidget(msg_item, TX_COL_5_period, period_spin)
-                # Imposta solo il valore numerico come DisplayRole, non il testo
-                msg_item.setData(
-                    TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, period_spin.value()
-                )
-
-                def on_period_changed(new_value, item=msg_item):
-                    item.setData(TX_COL_PERIODDATA, TX_COL_PERIODDATA_period, new_value)
-
-                period_spin.valueChanged.connect(on_period_changed)
-
-                btn_delete_id = QPushButton()
-                btn_delete_id.setIcon(
-                    self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-                )
-                btn_delete_id.setToolTip("Delete")
-                btn_delete_id.clicked.connect(
-                    lambda _, item=msg_item: self.delete_signal_row(item)
-                )
-                self.signal_tree.setItemWidget(msg_item, TX_COL_0_del, btn_delete_id)
-
-                self._setup_script_buttons_for_item(msg_item)
-                if script_path:
-                    # Lo script_path e il setData sono già gestiti sopra
-                    script_widget = self.signal_tree.itemWidget(
-                        msg_item, TX_COL_7_script
-                    )
-                    if script_widget:
-                        btn_link_local = script_widget.findChild(
-                            QPushButton, "btn_link_local"
-                        )
-                        btn_unlink_local = script_widget.findChild(
-                            QPushButton, "btn_unlink_local"
-                        )
-
-                        if btn_link_local:
-                            btn_link_local.setStyleSheet(
-                                "background-color: #4CAF50; color: white;"
-                            )
-                            btn_link_local.setToolTip(f"Script: {script_path}")
-                            btn_link_local.setText(os.path.basename(script_path))
-
-                        if btn_unlink_local:
-                            btn_unlink_local.setEnabled(True)
-
-                # TODO: verificare differenza tra qui ed i metodi add_manual_id() e populate_signal_tree()
-                # script_btn = QPushButton("Link Script")
-                # script_btn.setCheckable(True)
-                # script_btn.setIcon(
-                #     self.style().standardIcon(
-                #         QStyle.StandardPixmap.SP_FileDialogDetailedView
-                #     )
-                # )
-                # script_btn.setToolTip("No Script Linked")
-                # script_btn.clicked.connect(
-                #     lambda _, item=msg_item: self.modify_payload_script(item)
-                # )
-                # self.signal_tree.setItemWidget(msg_item, TX_COL_7_script, script_btn)
-                # if script_path:
-                #     script_btn.setChecked(True)
-                #     script_btn.setStyleSheet("background-color: #4CAF50; color: white;")
-                #     script_btn.setToolTip(f"Script: {script_path}")
-                #     script_btn.setText(os.path.basename(script_path))
-
-            self.signal_tree.setSortingEnabled(True)
-
-        else:
-            if hasattr(self, "_period_sort_asc"):
-                del self._period_sort_asc
-
-            self.signal_tree.setSortingEnabled(True)
-            self.signal_tree.sortItems(
-                column, self.signal_tree.header().sortIndicatorOrder()
-            )
 
     def timer_busload_elapsed(self):
         # Sums of TX bits in arbitration phase and data phase (for CAN-FD)

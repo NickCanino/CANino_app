@@ -70,7 +70,7 @@ class CANInterface:
         self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self.receive_thread.start()
 
-    def send_frame(self, frame_id, data, dlc=None, is_fd=False):
+    def send_frame(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
         try:
             if self.bus is None:
                 print("[ERROR] CAN bus not initialized. Cannot send frame.")
@@ -89,7 +89,7 @@ class CANInterface:
             msg = can.Message(
                 arbitration_id=frame_id,
                 data=data,
-                is_extended_id=False,
+                is_extended_id=is_ext,
                 dlc=dlc,
                 is_fd=is_fd,
                 bitrate_switch=is_fd,
@@ -141,6 +141,7 @@ class CANInterface:
                             msg.dlc,
                             msg.is_fd,
                             msg.timestamp,
+                            msg.is_extended_id,
                         )
             except Exception as e:
                 log_exception(__file__, sys._getframe().f_lineno, e)

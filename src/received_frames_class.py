@@ -42,6 +42,7 @@ import threading
 from datetime import datetime
 
 from src.exceptions_logger import log_exception
+from src.utils import format_can_id
 
 RX_refresh_rate_ms = 500
 
@@ -78,6 +79,7 @@ class ReceivedFramesWindow(QWidget):
     def __init__(self, dbc=None):
         super().__init__()
         self.dbc = dbc
+        self._dbc_names = self._names_of(dbc)
         self.csv_path = None
         self.csv_file = None
         self.csv_writer = None
@@ -199,7 +201,7 @@ class ReceivedFramesWindow(QWidget):
                 "ID",
                 "Name",
                 "DLC",
-                "Payload (0 - 7)",
+                "Payload",
                 "Count",
                 "Period (ms)",
                 "Min (ms)",
@@ -267,12 +269,17 @@ class ReceivedFramesWindow(QWidget):
         dlc: int = None,
         is_fd: bool = False,
         timestamp: float = None,
+        is_ext: bool = False,
     ):
-        """Called from the RX thread; `timestamp` is the PCAN hardware time."""
-        with self._lock:
-            self._update_frame_locked(frame_id, data, dlc, is_fd, timestamp)
+        """Called from the RX thread; `timestamp` is the PCAN hardware time.
 
-    def _update_frame_locked(self, frame_id, data, dlc, is_fd, timestamp):
+        Frames are keyed by (ID, is_ext): standard 0x123 and extended
+        0x00000123 are different frames (TODO 1.7).
+        """
+        with self._lock:
+            self._update_frame_locked(frame_id, data, dlc, is_fd, timestamp, is_ext)
+
+    def _update_frame_locked(self, frame_id, data, dlc, is_fd, timestamp, is_ext):
         # Aggiorna solo il buffer, non la tabella direttamente
 
         # determina DLC se non fornito
@@ -280,14 +287,11 @@ class ReceivedFramesWindow(QWidget):
             dlc = len(data) if data else 0
         dlc = max(0, min(int(dlc), 64))
 
-        # heuristica extended ID
-        is_extended = isinstance(frame_id, int) and frame_id > 0x7FF
-
         # Conteggio compatto dei bit:
         # arbitration = SOF(1) + ID(11|29) + RTR/IDE/RES(≈3) + DLC(4)
         # data_phase = data(8*dlc) + CRC(+delim)
         # NOTE: ACK/EOF/IFS sono trasmessi al nominale in CAN-FD -> spostarli in arbitration_bits per is_fd
-        arbitration_bits = 1 + (29 if is_extended else 11) + 3 + 4
+        arbitration_bits = 1 + (29 if is_ext else 11) + 3 + 4
         if not is_fd:
             crc_total = 15 + 1
             data_phase_bits = 8 * dlc + crc_total + 2 + 7 + 3
@@ -301,8 +305,9 @@ class ReceivedFramesWindow(QWidget):
         self.busload_rx_data_bits += data_phase_bits
 
         now = timestamp if timestamp is not None else time.time()
-        if frame_id not in self._rx_buffer:  # Nuovo frame
-            f = self._rx_buffer[frame_id] = {
+        key = (frame_id, bool(is_ext))
+        if key not in self._rx_buffer:  # Nuovo frame
+            f = self._rx_buffer[key] = {
                 "count": 1,
                 "dlc": dlc if dlc is not None else len(data),
                 "data": data,
@@ -313,7 +318,7 @@ class ReceivedFramesWindow(QWidget):
                 "avg_period": None,
             }
         else:  # Frame già esistente
-            f = self._rx_buffer[frame_id]
+            f = self._rx_buffer[key]
             f["count"] += 1
             period = (now - f["last_time"]) * 1000
             f["last_time"] = now
@@ -344,6 +349,7 @@ class ReceivedFramesWindow(QWidget):
         # Log the frame that just arrived, stamped with its own time (TODO 5.3/5.4)
         self.log_frame_to_csv(
             frame_id=frame_id,
+            is_ext=is_ext,
             data=data,
             dlc=f["dlc"],
             count=f["count"],
@@ -356,8 +362,8 @@ class ReceivedFramesWindow(QWidget):
         # Snapshot under the lock: the RX thread may add IDs meanwhile (TODO 5.2)
         with self._lock:
             snapshot = [
-                (frame_id, dict(f, periods=list(f["periods"])))
-                for frame_id, f in self._rx_buffer.items()
+                (key, dict(f, periods=list(f["periods"])))
+                for key, f in self._rx_buffer.items()
             ]
         # With sorting on, every setItem() re-sorts and the following setItem()
         # calls of the same row land on another ID's row (TODO 5.1)
@@ -369,8 +375,8 @@ class ReceivedFramesWindow(QWidget):
             self.table.setSortingEnabled(sorting)
 
     def _fill_rows(self, snapshot):
-        for frame_id, f in snapshot:
-            id_str = f"0x{frame_id:03X}"
+        for (frame_id, is_ext), f in snapshot:
+            id_str = format_can_id(frame_id, is_ext)
             row = None
             # Cerca la riga con l'ID giusto (colonna 0)
             for r in range(self.table.rowCount()):
@@ -384,15 +390,7 @@ class ReceivedFramesWindow(QWidget):
                 self.table.insertRow(row)
                 self.table.setItem(row, RX_COL_0_id, QTableWidgetItem(id_str))
             # Aggiorna sempre il nome dalla DBC (anche se già presente)
-            msg_name = ""
-            if self.dbc and hasattr(self.dbc, "db"):
-                try:
-                    msg = self.dbc.db.get_message_by_frame_id(frame_id)
-                    if msg:
-                        msg_name = msg.name
-                except Exception:
-                    pass
-
+            msg_name = self._dbc_name(frame_id, is_ext)
             self.table.setItem(row, RX_COL_1_name, QTableWidgetItem(msg_name))
             self.table.setItem(row, RX_COL_2_dlc, QTableWidgetItem(str(f["dlc"])))
             self.table.setItem(
@@ -431,8 +429,26 @@ class ReceivedFramesWindow(QWidget):
                 QTableWidgetItem(last_recv.toString(Qt.DateFormat.ISODate)),
             )
 
+    @staticmethod
+    def _names_of(dbc):
+        """(frame_id, is_ext) -> message name.
+
+        cantools' get_message_by_frame_id() keeps one message per number, so a
+        DBC with both std 0x123 and ext 0x123 would name one after the other.
+        """
+        db = getattr(dbc, "db", None)
+        return {
+            (m.frame_id, bool(m.is_extended_frame)): m.name
+            for m in getattr(db, "messages", [])
+        }
+
+    def _dbc_name(self, frame_id, is_ext):
+        """DBC message name, only if the DBC frame has the same ID format."""
+        return self._dbc_names.get((frame_id, bool(is_ext)), "")
+
     def set_dbc(self, dbc):
         self.dbc = dbc
+        self._dbc_names = self._names_of(dbc)
         # Aggiorna i nomi dei messaggi già presenti in tabella
         for frame_id, f in self.frames.items():
             row = f["row"]
@@ -489,7 +505,15 @@ class ReceivedFramesWindow(QWidget):
             self.log_paused = False
 
     def log_frame_to_csv(
-        self, frame_id, data, dlc, count, avg_period, periods, timestamp=None
+        self,
+        frame_id,
+        data,
+        dlc,
+        count,
+        avg_period,
+        periods,
+        timestamp=None,
+        is_ext=False,
     ):
         """
         Logs a single CAN frame to CSV, if logging is active and not paused.
@@ -500,15 +524,8 @@ class ReceivedFramesWindow(QWidget):
             try:
                 ts = timestamp if timestamp is not None else time.time()
                 timestamp = datetime.fromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%S.%f")
-                id_str = f"0x{frame_id:03X}"
-                msg_name = ""
-                if self.dbc and hasattr(self.dbc, "db"):
-                    try:
-                        msg = self.dbc.db.get_message_by_frame_id(frame_id)
-                        if msg:
-                            msg_name = msg.name
-                    except Exception:
-                        pass
+                id_str = format_can_id(frame_id, is_ext)
+                msg_name = self._dbc_name(frame_id, is_ext)
                 payload_str = " ".join(f"{b:02X}" for b in data)
                 std_dev = statistics.pstdev(periods) if len(periods) > 1 else 0.0
                 self.csv_writer.writerow(
