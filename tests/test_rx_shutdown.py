@@ -53,7 +53,7 @@ class RxTableTests(Base):
         self.rx.refresh_table()
         for r in range(self.rx.table.rowCount()):
             fid = int(self.rx.table.item(r, 0).text(), 16)
-            f = self.rx._rx_buffer[fid]
+            f = self.rx._rx_buffer[(fid, False)]
             self.assertEqual(
                 self.rx.table.item(r, 3).text(), " ".join(f"{b:02X}" for b in f["data"])
             )

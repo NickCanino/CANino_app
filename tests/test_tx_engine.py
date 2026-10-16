@@ -23,10 +23,12 @@ class FakeIf:
 
     def __init__(self):
         self.sent = []
+        self.flags = []
         self.flushes = 0
 
-    def send_frame(self, frame_id, data, dlc=None, is_fd=False):
+    def send_frame(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
         self.sent.append((frame_id, bytes(data)))
+        self.flags.append((frame_id, is_ext, is_fd, dlc))
 
     def flush_tx(self):
         self.flushes += 1

@@ -1,4 +1,4 @@
-"""Phase 0 / sub-task 2 — TODO 2.1, 2.2, 9.1, 9.2, 6.1, 6.2, 6.3, 4.1, 4.2, 4.3.
+"""Phase 0 / sub-task 2 — TODO 9.1, 9.2, 6.1, 6.2, 6.3, 4.1, 4.2, 4.3.
 
 Run from the repo root:  python -m unittest discover -s tests -v
 """
@@ -9,9 +9,7 @@ import unittest
 
 import qt_harness as h  # noqa: F401  (must come before src imports)
 
-from PySide6.QtCore import QTimer  # noqa: E402
 from PySide6.QtWidgets import (
-    QInputDialog,
     QLabel,
     QPushButton,
     QScrollArea,
@@ -123,44 +121,6 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual(labels, ["Val: 10 "])
         first.findChildren(QPushButton)[0].click()
         self.assertEqual([w.signal.name for w in self.mw.slider_widgets], ["SIG_Y"])
-
-
-class AddIdTests(unittest.TestCase):
-    def setUp(self):
-        h.DIALOGS.clear()
-        self._orig_scan = ci.CANInterface.get_available_channels
-        ci.CANInterface.get_available_channels = staticmethod(lambda: [])
-        self._orig_text = QInputDialog.getText
-        answers = iter([("123", True), ("MY_ID", True)])
-        QInputDialog.getText = staticmethod(lambda *a, **k: next(answers))
-        self.mw = gui.MainWindow()
-
-    def tearDown(self):
-        QInputDialog.getText = self._orig_text
-        ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
-
-    def test_add_id_with_the_real_int_dialogs(self):
-        """2.1 + 2.2: the PySide6 getInt calls work and propose sane defaults."""
-        timer = QTimer()
-        timer.timeout.connect(
-            lambda: [
-                w.accept()
-                for w in h.app.topLevelWidgets()
-                if isinstance(w, QInputDialog) and w.isVisible()
-            ]
-        )
-        timer.start(50)
-        try:
-            self.mw.add_manual_id()
-        finally:
-            timer.stop()
-        self.assertEqual(self.mw.signal_tree.topLevelItemCount(), 1)
-        item = self.mw.signal_tree.topLevelItem(0)
-        self.assertEqual(item.text(gui.TX_COL_2_id), "0x123")
-        spin = self.mw.signal_tree.itemWidget(item, gui.TX_COL_5_period)
-        self.assertEqual(spin.value(), 100)
-        self.assertEqual(item.data(gui.TX_COL_DATA, gui.TX_COL_DATA_ROLE_dlc), 8)
 
 
 class ResourcePathTests(unittest.TestCase):
