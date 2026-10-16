@@ -274,7 +274,8 @@ class DraggableGaugeBox(QFrame):
             if msg:
                 decoded = msg.decode(payload)
                 if signal.name in decoded:
-                    value = decoded[signal.name]
+                    # Enum signals decode to NamedSignalValue: draw its number
+                    value = getattr(decoded[signal.name], "value", decoded[signal.name])
                     self.gauge.setValue(value, signal.unit if signal.unit else "")
         except Exception as e:
             print(f"Error updating gauge: {e}")

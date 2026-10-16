@@ -45,7 +45,8 @@ from PySide6.QtWidgets import (
     QStyledItemDelegate,
 )
 from PySide6.QtGui import QAction, QIcon, QPixmap, QFont
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import Qt, QTimer, QObject, Signal
+import shiboken6
 import importlib.util
 import json
 import os
@@ -161,6 +162,12 @@ class PayloadEditDelegate(QStyledItemDelegate):
             font = QFont("Courier New", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
+
+
+class RxBridge(QObject):
+    """Carries received frames from the RX thread to the GUI thread (queued)."""
+
+    frame_received = Signal(int, object)
 
 
 class SliderMeta:
@@ -493,6 +500,10 @@ class MainWindow(QMainWindow):
 
         # Aggiungi il layout dei controlli di ricezione al layout principale
         self.rx_window = ReceivedFramesWindow(self.dbc)
+        # RX thread -> GUI thread hand-over for the XMetro gauges
+        self.xmetro_windows = []
+        self.rx_bridge = RxBridge(self)
+        self.rx_bridge.frame_received.connect(self._feed_gauges)
         rx_group = QGroupBox()
         rx_group.setStyleSheet(
             "QGroupBox { border: 2px solid #2196F3; border-radius: 5px; }"
@@ -2192,19 +2203,27 @@ class MainWindow(QMainWindow):
     def process_received_frame(
         self, frame_id, data, dlc=None, is_fd=False, timestamp=None
     ):
+        """Runs in the RX thread: no Qt widget may be touched from here."""
         try:
             # aggiorna il buffer/tabella RX
             self.rx_window.update_frame(frame_id, data, dlc, is_fd, timestamp)
 
-            # Aggiorna i gauge che mostrano questo frame ID
-            for gauge in getattr(self, "gauges", []):
-                if gauge.cb_messages.currentData() == frame_id:
-                    if not isinstance(data, bytes):
-                        data = bytes(data)
-                    gauge.update_gauge(data)
+            # Gauges live in the GUI thread: hand the frame over via a queued
+            # signal, only while an XMetro window is open (TODO 7.1)
+            if self.xmetro_windows:
+                self.rx_bridge.frame_received.emit(frame_id, bytes(data))
 
         except Exception as e:
             log_exception(__file__, sys._getframe().f_lineno, e)
+
+    def _feed_gauges(self, frame_id, data):
+        """GUI thread: update every XMetro gauge showing `frame_id`."""
+        alive = [w for w in self.xmetro_windows if shiboken6.isValid(w)]
+        self.xmetro_windows[:] = alive
+        for window in alive:
+            for gauge in window.gauges:
+                if gauge.cb_messages.currentData() == frame_id:
+                    gauge.update_gauge(data)
 
     def open_xmetro_window(self):
         print("Opening XMetro window...")
@@ -2220,10 +2239,6 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            # Mantieni una lista di finestre XMetro
-            if not hasattr(self, "xmetro_windows"):
-                self.xmetro_windows = []
-
             xmetro = XMetroWindow(self.dbc)
             self.xmetro_windows.append(xmetro)
 
