@@ -136,7 +136,11 @@ class CANInterface:
                         continue
                     if msg and self.receive_callback:
                         self.receive_callback(
-                            msg.arbitration_id, msg.data, msg.dlc, msg.is_fd
+                            msg.arbitration_id,
+                            msg.data,
+                            msg.dlc,
+                            msg.is_fd,
+                            msg.timestamp,
                         )
             except Exception as e:
                 log_exception(__file__, sys._getframe().f_lineno, e)

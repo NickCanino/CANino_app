@@ -38,6 +38,7 @@ import time
 import csv
 import sys
 import statistics
+import threading
 from datetime import datetime
 
 from src.exceptions_logger import log_exception
@@ -235,6 +236,9 @@ class ReceivedFramesWindow(QWidget):
         self.setLayout(layout)
         self.frames = {}
         self._rx_buffer = {}  # <--- buffer temporaneo
+        # The RX thread writes _rx_buffer and the CSV, the GUI thread reads the
+        # buffer and opens/closes the CSV: both go through this lock (TODO 5.2/5.5)
+        self._lock = threading.Lock()
 
         # Timer per aggiornare la tabella ogni secondo
         self.refresh_timer = QTimer(self)
@@ -253,11 +257,22 @@ class ReceivedFramesWindow(QWidget):
 
     def clear_rx_table(self):
         self.table.setRowCount(0)
-        self._rx_buffer.clear()
+        with self._lock:
+            self._rx_buffer.clear()
 
     def update_frame(
-        self, frame_id: int, data: bytes, dlc: int = None, is_fd: bool = False
+        self,
+        frame_id: int,
+        data: bytes,
+        dlc: int = None,
+        is_fd: bool = False,
+        timestamp: float = None,
     ):
+        """Called from the RX thread; `timestamp` is the PCAN hardware time."""
+        with self._lock:
+            self._update_frame_locked(frame_id, data, dlc, is_fd, timestamp)
+
+    def _update_frame_locked(self, frame_id, data, dlc, is_fd, timestamp):
         # Aggiorna solo il buffer, non la tabella direttamente
 
         # determina DLC se non fornito
@@ -285,9 +300,9 @@ class ReceivedFramesWindow(QWidget):
         self.busload_rx_arbitration_bits += arbitration_bits
         self.busload_rx_data_bits += data_phase_bits
 
-        now = time.time()
+        now = timestamp if timestamp is not None else time.time()
         if frame_id not in self._rx_buffer:  # Nuovo frame
-            self._rx_buffer[frame_id] = {
+            f = self._rx_buffer[frame_id] = {
                 "count": 1,
                 "dlc": dlc if dlc is not None else len(data),
                 "data": data,
@@ -299,18 +314,6 @@ class ReceivedFramesWindow(QWidget):
             }
         else:  # Frame già esistente
             f = self._rx_buffer[frame_id]
-
-            self.log_frame_to_csv(
-                frame_id=frame_id,
-                data=f["data"],
-                dlc=f["dlc"],
-                count=f["count"],
-                # min=f["min"],
-                # max=f["max"],
-                avg_period=f["avg_period"],
-                periods=f["periods"],
-            )
-
             f["count"] += 1
             period = (now - f["last_time"]) * 1000
             f["last_time"] = now
@@ -338,8 +341,35 @@ class ReceivedFramesWindow(QWidget):
             ):  # Limita a 20 periodi per evitare overflow butta i primi 5 per calcolare la deviazione standard
                 f["periods"].pop(0)  # rimuovi il più vecchio
 
+        # Log the frame that just arrived, stamped with its own time (TODO 5.3/5.4)
+        self.log_frame_to_csv(
+            frame_id=frame_id,
+            data=data,
+            dlc=f["dlc"],
+            count=f["count"],
+            avg_period=f["avg_period"],
+            periods=f["periods"],
+            timestamp=now,
+        )
+
     def refresh_table(self):
-        for frame_id, f in self._rx_buffer.items():
+        # Snapshot under the lock: the RX thread may add IDs meanwhile (TODO 5.2)
+        with self._lock:
+            snapshot = [
+                (frame_id, dict(f, periods=list(f["periods"])))
+                for frame_id, f in self._rx_buffer.items()
+            ]
+        # With sorting on, every setItem() re-sorts and the following setItem()
+        # calls of the same row land on another ID's row (TODO 5.1)
+        sorting = self.table.isSortingEnabled()
+        self.table.setSortingEnabled(False)
+        try:
+            self._fill_rows(snapshot)
+        finally:
+            self.table.setSortingEnabled(sorting)
+
+    def _fill_rows(self, snapshot):
+        for frame_id, f in snapshot:
             id_str = f"0x{frame_id:03X}"
             row = None
             # Cerca la riga con l'ID giusto (colonna 0)
@@ -458,13 +488,18 @@ class ReceivedFramesWindow(QWidget):
             self.log_active = False
             self.log_paused = False
 
-    def log_frame_to_csv(self, frame_id, data, dlc, count, avg_period, periods):
+    def log_frame_to_csv(
+        self, frame_id, data, dlc, count, avg_period, periods, timestamp=None
+    ):
         """
         Logs a single CAN frame to CSV, if logging is active and not paused.
+        Called with self._lock held; `timestamp` is the frame's own time
+        (PCAN hardware clock, a constant offset from the PC clock).
         """
         if self.log_active and not self.log_paused and self.csv_writer:
             try:
-                timestamp = datetime.now().strftime("%Y-%m-%dT%H:%M:%S.%f")
+                ts = timestamp if timestamp is not None else time.time()
+                timestamp = datetime.fromtimestamp(ts).strftime("%Y-%m-%dT%H:%M:%S.%f")
                 id_str = f"0x{frame_id:03X}"
                 msg_name = ""
                 if self.dbc and hasattr(self.dbc, "db"):
@@ -496,24 +531,25 @@ class ReceivedFramesWindow(QWidget):
         if not self.csv_path:
             return
         # Se il log era stoppato, pulisci il file
-        if not self.log_active or not self.csv_file:
-            self.csv_file = open(self.csv_path, "w", newline="", encoding="utf-8")
-            self.csv_writer = csv.writer(self.csv_file)
-            self.csv_writer.writerow(
-                [
-                    "Timestamp",
-                    "ID",
-                    "Name",
-                    "DLC",
-                    "Payload",
-                    "Count",
-                    "Period (ms)",
-                    "Std.Dev (ms)",
-                ]
-            )
+        with self._lock:
+            if not self.log_active or not self.csv_file:
+                self.csv_file = open(self.csv_path, "w", newline="", encoding="utf-8")
+                self.csv_writer = csv.writer(self.csv_file)
+                self.csv_writer.writerow(
+                    [
+                        "Timestamp",
+                        "ID",
+                        "Name",
+                        "DLC",
+                        "Payload",
+                        "Count",
+                        "Period (ms)",
+                        "Std.Dev (ms)",
+                    ]
+                )
 
-        self.log_active = True
-        self.log_paused = False
+            self.log_active = True
+            self.log_paused = False
 
         self.btn_start_log.setText("Start LOG")
         self.btn_start_log.setToolTip("Logging active")
@@ -647,7 +683,8 @@ class ReceivedFramesWindow(QWidget):
         """
         )  # Bordo e interno rosso
 
-        if self.csv_file:
-            self.csv_file.close()
-            self.csv_file = None
-            self.csv_writer = None
+        with self._lock:
+            if self.csv_file:
+                self.csv_file.close()
+                self.csv_file = None
+                self.csv_writer = None

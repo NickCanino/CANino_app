@@ -158,7 +158,7 @@ class ErrorFrameTests(unittest.TestCase):
                 return None
 
         iface.bus = Bus()
-        iface.receive_callback = lambda fid, data, dlc, is_fd: received.append(fid)
+        iface.receive_callback = lambda fid, *rest: received.append(fid)
         iface._receive_loop()
         self.assertEqual(received, [0x123])
         self.assertEqual(iface.error_frames, 1)

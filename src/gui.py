@@ -2189,10 +2189,12 @@ class MainWindow(QMainWindow):
         except Exception as e:
             log_exception(__file__, sys._getframe().f_lineno, e)
 
-    def process_received_frame(self, frame_id, data, dlc=None, is_fd=False):
+    def process_received_frame(
+        self, frame_id, data, dlc=None, is_fd=False, timestamp=None
+    ):
         try:
             # aggiorna il buffer/tabella RX
-            self.rx_window.update_frame(frame_id, data, dlc, is_fd)
+            self.rx_window.update_frame(frame_id, data, dlc, is_fd, timestamp)
 
             # Aggiorna i gauge che mostrano questo frame ID
             for gauge in getattr(self, "gauges", []):
