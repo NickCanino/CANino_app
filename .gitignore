@@ -32,3 +32,8 @@ Thumbs.db
 *.dbc
 tmp/
 arduino_build/
+
+# Claude Code working files (local only)
+CLAUDE.md
+TODO.md
+PLAN.md
