@@ -355,7 +355,7 @@ class MainWindow(QMainWindow):
         # (frame_id, script_path) -> get_payload of that ID's own script instance;
         # emptied at Start TX only, so internal TX restarts keep script state
         self.script_instances = {}
-        self.project_root = os.getcwd()
+        self.workspace_path = None  # file of the last Load / Save (TODO 6.6)
 
         self.busload_tx_arbitration_bits = 0
         self.busload_tx_data_bits = 0
@@ -848,31 +848,68 @@ class MainWindow(QMainWindow):
         return self.busload_tx_data_bits
 
     def save_config(self):
-        self._save_config_to_file(self.CONFIG_FILE)
+        """Save to the workspace file last loaded or saved; Save As if there is none (TODO 6.6)."""
+        if self.workspace_path:
+            self._save_config_to_file(self.workspace_path)
+        else:
+            self.save_config_as()
 
     def save_config_as(self):
         filename, _ = QFileDialog.getSaveFileName(
-            self, "Save configuration as", "", "File JSON (*.json)"
+            self,
+            "Save configuration as",
+            self.workspace_path or "",
+            "File JSON (*.json)",
         )
         if filename:
             self._save_config_to_file(filename)
-            self.CONFIG_FILE = filename  # Aggiorna il file di default
+
+    @staticmethod
+    def _to_workspace_path(path, base_dir):
+        """Path as stored in a workspace: relative to the JSON file (TODO 6.5).
+
+        On another drive there is no relative path: stored absolute.
+        """
+        if not path:
+            return None
+        absolute = os.path.abspath(path)
+        try:
+            return os.path.relpath(absolute, base_dir).replace(os.sep, "/")
+        except ValueError:
+            return absolute
+
+    @staticmethod
+    def _from_workspace_path(path, base_dir):
+        """Absolute path of a stored one: next to the JSON file first, then the CWD.
+
+        Files written before 1.5 hold paths relative to the CWD CANino was
+        started in; a path found nowhere resolves next to the JSON file and is
+        reported where it is used.
+        """
+        if not path:
+            return None
+        if os.path.isabs(path):
+            return os.path.normpath(path)
+        for base in (base_dir, os.getcwd()):
+            candidate = os.path.abspath(os.path.join(base, path))
+            if os.path.exists(candidate):
+                return candidate
+        return os.path.abspath(os.path.join(base_dir, path))
+
+    def _set_workspace_path(self, path):
+        self.workspace_path = os.path.abspath(path) if path else None
+        name = f" - {os.path.basename(path)}" if path else ""
+        self.setWindowTitle(f"CANino App - v{__version__}{name}")
 
     def _save_config_to_file(self, filename):
-        if hasattr(self, "dbc") and self.dbc is not None:  # Verifica se dbc è caricato
-            dbc_path = os.path.relpath(
-                self.dbc.dbc_filename, start=self.project_root
-            )  # percorso relativo del file DBC
-        else:
-            dbc_path = None
-
+        base = os.path.dirname(os.path.abspath(filename))
         config = {
-            "dbc_file": dbc_path,
+            "dbc_file": self._to_workspace_path(
+                self.dbc.dbc_filename if self.dbc is not None else None, base
+            ),
             "signals": [],
             "sliders": [],
-            "global_script": (
-                self.global_script_path if self.global_script_path else None
-            ),
+            "global_script": self._to_workspace_path(self.global_script_path, base),
         }
 
         for widget in self.slider_widgets:
@@ -891,39 +928,63 @@ class MainWindow(QMainWindow):
                 }
             )
 
-        for i in range(self.signal_tree.topLevelItemCount()):
-            item = self.signal_tree.topLevelItem(i)
-            signal = {
-                "enabled": item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked,
-                "id": item.text(TX_COL_2_id),
-                "ext": "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext) else "n",
-                "fd": "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) else "n",
-                "name": item.text(TX_COL_4_name),
-                "period": (
-                    self.signal_tree.itemWidget(item, TX_COL_5_period).value()
-                    if self.signal_tree.itemWidget(item, TX_COL_5_period)
-                    else 100
-                ),
-                "payload": item.text(TX_COL_6_payload),
-                "dlc": item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or 8,
-                "script_path": item.data(
-                    TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path
-                ),  # salva anche lo script per l'ID
-            }
-            config["signals"].append(signal)
+        for item in self._tx_items():
+            spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
+            config["signals"].append(
+                {
+                    "enabled": item.checkState(TX_COL_1_enable)
+                    == Qt.CheckState.Checked,
+                    "id": item.text(TX_COL_2_id),
+                    "ext": (
+                        "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext) else "n"
+                    ),
+                    "fd": (
+                        "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) else "n"
+                    ),
+                    "name": item.text(TX_COL_4_name),
+                    "period": spin.value() if spin else 100,
+                    "payload": item.text(TX_COL_6_payload),
+                    "dlc": item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or 8,
+                    "script_path": self._to_workspace_path(
+                        item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path), base
+                    ),
+                }
+            )
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
-            QMessageBox.information(
-                self,
-                "Configuration saved",
-                f"Configuration successfully saved to:\n{filename}",
-            )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving configuration: {e}")
             log_exception(__file__, sys._getframe().f_lineno, e)
+            return False
+        self._set_workspace_path(filename)
+        QMessageBox.information(
+            self,
+            "Configuration saved",
+            f"Configuration successfully saved to:\n{filename}",
+        )
+        return True
+
+    def _clear_workspace(self):
+        """Empty TX table, sliders, global script and DBC: Load replaces (TODO 6.4)."""
+        if self.tx_running:
+            self.start_stop_transmission()  # = the user's Stop TX, drops the backlog
+        self.signal_tree.clear()
+        for widget in list(self.slider_widgets):
+            self.remove_slider_widget(widget)
+        self.added_sliders.clear()
+        self._set_global_script(None)
+        self.script_instances.clear()
+        self.dbc = None
+        self.rx_window.set_dbc(None)
+        self.btn_disable_all_ids.setText("Disable All")
+        self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
+        self.btn_disable_all_ids.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
+        )
 
     def load_config(self, auto=False):
+        """Replace the workspace with a JSON file (TODO 6.4); the table stays editable."""
         if auto:  # Carica automaticamente il file di configurazione predefinito
             filename = self.CONFIG_FILE
             if not os.path.exists(filename):
@@ -935,54 +996,39 @@ class MainWindow(QMainWindow):
             if not filename:
                 return
 
-        try:  # Prova a caricare il file di configurazione
-            self.CONFIG_FILE = filename  # Aggoiorna il percorso di default
-
+        # Parse first: a broken file must not wipe the current workspace
+        try:
             with open(filename, "r", encoding="utf-8") as f:
                 config = json.load(f)
+            if not isinstance(config, dict):
+                raise ValueError("not a CANino workspace (no JSON object)")
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
+            log_exception(__file__, sys._getframe().f_lineno, e)
+            return
+
+        try:
+            was_running = self.tx_running
+            self._clear_workspace()
+            self._set_workspace_path(filename)
+            base = os.path.dirname(os.path.abspath(filename))
 
             # Loads DBC if existing
-            dbc_file = config.get("dbc_file")
-            if dbc_file is not None:
-                print(f"[DEBUG] Loading DBC from: {dbc_file}")
-                absolute_path = os.path.abspath(
-                    os.path.join(self.project_root, dbc_file)
-                )
-                if os.path.exists(absolute_path):
-                    self.dbc = load_dbc(absolute_path)
+            dbc_path = self._from_workspace_path(config.get("dbc_file"), base)
+            if dbc_path is not None:
+                if os.path.exists(dbc_path):
+                    self.dbc = load_dbc(dbc_path)
                     self.rx_window.set_dbc(self.dbc)  # RX names (TODO 6.1)
                 else:
                     QMessageBox.warning(
-                        self,
-                        "DBC",
-                        f"Cannot find DBC file:\n{absolute_path}",
+                        self, "DBC", f"Cannot find DBC file:\n{dbc_path}"
                     )
 
-            # Restores global script
-            global_script = config.get("global_script")
-            if global_script:
-                self.global_script_path = global_script
-                self.global_script_cache.clear()
-                self.btn_link_global_script.setStyleSheet(
-                    "background-color: #4CAF50; color: white;"
-                )
-                self.btn_link_global_script.setToolTip(
-                    f"Global Script: {global_script}"
-                )
-                self.btn_link_global_script.setText(os.path.basename(global_script))
-                self.btn_remove_global_script.setEnabled(True)
-            else:
-                self.global_script_path = None
-                self.global_script_cache.clear()
-                self.btn_link_global_script.setStyleSheet("")
-                self.btn_link_global_script.setToolTip("No Global Script Linked")
-                self.btn_link_global_script.setText("Link Global Script")
-                self.btn_link_global_script.setToolTip(
-                    "Link a global Payload Script to be used for all transmitted CAN frames."
-                )
-                self.btn_remove_global_script.setEnabled(False)
+            # Restores global script (a missing file is reported at Start TX)
+            self._set_global_script(
+                self._from_workspace_path(config.get("global_script"), base)
+            )
 
-            # Load signals only if present in the configuration
             for sig in config.get("signals") or []:
                 try:
                     frame_id = int(sig.get("id", "0"), 16)
@@ -991,16 +1037,8 @@ class MainWindow(QMainWindow):
                 # Files written before 1.5 carry no "ext": they could not send
                 # IDs above 0x7FF, so the number decides (TODO 1.6)
                 is_ext = json_flag(sig.get("ext")) or frame_id > CAN_MAX_STD_ID
-                if frame_id > CAN_MAX_EXT_ID:
-                    continue
-
-                # Row already in the table (e.g. from the DBC): link the script only
-                existing = self._find_tx_item(frame_id, is_ext)
-                if existing is not None:
-                    if sig.get("script_path"):
-                        self._set_script_link(existing, sig["script_path"])
-                    continue
-
+                if frame_id > CAN_MAX_EXT_ID or self._find_tx_item(frame_id, is_ext):
+                    continue  # invalid, or a duplicate row in the file
                 self._add_tx_row(
                     frame_id,
                     sig.get("name", ""),
@@ -1009,7 +1047,7 @@ class MainWindow(QMainWindow):
                     is_fd=json_flag(sig.get("fd")),
                     is_ext=is_ext,
                     payload=sig.get("payload", ""),
-                    script_path=sig.get("script_path"),
+                    script_path=self._from_workspace_path(sig.get("script_path"), base),
                     enabled=bool(sig.get("enabled")),
                 )
             self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
@@ -1042,15 +1080,17 @@ class MainWindow(QMainWindow):
                     ) * meta.get("step", 1)
                 self._add_slider_widget(msg, sig, value)
 
-            self._sync_tx_timers()
             # Row-dependent buttons follow the table, sliders or not (TODO 6.2)
             has_rows = self.signal_tree.topLevelItemCount() > 0
             self.btn_disable_all_ids.setEnabled(has_rows)
             self.btn_delete_all_ids.setEnabled(has_rows)
 
             if not auto:
+                stopped = "\n\nTransmission was stopped." if was_running else ""
                 QMessageBox.information(
-                    self, "Configuration", "Configuration loaded successfully."
+                    self,
+                    "Configuration",
+                    f"Configuration loaded successfully.{stopped}",
                 )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
@@ -1550,44 +1590,37 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Global Python script", "", "Python Files (*.py)"
         )
-        rel_file_path = (
-            os.path.relpath(file_path, start=self.project_root) if file_path else None
-        )
-
-        if rel_file_path:
-            self.global_script_path = rel_file_path
-            self.global_script_cache.clear()
-            self.btn_link_global_script.setStyleSheet(
-                "background-color: #4CAF50; color: white;"
-            )
-            self.btn_link_global_script.setToolTip(f"Global Script: {rel_file_path}")
-            self.btn_link_global_script.setText(os.path.basename(rel_file_path))
-            self.btn_remove_global_script.setEnabled(True)
-
+        if file_path:
+            # Absolute in memory; relative to the JSON file only when saved (TODO 6.5)
+            self._set_global_script(os.path.abspath(file_path))
             QMessageBox.information(
                 self,
                 "Global Script selected",
-                f"Global script set for all IDs:\n{rel_file_path}\n\n"
+                f"Global script set for all IDs:\n{self.global_script_path}\n\n"
                 "This will be used for all TX payloads unless a specific script is set for an ID.",
             )
 
     def remove_global_payload_script(self):
-        """
-        Rimuove il link allo script di payload globale, ripristinando
-        lo stato di default dei pulsanti.
-        """
-        self.global_script_path = None
+        """Rimuove il link allo script di payload globale."""
+        self._set_global_script(None)
+
+    def _set_global_script(self, path):
+        """Link (path) or unlink (None) the global script and update its buttons."""
+        self.global_script_path = path or None
         self.global_script_cache.clear()
-
-        # Ripristina il pulsante "Link Global Script"
-        self.btn_link_global_script.setStyleSheet("")
-        self.btn_link_global_script.setToolTip(
-            "Link a global Payload Script to be used for all transmitted CAN frames."
-        )
-        self.btn_link_global_script.setText("Link Global Script")
-
-        # Disabilita il pulsante "Remove"
-        self.btn_remove_global_script.setEnabled(False)
+        if self.global_script_path:
+            self.btn_link_global_script.setStyleSheet(
+                "background-color: #4CAF50; color: white;"
+            )
+            self.btn_link_global_script.setToolTip(f"Global Script: {path}")
+            self.btn_link_global_script.setText(os.path.basename(path))
+        else:
+            self.btn_link_global_script.setStyleSheet("")
+            self.btn_link_global_script.setToolTip(
+                "Link a global Payload Script to be used for all transmitted CAN frames."
+            )
+            self.btn_link_global_script.setText("Link Global Script")
+        self.btn_remove_global_script.setEnabled(bool(self.global_script_path))
 
     def remove_local_payload_script(self, item):
         """Rimuove il link allo script di payload per un ID specifico."""
@@ -1662,16 +1695,14 @@ class MainWindow(QMainWindow):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Python script", "", "Python Files (*.py)"
         )
-        rel_file_path = (
-            os.path.relpath(file_path, start=self.project_root) if file_path else None
-        )
-
-        if rel_file_path:
-            self._set_script_link(item, rel_file_path)
+        if file_path:
+            # Absolute in memory: relpath() raised across drives (TODO 6.5)
+            script_path = os.path.abspath(file_path)
+            self._set_script_link(item, script_path)
             QMessageBox.information(
                 self,
                 "Script selected",
-                f"Script associated with ID {item.text(TX_COL_2_id)}:\n{rel_file_path}\n\n"
+                f"Script associated with ID {item.text(TX_COL_2_id)}:\n{script_path}\n\n"
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
 
