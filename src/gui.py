@@ -61,7 +61,13 @@ import time
 import re
 import can
 
-from src.dbc_loader import load_dbc
+from src.dbc_loader import (
+    load_dbc,
+    encode_signal,
+    decode_signal,
+    signal_range,
+    dbc_bit_label,
+)
 from src.can_interface import CANInterface
 from src.exceptions_logger import log_exception, __version__
 from src.xmetro_class import XMetroWindow
@@ -127,6 +133,8 @@ def load_payload_function(path: str, module_name: str):
 
 
 BUSLOAD_refresh_rate_ms = 1000
+# Slider positions; QSlider ranges are int32, 32/64-bit raw ranges are not
+SLIDER_MAX_STEPS = 10000
 ROW_ERROR_COLOR = "#E53935"
 BUS_STATUS_POLL_MS = 250
 # Error-warning / error-passive this long while transmitting = frames are not
@@ -322,28 +330,6 @@ class RxBridge(QObject):
     """Carries received frames from the RX thread to the GUI thread (queued)."""
 
     frame_received = Signal(int, object)
-
-
-class SliderMeta:
-    def __init__(
-        self,
-        msg_name: str,
-        signal_name: str,
-        frame_id: int,
-        min_val: float,
-        max_val: float,
-        step: float,
-        unit: str,
-        value_index: int,
-    ):
-        self.msg_name = msg_name
-        self.signal_name = signal_name
-        self.frame_id = frame_id
-        self.min_val = min_val
-        self.max_val = max_val
-        self.step = step
-        self.unit = unit
-        self.value_index = value_index  # posizione dello slider
 
 
 class MainWindow(QMainWindow):
@@ -729,176 +715,9 @@ class MainWindow(QMainWindow):
         self.added_sliders = set()
         self.slider_widgets = []
 
-        def add_slider():
-            if not hasattr(self, "dbc") or self.dbc is None:
-                QMessageBox.warning(self, "DBC", "Load a DBC file first!")
-                return
-
-            # Only consider checked TX items
-            checked_ids = set()
-            for i in range(self.signal_tree.topLevelItemCount()):
-                item = self.signal_tree.topLevelItem(i)
-                if item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked:
-                    try:
-                        frame_id = int(item.text(TX_COL_2_id), 16)
-                        checked_ids.add(frame_id)
-                    except Exception:
-                        continue
-
-            if not checked_ids:
-                QMessageBox.warning(self, "Slider", "No TX messages enabled.")
-                return
-
-            # Filter DBC messages to only those with checked IDs
-            filtered_msgs = [
-                msg for msg in self.dbc.messages if msg.frame_id in checked_ids
-            ]
-            if not filtered_msgs:
-                QMessageBox.warning(
-                    self, "Slider", "No checked DBC messages found in TX table."
-                )
-                return
-
-            msg_names = [msg.name for msg in filtered_msgs]
-            msg_idx, ok = QInputDialog.getItem(
-                self, "Select Message", "Message:", msg_names, 0, False
-            )
-            if not ok:
-                return
-
-            msg = next(m for m in self.dbc.messages if m.name == msg_idx)
-            sig_names = [sig.name for sig in msg.signals]
-            sig_idx, ok = QInputDialog.getItem(
-                self, "Select Signal", "Signal:", sig_names, 0, False
-            )
-            if not ok:
-                return
-
-            sig = next(s for s in msg.signals if s.name == sig_idx)
-            key = (msg.name, sig.name)
-            if key in self.added_sliders:
-                QMessageBox.warning(
-                    self,
-                    "Slider already exists",
-                    f"Slider already exists for {msg.name} (0x{msg.frame_id:03X}) → {sig.name} [{sig.length+sig.start_bit-1}:{sig.start_bit}]",
-                )
-                return
-
-            self.added_sliders.add(key)
-
-            # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
-            factor = getattr(sig, "factor", getattr(sig, "scale", 1.0)) or 1.0
-            offset = getattr(sig, "offset", 0.0)
-            bit_length = getattr(sig, "length", 8)
-            is_signed = getattr(sig, "is_signed", False)
-            # endianess non influisce su min/max, ma la includo per completezza
-            if is_signed:
-                raw_min = -(2 ** (bit_length - 1))
-                raw_max = 2 ** (bit_length - 1) - 1
-            else:
-                raw_min = 0
-                raw_max = 2**bit_length - 1
-
-            min_val = raw_min * factor + offset
-            max_val = raw_max * factor + offset
-            step = factor
-
-            # Crea il widget per lo slider
-            slider_widget = QGroupBox()
-            slider_widget.setFixedHeight(100)  # Altezza fissa
-            slider_widget.setStyleSheet(
-                "QGroupBox { margin-top: 10px; border: 1px solid gray; border-radius: 5px; }"
-            )
-            slider_layout_inner = QVBoxLayout()
-            slider_widget.setLayout(slider_layout_inner)
-
-            # Aggiungi il widget dello slider alla lista
-            if not hasattr(
-                self, "slider_widgets"
-            ):  # Ensure slider_widgets is initialized
-                self.slider_widgets = []
-
-            slider_widget.key = key  # Store the key for later reference
-            self.slider_widgets.append(slider_widget)  # Store the widget for later use
-
-            label = QLabel(
-                f"{msg.name} (0x{msg.frame_id:03X}) → {sig.name} [{sig.length+sig.start_bit-1}:{sig.start_bit}]"
-            )
-            slider_layout_inner.addWidget(label)
-
-            # Crea e setta lo slider
-            num_steps = int(round((max_val - min_val) / step))
-
-            slider = QSlider(Qt.Orientation.Horizontal)
-            slider.setMinimum(0)
-            slider.setMaximum(num_steps)
-            slider.setSingleStep(1)
-            slider.setValue(0)
-            slider_layout_inner.addWidget(slider)
-
-            # Salva metadata
-            slider_widget.frame_id = msg.frame_id
-            slider_widget.is_ext = msg.is_extended_frame
-            slider_widget.signal = sig
-            slider_widget.slider = slider
-            slider_widget.min_val = min_val
-            slider_widget.max_val = max_val
-            slider_widget.step = step
-            slider_widget.unit = sig.unit if sig.unit else ""
-
-            info_layout = QHBoxLayout()
-            lbl_min = QLabel(f"Min: {min_val}")
-            lbl_max = QLabel(f"Max: {max_val}")
-            lbl_value = QLabel(f"Val: {min_val} [{sig.unit}]")
-            btn_remove = QPushButton()
-            btn_remove.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-            )
-            btn_remove.setFixedWidth(30)
-
-            def update_value_label(step_index):
-                real_value = min_val + step_index * step
-                formatted = f"{real_value:.2f}" if step < 1.0 else f"{int(real_value)}"
-                lbl_value.setText(f"Val: {formatted} {sig.unit if sig.unit else ''}")
-
-            def remove_slider():
-                for i in reversed(range(self.slider_container.count())):
-                    widget = self.slider_container.itemAt(i).widget()
-                    if widget == slider_widget:
-                        # Rimuovi il widget visivamente
-                        widget.setParent(None)
-
-                        # Rimuovi la chiave dallo set di slider aggiunti
-                        self.added_sliders.discard(key)
-
-                        # Rimuovi il widget dalla lista slider_widgets
-                        if hasattr(self, "slider_widgets"):
-                            self.slider_widgets = [
-                                w
-                                for w in self.slider_widgets
-                                if not (
-                                    w.frame_id == msg.frame_id
-                                    and w.signal.name == sig.name
-                                )
-                            ]
-                        break
-
-            slider.valueChanged.connect(update_value_label)
-            btn_remove.clicked.connect(remove_slider)
-
-            info_layout.addWidget(lbl_min)
-            info_layout.addStretch()
-            info_layout.addWidget(lbl_value)
-            info_layout.addStretch()
-            info_layout.addWidget(lbl_max)
-            info_layout.addWidget(btn_remove)
-            slider_layout_inner.addLayout(info_layout)
-
-            self.slider_container.addWidget(slider_widget)
-
         self.refresh_bus_list()
 
-        self.btn_add_slider.clicked.connect(add_slider)
+        self.btn_add_slider.clicked.connect(self.add_slider)
 
         # --- SPLITTER PRINCIPALE ---
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -1056,18 +875,21 @@ class MainWindow(QMainWindow):
             ),
         }
 
-        for widget in getattr(self, "slider_widgets", []):
-            meta = SliderMeta(
-                msg_name=widget.signal.name,
-                signal_name=widget.signal.name,
-                frame_id=widget.frame_id,
-                min_val=widget.min_val,
-                max_val=widget.max_val,
-                step=widget.step,
-                unit=widget.unit,
-                value_index=widget.slider.value(),
+        for widget in self.slider_widgets:
+            config["sliders"].append(
+                {
+                    "msg_name": widget.msg_name,
+                    "signal_name": widget.signal.name,
+                    "frame_id": widget.frame_id,
+                    "is_ext": widget.is_ext,
+                    "min_val": widget.min_val,
+                    "max_val": widget.max_val,
+                    "step": widget.step,
+                    "unit": widget.unit,
+                    "value_index": widget.slider.value(),
+                    "value": widget.value(),
+                }
             )
-            config["sliders"].append(meta.__dict__)
 
         for i in range(self.signal_tree.topLevelItemCount()):
             item = self.signal_tree.topLevelItem(i)
@@ -1201,122 +1023,24 @@ class MainWindow(QMainWindow):
                     f"{len(sliders_cfg)} slider(s) skipped: they need the workspace DBC, which is not loaded.",
                 )
                 sliders_cfg = []
-            if sliders_cfg:
-                print("[DEBUG] Loading sliders from configuration...")
-                for meta in sliders_cfg:
-                    msg = next(
-                        (
-                            m
-                            for m in self.dbc.messages
-                            if m.frame_id == meta["frame_id"]
-                        ),
-                        None,
-                    )
-                    if not msg:
-                        continue
-                    sig = next(
-                        (s for s in msg.signals if s.name == meta["signal_name"]), None
-                    )
-                    if not sig:
-                        continue
-
-                    # Ricostruisci lo slider manualmente
-                    key = (msg.name, sig.name)
-                    if key in self.added_sliders:
-                        continue
-                    self.added_sliders.add(key)
-
-                    # Calcolo min/max SEMPRE da bit_length, offset, scale, signed/unsigned, endianess
-                    factor = getattr(sig, "factor", getattr(sig, "scale", 1.0)) or 1.0
-                    offset = getattr(sig, "offset", 0.0)
-                    bit_length = getattr(sig, "length", 8)
-                    is_signed = getattr(sig, "is_signed", False)
-                    if is_signed:
-                        raw_min = -(2 ** (bit_length - 1))
-                        raw_max = 2 ** (bit_length - 1) - 1
-                    else:
-                        raw_min = 0
-                        raw_max = 2**bit_length - 1
-                    min_val = raw_min * factor + offset
-                    max_val = raw_max * factor + offset
-                    step = factor
-                    value_index = meta["value_index"]
-                    unit = sig.unit if hasattr(sig, "unit") and sig.unit else ""
-
-                    # costruttore slider come da add_slider()
-                    slider_widget = QGroupBox()
-                    slider_widget.setFixedHeight(100)
-                    slider_layout_inner = QVBoxLayout()
-                    slider_widget.setLayout(slider_layout_inner)
-
-                    label = QLabel(
-                        f"{msg.name} (0x{msg.frame_id:03X}) → {sig.name} [{sig.length+sig.start_bit-1}:{sig.start_bit}]"
-                    )
-                    slider_layout_inner.addWidget(label)
-
-                    slider = QSlider(Qt.Orientation.Horizontal)
-                    num_steps = int(round((max_val - min_val) / step))
-                    slider.setMinimum(0)
-                    slider.setMaximum(num_steps)
-                    slider.setSingleStep(1)
-                    slider.setValue(value_index)
-                    slider_layout_inner.addWidget(slider)
-
-                    # Salva metadata
-                    slider_widget.frame_id = msg.frame_id
-                    slider_widget.is_ext = msg.is_extended_frame
-                    slider_widget.signal = sig
-                    slider_widget.slider = slider
-                    slider_widget.min_val = min_val
-                    slider_widget.max_val = max_val
-                    slider_widget.step = step
-                    slider_widget.unit = unit
-
-                    info_layout = QHBoxLayout()
-                    lbl_min = QLabel(f"Min: {min_val}")
-                    lbl_max = QLabel(f"Max: {max_val}")
-                    lbl_value = QLabel(f"Val: {min_val} [{unit}]")
-                    btn_remove = QPushButton()
-                    btn_remove.setIcon(
-                        self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-                    )
-                    btn_remove.setFixedWidth(30)
-
-                    def update_value_label(
-                        step_index,
-                        min_val=min_val,
-                        step=step,
-                        lbl_value=lbl_value,
-                        unit=unit,
-                    ):
-                        real_value = min_val + step_index * step
-                        formatted = (
-                            f"{real_value:.2f}" if step < 1.0 else f"{int(real_value)}"
-                        )
-                        lbl_value.setText(f"Val: {formatted} {unit}")
-
-                    slider.valueChanged.connect(update_value_label)
-                    update_value_label(slider.value())  # show the restored value
-                    # Bind this slider's widget now: a closure would see the last
-                    # loop iteration's variables (TODO 4.2)
-                    btn_remove.clicked.connect(
-                        lambda _=False, w=slider_widget: self.remove_slider_widget(w)
-                    )
-
-                    info_layout.addWidget(lbl_min)
-                    info_layout.addStretch()
-                    info_layout.addWidget(lbl_value)
-                    info_layout.addStretch()
-                    info_layout.addWidget(lbl_max)
-                    info_layout.addWidget(btn_remove)
-                    slider_layout_inner.addLayout(info_layout)
-
-                    if not hasattr(self, "slider_widgets"):
-                        self.slider_widgets = []
-
-                    self.slider_container.addWidget(slider_widget)
-                    slider_widget.key = key  # Unico identificatore per lo slider
-                    self.slider_widgets.append(slider_widget)
+            for meta in sliders_cfg:
+                msg = self._find_slider_message(meta)
+                sig = next(
+                    (
+                        s
+                        for s in getattr(msg, "signals", [])
+                        if s.name == meta.get("signal_name")
+                    ),
+                    None,
+                )
+                if sig is None:
+                    continue
+                value = meta.get("value")
+                if value is None:  # files before 1.5: index into the old range
+                    value = meta.get("min_val", 0) + meta.get(
+                        "value_index", 0
+                    ) * meta.get("step", 1)
+                self._add_slider_widget(msg, sig, value)
 
             self._sync_tx_timers()
             # Row-dependent buttons follow the table, sliders or not (TODO 6.2)
@@ -1343,6 +1067,177 @@ class MainWindow(QMainWindow):
             self.added_sliders.discard(widget.key)
 
         self.slider_widgets = [w for w in self.slider_widgets if w != widget]
+
+    def _find_slider_message(self, meta):
+        """DBC message of a saved slider: by name (1.5+), else by frame number."""
+        by_name = {m.name: m for m in self.dbc.messages}
+        if meta.get("msg_name") in by_name:
+            return by_name[meta["msg_name"]]
+        # Before 1.5 "msg_name" held the signal name (TODO 4.8)
+        candidates = [
+            m for m in self.dbc.messages if m.frame_id == meta.get("frame_id")
+        ]
+        if "is_ext" in meta:
+            candidates = [
+                m for m in candidates if m.is_extended_frame == bool(meta["is_ext"])
+            ]
+        return min(candidates, key=lambda m: m.is_extended_frame, default=None)
+
+    def add_slider(self):
+        if self.dbc is None:
+            QMessageBox.warning(self, "DBC", "Load a DBC file first!")
+            return
+
+        # Only consider checked TX rows
+        checked = {
+            self._row_key(it)
+            for it in self._tx_items()
+            if it.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
+        }
+        if not checked:
+            QMessageBox.warning(self, "Slider", "No TX messages enabled.")
+            return
+        msgs = [
+            m
+            for m in self.dbc.messages
+            if (m.frame_id, m.is_extended_frame) in checked and m.signals
+        ]
+        if not msgs:
+            QMessageBox.warning(
+                self, "Slider", "No checked DBC messages found in TX table."
+            )
+            return
+
+        labels = [
+            f"{m.name} ({format_can_id(m.frame_id, m.is_extended_frame)})" for m in msgs
+        ]
+        label, ok = QInputDialog.getItem(
+            self, "Select Message", "Message:", labels, 0, False
+        )
+        if not ok:
+            return
+        msg = msgs[labels.index(label)]
+        sig_names = [sig.name for sig in msg.signals]
+        sig_name, ok = QInputDialog.getItem(
+            self, "Select Signal", "Signal:", sig_names, 0, False
+        )
+        if not ok:
+            return
+        sig = msg.signals[sig_names.index(sig_name)]
+        if (msg.name, sig.name) in self.added_sliders:
+            QMessageBox.warning(
+                self,
+                "Slider already exists",
+                f"Slider already exists for {msg.name} → {sig.name}",
+            )
+            return
+
+        # Start from the value the row is sending now: no jump on the bus
+        row = self._find_tx_item(msg.frame_id, msg.is_extended_frame)
+        value = None
+        if row is not None:
+            try:
+                value = decode_signal(bytes.fromhex(row.text(TX_COL_6_payload)), sig)
+            except ValueError:
+                value = None
+        self._add_slider_widget(msg, sig, value)
+
+    def _add_slider_widget(self, msg, sig, value=None):
+        """The one slider builder, for Add Slider and workspace load (TODO 4.9).
+
+        Range = DBC [min|max] when set, else every raw value (TODO 4.7); at most
+        SLIDER_MAX_STEPS positions, so 32/64-bit signals fit QSlider's int32
+        (TODO 4.4). `value` (physical) is clamped into the range.
+        """
+        key = (msg.name, sig.name)
+        if key in self.added_sliders:
+            return None
+        self.added_sliders.add(key)
+
+        min_val, max_val = signal_range(sig)
+        factor = abs(sig.factor or 1.0)
+        span = max_val - min_val
+        if sig.is_float:
+            steps = SLIDER_MAX_STEPS
+        else:
+            steps = int(min(SLIDER_MAX_STEPS, max(0, round(span / factor))))
+        step = span / steps if steps else 0.0
+        integral = (
+            not sig.is_float
+            and float(step).is_integer()
+            and float(min_val).is_integer()
+        )
+        unit = sig.unit or ""
+
+        slider_widget = QGroupBox()
+        slider_widget.setFixedHeight(100)
+        slider_widget.setStyleSheet(
+            "QGroupBox { margin-top: 10px; border: 1px solid gray; border-radius: 5px; }"
+        )
+        inner = QVBoxLayout()
+        slider_widget.setLayout(inner)
+        inner.addWidget(
+            QLabel(
+                f"{msg.name} ({format_can_id(msg.frame_id, msg.is_extended_frame)})"
+                f" → {sig.name} [{dbc_bit_label(sig)}]"
+            )
+        )
+
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(0, steps)
+        slider.setSingleStep(1)
+        inner.addWidget(slider)
+
+        def fmt(v):
+            return f"{int(round(v))}" if integral else f"{v:.3f}"
+
+        info_layout = QHBoxLayout()
+        lbl_value = QLabel()
+        btn_remove = QPushButton()
+        btn_remove.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+        )
+        btn_remove.setFixedWidth(30)
+        info_layout.addWidget(QLabel(f"Min: {fmt(min_val)}"))
+        info_layout.addStretch()
+        info_layout.addWidget(lbl_value)
+        info_layout.addStretch()
+        info_layout.addWidget(QLabel(f"Max: {fmt(max_val)}"))
+        info_layout.addWidget(btn_remove)
+        inner.addLayout(info_layout)
+
+        slider_widget.key = key
+        slider_widget.msg_name = msg.name
+        slider_widget.frame_id = msg.frame_id
+        slider_widget.is_ext = msg.is_extended_frame
+        slider_widget.signal = sig
+        slider_widget.slider = slider
+        slider_widget.min_val = min_val
+        slider_widget.max_val = max_val
+        slider_widget.step = step
+        slider_widget.unit = unit
+        slider_widget.value = lambda: min_val + slider.value() * step
+
+        # Connected before setValue, so the label shows the restored value (TODO 4.3)
+        slider.valueChanged.connect(
+            lambda i: lbl_value.setText(f"Val: {fmt(min_val + i * step)} {unit}")
+        )
+        if value is None or not steps:
+            index = 0
+        else:
+            index = round((min(max(value, min_val), max_val) - min_val) / step)
+        slider.setValue(index)
+        lbl_value.setText(f"Val: {fmt(slider_widget.value())} {unit}")
+        btn_remove.clicked.connect(
+            lambda _=False, w=slider_widget: self.remove_slider_widget(w)
+        )
+
+        row = self._find_tx_item(msg.frame_id, msg.is_extended_frame)
+        if row is not None:
+            slider.setEnabled(row.checkState(TX_COL_1_enable) == Qt.CheckState.Checked)
+        self.slider_container.addWidget(slider_widget)
+        self.slider_widgets.append(slider_widget)
+        return slider_widget
 
     def refresh_bus_list(self):
         self.cb_bus_tx.clear()
@@ -1780,28 +1675,6 @@ class MainWindow(QMainWindow):
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
 
-    # Update the payload of a single signal in the CAN message
-    def insert_value_in_payload(
-        self, frame_id: int, signal_name: str, value: int, current_payload: bytes
-    ) -> bytes:
-        """
-        Uses cantools to update a single signal in the existing payload.
-        """
-        if not self.dbc or not hasattr(self.dbc, "db"):
-            raise RuntimeError("DBC not loaded correctly.")
-
-        message = self.dbc.db.get_message_by_frame_id(frame_id)
-        if not message:
-            raise ValueError(f"Message with ID {frame_id} not found in DBC.")
-
-        try:
-            decoded = message.decode(current_payload)
-        except Exception:
-            decoded = {sig.name: 0 for sig in message.signals}
-
-        decoded[signal_name] = value
-        return bytes(message.encode(decoded))
-
     def start_stop_transmission(self) -> None:
         if not self.tx_running:
             if not self.can_if:
@@ -2038,10 +1911,8 @@ class MainWindow(QMainWindow):
                     w.frame_id == frame_id
                     and bool(getattr(w, "is_ext", False)) == is_ext
                 ):
-                    real_value = w.min_val + w.slider.value() * w.step
-                    payload = self.insert_value_in_payload(
-                        frame_id, w.signal.name, real_value, payload
-                    )
+                    value = w.min_val + w.slider.value() * w.step
+                    payload = encode_signal(payload, w.signal, value)
 
             # Apply padding
             final_payload = bytes(payload[:dlc]) + bytes(max(0, dlc - len(payload)))
