@@ -18,13 +18,14 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# This script is dynamically loaded by the main program.
-# It must define the function: get_payload() -> bytes
+# Per-ID payload script for CANino App: linked to one TX row, loaded as its own
+# instance for that ID (two IDs linking this file get two independent copies).
+# It must define
+#     get_payload(dlc: int, id: int) -> bytes | None
+# returning exactly `dlc` bytes (1-8 classic CAN, up to 64 CAN FD), or None to
+# send the row's manual payload instead. DBC sliders are applied afterwards.
 
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
-
-    # Initialize all 8 bytes to 0xFF
-    payload = [0x00] * 8
-
-    return bytes(payload[:dlc])  # Return only the bytes requested by the DLC
+    # All bytes 0x00
+    return bytes(dlc)

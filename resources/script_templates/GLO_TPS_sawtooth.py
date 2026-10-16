@@ -18,14 +18,17 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# This script is for use as a global payload generator in CANinoApp.
-# It must define: get_payload(dlc: int = 8, id: int = None) -> bytes
+# Global payload script for CANino App: one instance serves every TX ID that has
+# no per-ID script, so keep any state keyed by `id`. It must define
+#     get_payload(dlc: int, id: int) -> bytes | None
+# returning exactly `dlc` bytes (1-8 classic CAN, up to 64 CAN FD), or None to
+# send the row's manual payload instead. DBC sliders are applied afterwards.
 
 _counters = {}
 
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
-    """Returns a sawtooth payload for each ID independently."""
+    """A sawtooth on the last byte, counted for each ID independently."""
     payload = [0x00] * dlc
 
     if id is None:
@@ -35,4 +38,4 @@ def get_payload(dlc: int = 8, id: int = None) -> bytes:
     _counters[id] = (cnt + 1) % 256
     payload[-1] = _counters[id]
 
-    return bytes(payload[:dlc])
+    return bytes(payload)

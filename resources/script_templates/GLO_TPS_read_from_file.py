@@ -18,151 +18,100 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# This script is for use as a global payload generator in CANinoApp.
-# It must define: get_payload(dlc: int = 8, id: int = None) -> bytes
+# Global payload script for CANino App: one instance serves every TX ID that has
+# no per-ID script, so keep any state keyed by `id`. It must define
+#     get_payload(dlc: int, id: int) -> bytes | None
+# returning exactly `dlc` bytes (1-8 classic CAN, up to 64 CAN FD), or None to
+# send the row's manual payload instead. DBC sliders are applied afterwards.
 
 import csv
+import logging
 import os
-from collections import OrderedDict
 
-CSV_DIR = "../resources/tmp"
-CACHE_MAX_IDS = None  # Limit for IDs in cache; None = unlimited
-PAD_WITH_ZEROES = True
+# Replay files: payload_sequence_ID_<hex ID>.csv, header "Index,B7,...,B0", one
+# frame per row, the last column is byte 0. Bytes are decimal (0-255); a cell
+# written as 0x.. is read as hex. Before 1.5.0 any 1-2 character cell was read
+# as hex, so 10-99 went out as 0x10-0x99 (16-153).
+# The directory is relative to this script, not to the CWD CANino started in.
+CSV_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "tmp")
 
-_payload_cache = OrderedDict()  # type: ignore
+# Intentional attack marker: byte 1 of every frame is 0xA7. Frames with DLC 1
+# have no byte 1 and carry no marker.
+ATTACK_MARKER = 0xA7
+
+log = logging.getLogger("canino.scripts")
+_payloads = {}  # id -> list of frames; [] = no replay file, manual payload
 _counters = {}
-_known_ids = set()
 
 
-def _scan_ids():
-    """Scan CSV_DIR for all payload_sequence_ID_*.csv files and extract IDs."""
-    global _known_ids
-    _known_ids.clear()
-    if not os.path.isdir(CSV_DIR):
-        return
-    for fname in os.listdir(CSV_DIR):
-        if fname.startswith("payload_sequence_ID_") and fname.endswith(".csv"):
-            try:
-                hexid = fname[len("payload_sequence_ID_") : -4]
-                arbid = int(hexid, 16)
-                _known_ids.add(arbid)
-            except Exception:
-                continue
-
-
-def _id_filename(arbid: int) -> str:
-    return f"payload_sequence_ID_{arbid:03X}.csv"
-
-
-def _is_int_like(s: str) -> bool:
-    try:
-        int(s.strip(), 0)
-        return True
-    except Exception:
-        return False
+def _parse_byte(cell: str) -> int:
+    cell = cell.strip()
+    value = int(cell, 16) if cell.lower().startswith("0x") else int(cell, 10)
+    if not 0 <= value <= 255:
+        raise ValueError(f"byte out of range 0..255: {value}")
+    return value
 
 
 def _row_to_bytes(row: list[str]) -> bytes:
-    vals = []
-    for cell in reversed(row[1:]):
-        cell = cell.strip()
-        if not cell:
-            continue
-        try:
-            v = (
-                int(cell, 16)
-                if all(ch in "0123456789abcdefABCDEF" for ch in cell) and len(cell) <= 2
-                else int(cell, 0)
-            )
-        except Exception:
-            continue
-        if not (0 <= v <= 255):
-            raise ValueError(f"byte fuori range 0..255: {v}")
-        vals.append(v)
-    return bytes(vals)
+    # Columns after Index are B7..B0: reversed, byte 0 comes first
+    return bytes(_parse_byte(c) for c in reversed(row[1:]) if c.strip())
+
+
+def _replay_file(arbid: int) -> str | None:
+    for name in (
+        f"payload_sequence_ID_{arbid:03X}.csv",
+        f"payload_sequence_ID_{arbid:03x}.csv",
+    ):
+        path = os.path.join(CSV_DIR, name)
+        if os.path.exists(path):
+            return path
+    return None
 
 
 def _load_payloads_for_id(arbid: int) -> list[bytes]:
-    filename = _id_filename(arbid)
-    abs_path = os.path.abspath(os.path.join(CSV_DIR, filename))
-    # print(f"[DEBUG] Trying to load CSV for ID {arbid:03X} from: {abs_path}")
-
-    if not os.path.exists(abs_path):
-        # print(f"[ERROR] File does not exist: {abs_path}")
+    path = _replay_file(arbid)
+    if path is None:
+        log.warning(
+            "No replay file for ID 0x%03X in %s: its manual payload is sent",
+            arbid,
+            os.path.abspath(CSV_DIR),
+        )
         return []
-
-    payloads = []
-    with open(abs_path, newline="") as csvfile:
-        reader = csv.reader(csvfile)
-        first = next(reader, None)
-        if first:
-            has_text = any(c.strip() and not _is_int_like(c) for c in first)
-            if not has_text:
-                try:
-                    b = _row_to_bytes(first)
-                    if b:
-                        payloads.append(b)
-                except Exception:
-                    pass
-        for row in reader:
+    payloads, bad = [], 0
+    with open(path, newline="") as csvfile:
+        for line_num, row in enumerate(csv.reader(csvfile), start=1):
             if not any(cell.strip() for cell in row):
                 continue
             try:
-                b = _row_to_bytes(row)
-                if b:
-                    payloads.append(b)
-            except Exception:
-                pass
-    # print(f"[DEBUG] Loaded {len(payloads)} payloads for ID {arbid:03X}")
+                payloads.append(_row_to_bytes(row))
+            except ValueError:
+                bad += line_num > 1  # line 1 is the header
+    if bad:
+        log.warning("%s: %d unreadable rows skipped", path, bad)
     return payloads
 
 
-def _ensure_in_cache(arbid: int) -> None:
-    if arbid in _payload_cache:
-        _payload_cache.move_to_end(arbid)
-        return
-    if CACHE_MAX_IDS is not None and len(_payload_cache) >= CACHE_MAX_IDS:
-        evicted_id, _ = _payload_cache.popitem(last=False)
-        _counters.pop(evicted_id, None)
-    payloads = _load_payloads_for_id(arbid)
-    if not payloads:
-        raise ValueError(f"No payloads found for ID {arbid:03X}")
-    _payload_cache[arbid] = payloads
-    _counters.setdefault(arbid, 0)
-
-
-def get_payload(dlc: int = 8, id: int = None) -> bytes:
-    """Return the next payload for the given arbitration ID, using cache and CSV.
-    If id is None, will try to scan and use the first available ID.
-    """
-    if not _known_ids:
-        _scan_ids()
-    arbid = id
-    if arbid is None:
-        if not _known_ids:
-            raise ValueError("No payload_sequence_ID_*.csv files found in directory.")
-        arbid = sorted(_known_ids)[0]  # Use the first found ID if not specified
-    if arbid not in _known_ids:
-        _scan_ids()
-        if arbid not in _known_ids:
-            raise ValueError(f"No payloads found for ID {arbid:03X}")
-    _ensure_in_cache(arbid)
-    idx = _counters[arbid]
-    seq = _payload_cache[arbid]
-    base = seq[idx % len(seq)]
-    _counters[arbid] = idx + 1
-    frame = base[:dlc]
-    if PAD_WITH_ZEROES and len(frame) < dlc:
-        frame += bytes(dlc - len(frame))
-    # print(f"[DEBUG] TX payload for ID {arbid:03X}: {list(frame)}")
-
-    frame = bytearray(frame)
-    frame[1] = 0xA7
-    return bytes(frame[:dlc])
+def get_payload(dlc: int = 8, id: int = None) -> bytes | None:
+    """Next frame of this ID's replay file, cycling; None if the ID has no file."""
+    if id is None:
+        return None
+    if id not in _payloads:
+        _payloads[id] = _load_payloads_for_id(id)  # read once, also when missing
+        _counters[id] = 0
+    seq = _payloads[id]
+    if not seq:
+        return None
+    frame = bytearray(seq[_counters[id] % len(seq)][:dlc])
+    _counters[id] += 1
+    frame += bytes(dlc - len(frame))  # short rows are zero-padded
+    if dlc > 1:
+        frame[1] = ATTACK_MARKER
+    return bytes(frame)
 
 
 def set_csv_dir(path: str) -> None:
     """Change the CSV directory and clear the cache."""
     global CSV_DIR
     CSV_DIR = path
-    _payload_cache.clear()
+    _payloads.clear()
+    _counters.clear()

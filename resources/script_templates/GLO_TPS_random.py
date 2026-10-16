@@ -18,20 +18,22 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# This script is for use as a global payload generator in CANinoApp.
-# It must define: get_payload(dlc: int = 8, id: int = None) -> bytes
+# Global payload script for CANino App: one instance serves every TX ID that has
+# no per-ID script, so keep any state keyed by `id`. It must define
+#     get_payload(dlc: int, id: int) -> bytes | None
+# returning exactly `dlc` bytes (1-8 classic CAN, up to 64 CAN FD), or None to
+# send the row's manual payload instead. DBC sliders are applied afterwards.
+
+import random
+
+# Intentional attack marker: byte 1 of every frame is 0xA7. Frames with DLC 1
+# have no byte 1 and carry no marker.
+ATTACK_MARKER = 0xA7
 
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
-    """
-    Returns a random payload for each ID independently,
-    except from byte-0 that is 0xA7.
-    """
-    payload = [0x00] * 8
-
-    for i in range(dlc):
-        payload[i] = __import__("random").randint(0, 255)
-
-    payload[1] = 0xA7  # second byte fixed (B1)
-
-    return bytes(payload[:dlc])
+    """A fresh random payload for every frame of every ID, marker in byte 1."""
+    payload = bytearray(random.randint(0, 255) for _ in range(dlc))
+    if dlc > 1:
+        payload[1] = ATTACK_MARKER
+    return bytes(payload)

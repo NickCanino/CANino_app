@@ -18,18 +18,22 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# This script is dynamically loaded by the main program.
-# It must define the function: get_payload() -> bytes
+# Per-ID payload script for CANino App: linked to one TX row, loaded as its own
+# instance for that ID (two IDs linking this file get two independent copies).
+# It must define
+#     get_payload(dlc: int, id: int) -> bytes | None
+# returning exactly `dlc` bytes (1-8 classic CAN, up to 64 CAN FD), or None to
+# send the row's manual payload instead. DBC sliders are applied afterwards.
+
+import random
+
+# Intentional attack marker: byte 1 of every frame is 0xA7. Frames with DLC 1
+# have no byte 1 and carry no marker.
+ATTACK_MARKER = 0xA7
 
 
 def get_payload(dlc: int = 8, id: int = None) -> bytes:
-    # Payload base: all bytes set to 0x00
-    payload = [0x00] * 8
-
-    # Modifiable section for each byte of the payload
-    for i in range(dlc):
-        payload[i] = __import__("random").randint(0, 255)
-
-    payload[1] = 0xA7
-
-    return bytes(payload[:dlc])  # Return only the bytes requested by the DLC
+    payload = bytearray(random.randint(0, 255) for _ in range(dlc))
+    if dlc > 1:
+        payload[1] = ATTACK_MARKER
+    return bytes(payload)
