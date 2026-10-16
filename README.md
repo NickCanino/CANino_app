@@ -38,9 +38,8 @@ The graphical interface is intuitive and allows quick management of IDs, periods
 
 ## Requirements
 
-- Python 3.9+ (Python 3.10 or above recommended)
-- PCAN-USB driver installed ([download link](https://www.peak-system.com/PCAN-USB.199.0.html?L=1))
-- [PCANBasic.dll](tools/PCANBasic.dll) (already included in `resources/`, update if needed)
+- Python 3.10+
+- PEAK-System device driver installed ([download link](https://www.peak-system.com/support/downloads/drivers/driver-packages/)) — it also installs `PCANBasic.dll`, which CANino App uses; without it the app starts but lists no channels
 
 ## Installation
 
@@ -110,8 +109,11 @@ CANino_app/
 ├── README.md
 ├── src/
 │   └── ... (Python files of the project)
+├── tests/
+│   └── ... (offscreen regression tests: python -m unittest discover -s tests)
+├── tools/
+│   └── arduino-cli.exe
 └── resources/
-    ├── PCANBasic.dll
     ├── csv_logs/
     ├── figures/
     ├── script_templates/

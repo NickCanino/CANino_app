@@ -19,8 +19,9 @@ except Exception:
 a = Analysis(
     ['main.py'],
     pathex=[],
+    # PCANBasic.dll is not bundled: PEAK's driver setup (required for any PCAN
+    # adapter) installs it in System32, which is where python-can loads it from.
     binaries=[
-        ('tools/PCANBasic.dll', '.tools'),
         ('tools/arduino-cli.exe', 'tools'),
     ],
     datas=[
