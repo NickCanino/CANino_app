@@ -20,13 +20,15 @@
 """TX table: one TxEntry per row is the single source of truth (TODO 2.13).
 
 The view never holds state: enable, period, payload, script link and error
-live in the entry, the model shows them, delegates edit them. The TX engine
+live in the entry, the model shows them, delegates edit them. The TX thread
 writes payloads and errors through set_payload()/set_error(), which only mark
-the row; flush() repaints the marked rows (~10 Hz, TODO 2.12).
+the row under a lock; flush(), in the GUI thread, repaints the marked rows
+(~10 Hz, TODO 2.12).
 """
 
 import os
 import re
+import threading
 from dataclasses import dataclass
 from typing import Optional
 
@@ -161,7 +163,9 @@ class TxTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._entries = []
         self._rows = {}  # id(entry) -> row
-        self._dirty = set()  # rows changed by the TX engine since the last flush
+        # id(entry) -> entry sent/failed since the last flush, filled by the TX thread
+        self._dirty = {}
+        self._dirty_lock = threading.Lock()
         self._mono = QFont("Courier New", 10)
         self._mono.setStyleHint(QFont.StyleHint.Monospace)
         self._error_color = QColor(ROW_ERROR_COLOR)
@@ -200,7 +204,6 @@ class TxTableModel(QAbstractTableModel):
 
     def _reindex(self):
         self._rows = {id(e): i for i, e in enumerate(self._entries)}
-        self._dirty.clear()
 
     def row_of(self, entry):
         return self._rows.get(id(entry))
@@ -217,29 +220,29 @@ class TxTableModel(QAbstractTableModel):
         self._changed_entry(entry, TX_COL_7_script, TX_COL_7_script)
 
     def set_payload(self, entry, payload):
-        """TX engine: the payload just sent; repainted at the next flush()."""
-        if entry.payload != payload:
+        """Any thread: the payload just sent; repainted at the next flush()."""
+        with self._dirty_lock:
             entry.payload = payload
-            self._mark(entry)
+            self._dirty[id(entry)] = entry
 
     def set_error(self, entry, message):
-        """TX engine: why the row is not sent (None = it is); repainted at flush()."""
-        if entry.error != message:
-            entry.error = message
-            self._mark(entry)
-
-    def _mark(self, entry):
-        row = self._rows.get(id(entry))
-        if row is not None:
-            self._dirty.add(row)
+        """Any thread: why the row is not sent (None = it is); repainted at flush()."""
+        with self._dirty_lock:
+            if entry.error != message:
+                entry.error = message
+                self._dirty[id(entry)] = entry
 
     def flush(self):
-        """Repaint the rows the TX engine touched since the last flush."""
-        if self._dirty:
-            self._changed(
-                min(self._dirty), max(self._dirty), TX_COL_6_payload, TX_COL_7_script
-            )
-            self._dirty.clear()
+        """GUI thread: repaint the rows sent/failed since the last flush.
+
+        Returns their entries (the XMetro gauges follow transmitted frames).
+        """
+        with self._dirty_lock:
+            dirty, self._dirty = list(self._dirty.values()), {}
+        rows = [r for r in (self._rows.get(id(e)) for e in dirty) if r is not None]
+        if rows:
+            self._changed(min(rows), max(rows), TX_COL_6_payload, TX_COL_7_script)
+        return dirty
 
     def _changed_entry(self, entry, first_col, last_col):
         row = self._rows.get(id(entry))

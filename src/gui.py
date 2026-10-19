@@ -71,6 +71,7 @@ from src.xmetro_class import XMetroWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
 from src.utils import resource_path, format_can_id
+from src.tx_scheduler import TxScheduler
 from src.tx_model import (  # noqa: F401  (TX_COL_*, CAN_* are part of gui's API)
     TxEntry,
     TxTableModel,
@@ -273,7 +274,11 @@ class MainWindow(QMainWindow):
         # Class Attributes
         self.dbc = None
         self.can_if = None
-        self.timers = []
+        # One TX thread with absolute deadlines (TODO 2.11); it calls _send_row
+        self.tx_scheduler = TxScheduler(self._send_row)
+        # (frame_id, is_ext) -> ((signal, physical value), ...): what the sliders
+        # set, rebuilt in the GUI thread, read by the TX thread
+        self._slider_overrides = {}
         self.tx_skipped_fd = []
         # (frame_id, is_ext, error) already logged in this run: once each (TODO 3.3)
         self._tx_errors_logged = set()
@@ -602,7 +607,7 @@ class MainWindow(QMainWindow):
         self.tx_view.sortByColumn(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
         # Payloads and errors written by the TX engine reach the screen at ~10 Hz
         self.tx_refresh_timer = QTimer(self)
-        self.tx_refresh_timer.timeout.connect(self.tx_model.flush)
+        self.tx_refresh_timer.timeout.connect(self._tx_refresh)
         self.tx_refresh_timer.start(TX_REFRESH_MS)
 
         # Group box for the transmission controls
@@ -786,11 +791,6 @@ class MainWindow(QMainWindow):
             # Stop the transmission if it is running
             if self.tx_running:
                 self.stop_tx()
-            else:
-                # Make sure no timer is left, even when not running
-                for t in self.timers:
-                    t.stop()
-                self.timers.clear()
 
             # Clear the table
             self.tx_model.clear()
@@ -1055,6 +1055,17 @@ class MainWindow(QMainWindow):
             self.added_sliders.discard(widget.key)
 
         self.slider_widgets = [w for w in self.slider_widgets if w != widget]
+        self._refresh_slider_overrides()
+
+    def _refresh_slider_overrides(self, *_):
+        """Snapshot of the slider values for the TX thread, which never reads widgets."""
+        overrides = {}
+        for w in self.slider_widgets:
+            key = (w.frame_id, bool(getattr(w, "is_ext", False)))
+            value = w.min_val + w.slider.value() * w.step
+            overrides.setdefault(key, []).append((w.signal, value))
+        # One assignment: the TX thread sees the old or the new dict, never half
+        self._slider_overrides = {k: tuple(v) for k, v in overrides.items()}
 
     def _find_slider_message(self, meta):
         """DBC message of a saved slider: by name (1.5+), else by frame number."""
@@ -1221,6 +1232,8 @@ class MainWindow(QMainWindow):
             slider.setEnabled(entry.enabled)
         self.slider_container.addWidget(slider_widget)
         self.slider_widgets.append(slider_widget)
+        slider.valueChanged.connect(self._refresh_slider_overrides)
+        self._refresh_slider_overrides()
         return slider_widget
 
     def refresh_bus_list(self):
@@ -1310,6 +1323,8 @@ class MainWindow(QMainWindow):
 
         else:  # Disconnect
             self.timer_bus_status.stop()
+            if self.tx_running:  # the TX thread must be gone before the bus
+                self.stop_tx()
             if self.can_if:
                 self.can_if.close()
                 self.can_if = None
@@ -1339,7 +1354,7 @@ class MainWindow(QMainWindow):
         if filename:
             self.dbc = load_dbc(filename)
             self.populate_signal_tree()
-            self._sync_tx_timers()
+            self._sync_tx()
             self.rx_window.set_dbc(self.dbc)
             self.btn_disable_all_ids.setEnabled(True)
             self.btn_delete_all_ids.setEnabled(True)
@@ -1403,7 +1418,7 @@ class MainWindow(QMainWindow):
             return
         self._add_tx_row(**dlg.result_values)
 
-        skipped = self._sync_tx_timers()  # starts the new row if TX is running
+        skipped = self._sync_tx()  # starts the new row if TX is running
         if skipped:
             QMessageBox.warning(
                 self,
@@ -1415,11 +1430,8 @@ class MainWindow(QMainWindow):
         self.btn_delete_all_ids.setEnabled(True)
 
     def delete_signal_row(self, entry):
-        # Stop this row's timer only: another row may share the ID number
-        timer = self._timer_of(entry)
-        if timer is not None:
-            timer.stop()
-            self.timers.remove(timer)
+        # Stop this row only: another row may share the ID number
+        self.tx_scheduler.remove(entry)
         self.tx_model.remove(entry)
 
         if self.tx_model.rowCount() == 0:
@@ -1435,13 +1447,13 @@ class MainWindow(QMainWindow):
     def _set_all_enabled(self, enabled):
         """Enable/Disable All: one timer sync, not one TX restart per row."""
         self.tx_model.set_all_enabled(enabled)
-        self._sync_tx_timers()
+        self._sync_tx()
         for entry in self._tx_entries():
             self._update_slider_enabled(entry)
 
     def _on_enabled_changed(self, entry):
         """The user ticked/unticked En: start/stop this row only (TODO 2.6)."""
-        self._sync_tx_timers()
+        self._sync_tx()
         self._update_slider_enabled(entry)
 
     def _on_payload_rejected(self, entry, text):
@@ -1602,12 +1614,11 @@ class MainWindow(QMainWindow):
         )
 
     def start_tx(self):
-        """Start one timer per enabled row; returns the skipped FD rows."""
-        for t in self.timers:
-            t.stop()
-        self.timers.clear()
+        """Start the TX thread with one job per enabled row; returns the skipped FD rows."""
+        self.tx_scheduler.stop()
         self.tx_running = True
-        self.tx_skipped_fd = self._sync_tx_timers()
+        self.tx_scheduler.start()
+        self.tx_skipped_fd = self._sync_tx()
         self.btn_start_tx.setText("Stop TX")
         self.btn_start_tx.setToolTip(
             "Stop the transmission of enabled CAN frames from the TX table."
@@ -1617,53 +1628,36 @@ class MainWindow(QMainWindow):
         )
         return self.tx_skipped_fd
 
-    def _timer_of(self, entry):
-        return next((t for t in self.timers if t.tx_entry is entry), None)
-
-    def _sync_tx_timers(self):
-        """Make the running timers match the table (TODO 2.6).
+    def _sync_tx(self):
+        """Make the scheduled rows match the table (TODO 2.6).
 
         Only rows whose state changed are touched: every other row keeps its
-        timer phase and its script instance. Returns the enabled CAN FD rows
+        phase and its script instance. Returns the enabled CAN FD rows
         skipped because the channel is classic CAN.
         """
         if not self.tx_running:
             return []
         entries = {id(e): e for e in self._tx_entries()}
-        for t in list(self.timers):
-            if id(t.tx_entry) not in entries or not t.tx_entry.enabled:
-                t.stop()
-                self.timers.remove(t)
+        for entry in self.tx_scheduler.entries():
+            if id(entry) not in entries or not entry.enabled:
+                self.tx_scheduler.remove(entry)
 
         # A classic-CAN channel rejects every FD frame: skip those rows
         bus_is_fd = bool(getattr(self.can_if, "is_fd", False))
-        running = {id(t.tx_entry) for t in self.timers}
         skipped = []
         # Ascending ID order, so equal periods fire lowest ID first
         for entry in sorted(entries.values(), key=lambda e: (e.is_ext, e.frame_id)):
-            if id(entry) in running or not entry.enabled:
+            if not entry.enabled or self.tx_scheduler.job(entry) is not None:
                 continue
             if entry.is_fd and not bus_is_fd:
                 skipped.append(f"{entry.id_text} {entry.name}")
                 continue
-            self._start_row_timer(entry)
+            self.tx_scheduler.add(entry)
         return skipped
-
-    def _start_row_timer(self, entry):
-        timer = QTimer(self)
-        # CoarseTimer (Qt's default) rounds intervals above 20 ms up to the
-        # 15.625 ms Windows tick: 50 ms ran at 62.5 ms on the bus (TODO 2.10)
-        timer.setTimerType(Qt.TimerType.PreciseTimer)
-        timer.tx_entry = entry  # Custom attribute for lookup
-        timer.timeout.connect(lambda e=entry: self._send_row(e))
-        timer.start(entry.period)
-        self.timers.append(timer)
 
     def _on_period_changed(self, entry):
         """Period edit: retime this row only (TODO 2.7)."""
-        timer = self._timer_of(entry)
-        if timer is not None:
-            timer.setInterval(entry.period)
+        self.tx_scheduler.retime(entry)
 
     def _script_payload(self, entry):
         """Payload from the row's script or the global one; None = manual payload.
@@ -1712,7 +1706,8 @@ class MainWindow(QMainWindow):
         return bytes(payload)
 
     def _send_row(self, entry):
-        """One TX tick of a row: script > global script > manual payload, then sliders.
+        """TX thread: one frame of a row — script > global script > manual payload,
+        then the sliders' snapshot. No Qt object is touched here.
 
         Script link and sliders are read at every tick, so linking a script or
         adding/removing a slider takes effect without restarting TX. The frame
@@ -1723,28 +1718,26 @@ class MainWindow(QMainWindow):
             payload = self._script_payload(entry)
             if payload is None:  # 3. Manual payload
                 payload = entry.payload
-
-            # Apply slider overrides
-            for w in self.slider_widgets:
-                if (
-                    w.frame_id == frame_id
-                    and bool(getattr(w, "is_ext", False)) == is_ext
-                ):
-                    value = w.min_val + w.slider.value() * w.step
-                    payload = encode_signal(payload, w.signal, value)
-
-            # Apply padding
+            for signal, value in self._slider_overrides.get(entry.key, ()):
+                payload = encode_signal(payload, signal, value)
             final_payload = bytes(payload[:dlc]) + bytes(max(0, dlc - len(payload)))
         except Exception as e:
             self._row_failed(entry, e)
             return
 
-        # Send the frame; the row shows it at the next refresh (TODO 2.12)
+        # The row shows it (and XMetro gets it) at the next refresh (TODO 2.12)
         self.send_can_message(frame_id, final_payload, dlc, entry.is_fd, is_ext)
-        if self.xmetro_windows:  # gauges follow transmitted frames too (TODO 7.2)
-            self._feed_gauges(frame_id, is_ext, final_payload)
         self.tx_model.set_error(entry, None)
         self.tx_model.set_payload(entry, final_payload)
+
+    def _tx_refresh(self):
+        """GUI thread, ~10 Hz: repaint the rows sent since the last refresh and
+        feed their payloads to the XMetro gauges (TODO 7.2)."""
+        sent = self.tx_model.flush()
+        if self.xmetro_windows:
+            for entry in sent:
+                if entry.error is None:
+                    self._feed_gauges(entry.frame_id, entry.is_ext, entry.payload)
 
     def _row_failed(self, entry, e):
         """Frame not sent: show it on the row, log each distinct error once (TODO 3.3)."""
@@ -1767,10 +1760,9 @@ class MainWindow(QMainWindow):
         return missing
 
     def stop_tx(self):
-        for t in self.timers:
-            t.stop()
-        self.timers.clear()
+        self.tx_scheduler.stop()  # returns once no frame is being produced
         self.tx_running = False
+        self._tx_refresh()
         self.btn_start_tx.setText("Start TX")
         self.btn_start_tx.setToolTip(
             "Start the transmission of enabled CAN frames from the TX table."
@@ -1780,14 +1772,15 @@ class MainWindow(QMainWindow):
         )
 
     def send_can_message(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
-        if not self.can_if:
+        can_if = self.can_if  # TX thread: read once
+        if not can_if:
             return
         try:
             if dlc is None:
                 dlc = len(data) if data else 0
             dlc = max(0, min(int(dlc), 64))
             # Not counted for the busload here: the adapter's echo is (TODO 9.8)
-            self.can_if.send_frame(frame_id, data, dlc, is_fd, is_ext=is_ext)
+            can_if.send_frame(frame_id, data, dlc, is_fd, is_ext=is_ext)
         except Exception as e:
             log_exception(e)
 
