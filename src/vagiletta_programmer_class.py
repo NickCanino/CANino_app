@@ -54,9 +54,6 @@ FQBN = "arduino:avr:uno"
 CORE = "arduino:avr"
 # The windowed exe opened a console window for every arduino-cli call (TODO 8.7)
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-NUM_NODES = 8
-
-NUM_TO_LETTER = ["A", "B", "C", "D", "E", "F", "G", "H"]
 
 
 def build_dir() -> Path:

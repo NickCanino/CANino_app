@@ -220,9 +220,6 @@ class CANInterface:
             self.bus.shutdown()
             self.bus = None
 
-    def stop_all(self):
-        self.close()
-
     @staticmethod
     def is_fd_capable(channel: int) -> bool:
         try:

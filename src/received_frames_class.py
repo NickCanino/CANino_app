@@ -306,10 +306,6 @@ class ReceivedFramesWindow(QWidget):
             for m in getattr(db, "messages", [])
         }
 
-    def _dbc_name(self, frame_id, is_ext):
-        """DBC message name, only if the DBC frame has the same ID format."""
-        return self._dbc_names.get((frame_id, bool(is_ext)), "")
-
     def set_dbc(self, dbc):
         self.dbc = dbc
         self._dbc_names = self._names_of(dbc)
