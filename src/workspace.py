@@ -18,7 +18,18 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-"""Workspace files: load and save the TX table, sliders, scripts and DBC (TODO 9.7)."""
+"""Workspace files: load and save the TX table, sliders, scripts and DBC.
+
+Every file CANino writes carries "format" and "version" (TODO 6.7). A file
+without them is version 1: anything written up to 1.5. migrate() turns any
+known version into the current one, reports what it changed, and refuses
+files written by a newer CANino; loading never works on unmigrated data.
+
+Version 2 (1.6): flags are JSON booleans, paths use "/", sliders store their
+physical value only. Version 1 files may hold "Y"/"n"/null flags, no "ext"
+(IDs above 0x7FF were extended), no "fd", backslashes in paths, and sliders
+with only an index into a recomputed range (value_index).
+"""
 
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -28,21 +39,169 @@ from PySide6.QtWidgets import (
 import json
 import os
 
-from src.dbc_loader import (
-    load_dbc,
-)
+from src.dbc_loader import load_dbc
 from src.exceptions_logger import log_exception, __version__
-from src.tx_model import (
-    CAN_MAX_STD_ID,
-    CAN_MAX_EXT_ID,
-)
+from src.tx_model import CAN_MAX_STD_ID, CAN_MAX_EXT_ID
+
+WORKSPACE_FORMAT = "canino-workspace"
+WORKSPACE_VERSION = 2
+# Templates renamed in c971828 (2025-08-01): a workspace that links the old
+# name finds the new file in the same folder
+TEMPLATE_RENAMES = {
+    "template_payload_script_blink.py": "TPS_blink.py",
+    "template_payload_script_sawtooth.py": "TPS_sawtooth.py",
+}
+
+
+class WorkspaceError(ValueError):
+    """The file is not a workspace this CANino can read."""
 
 
 def json_flag(value) -> bool:
-    """Workspace flags are saved as "Y"/"n"; older files may hold null or bools."""
+    """Version 1 flags: "Y"/"n", null, or (rarely) booleans."""
     if isinstance(value, str):
         return value.strip().upper() in ("Y", "YES", "TRUE", "1")
     return bool(value)
+
+
+def _int(value, default):
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def migrate(config):
+    """Any known workspace layout -> the current version; returns (config, notes).
+
+    `notes` lists, in plain words, what was converted or dropped. Raises
+    WorkspaceError for non-workspaces and files from a newer CANino.
+    """
+    if not isinstance(config, dict):
+        raise WorkspaceError("not a CANino workspace (no JSON object)")
+    fmt = config.get("format", WORKSPACE_FORMAT)
+    if fmt != WORKSPACE_FORMAT:
+        raise WorkspaceError(f"not a CANino workspace (format {fmt!r})")
+    version = config.get("version", 1)
+    if not isinstance(version, int) or isinstance(version, bool) or version < 1:
+        raise WorkspaceError(f"unknown workspace version {version!r}")
+    if version > WORKSPACE_VERSION:
+        raise WorkspaceError(
+            f"written by a newer CANino (workspace version {version}; this "
+            f"version reads up to {WORKSPACE_VERSION}) - update CANino"
+        )
+    signals = config.get("signals")
+    sliders = config.get("sliders")
+    signals = [] if signals is None else signals
+    sliders = [] if sliders is None else sliders
+    if not isinstance(signals, list) or not isinstance(sliders, list):
+        raise WorkspaceError("'signals' and 'sliders' must be lists")
+
+    notes = []
+    counts = {"ext": 0, "fd": 0, "paths": 0, "slider_values": 0}
+
+    def path(p):
+        if not p:
+            return None
+        if not isinstance(p, str):
+            raise WorkspaceError(f"path {p!r} is not a string")
+        if "\\" in p:
+            counts["paths"] += 1
+            p = p.replace("\\", "/")
+        return p
+
+    out = {
+        "format": WORKSPACE_FORMAT,
+        "version": WORKSPACE_VERSION,
+        "dbc_file": path(config.get("dbc_file")),
+        "global_script": path(config.get("global_script")),
+        "signals": [],
+        "sliders": [],
+    }
+
+    seen = set()
+    skipped = []
+    for n, sig in enumerate(signals, 1):
+        if not isinstance(sig, dict):
+            skipped.append(f"row {n}: not an object")
+            continue
+        raw_id = sig.get("id")
+        try:
+            frame_id = raw_id if isinstance(raw_id, int) else int(str(raw_id), 16)
+        except ValueError:
+            skipped.append(f"row {n}: ID {raw_id!r} is not hexadecimal")
+            continue
+        if "ext" in sig and sig["ext"] is not None:
+            is_ext = json_flag(sig["ext"])
+        else:  # before 1.5 IDs above 0x7FF could only be extended (TODO 1.6)
+            is_ext = frame_id > CAN_MAX_STD_ID
+            counts["ext"] += version == 1
+        if not 0 <= frame_id <= (CAN_MAX_EXT_ID if is_ext else CAN_MAX_STD_ID):
+            skipped.append(f"row {n}: ID 0x{frame_id:X} out of range")
+            continue
+        if (frame_id, is_ext) in seen:
+            skipped.append(f"row {n}: ID 0x{frame_id:X} appears twice")
+            continue
+        seen.add((frame_id, is_ext))
+        if sig.get("fd") is None:  # missing, or null (1.2.x)
+            counts["fd"] += version == 1
+        out["signals"].append(
+            {
+                "enabled": json_flag(sig.get("enabled")),
+                "id": f"0x{frame_id:08X}" if is_ext else f"0x{frame_id:03X}",
+                "ext": is_ext,
+                "fd": json_flag(sig.get("fd")),
+                "name": str(sig.get("name") or ""),
+                "period": _int(sig.get("period"), 100),
+                "payload": str(sig.get("payload") or ""),
+                "dlc": _int(sig.get("dlc"), 8),
+                "script_path": path(sig.get("script_path")),
+            }
+        )
+
+    for n, meta in enumerate(sliders, 1):
+        if not isinstance(meta, dict) or not meta.get("signal_name"):
+            skipped.append(f"slider {n}: no signal name")
+            continue
+        value = meta.get("value")
+        if value is None:  # before 1.5: an index into the old range
+            value = meta.get("min_val", 0) + meta.get("value_index", 0) * meta.get(
+                "step", 1
+            )
+            counts["slider_values"] += 1
+        slider = {
+            # Before 1.5 "msg_name" held the signal name (TODO 4.8); the
+            # loader falls back to the frame ID when no message matches
+            "msg_name": meta.get("msg_name"),
+            "signal_name": meta["signal_name"],
+            "frame_id": meta.get("frame_id"),
+            "value": value,
+        }
+        if meta.get("is_ext") is not None:
+            slider["is_ext"] = bool(meta["is_ext"])
+        out["sliders"].append(slider)
+
+    if version < WORKSPACE_VERSION:
+        notes.append(
+            f"Converted from workspace version {version} (CANino 1.5 or older); "
+            "Save writes the new format."
+        )
+    if counts["ext"]:
+        notes.append(
+            f"{counts['ext']} row(s) had no ID format: IDs above 0x7FF taken as "
+            "extended, the others as standard."
+        )
+    if counts["fd"]:
+        notes.append(f"{counts['fd']} row(s) had no CAN FD flag: taken as classic CAN.")
+    if counts["paths"]:
+        notes.append(f"{counts['paths']} path(s) converted from '\\' to '/'.")
+    if counts["slider_values"]:
+        notes.append(
+            f"{counts['slider_values']} slider value(s) recomputed from the saved position."
+        )
+    if skipped:
+        notes.append("Skipped: " + "; ".join(skipped) + ".")
+    return out, notes
 
 
 class WorkspaceMixin:
@@ -105,44 +264,39 @@ class WorkspaceMixin:
     def _save_config_to_file(self, filename):
         base = os.path.dirname(os.path.abspath(filename))
         config = {
+            "format": WORKSPACE_FORMAT,
+            "version": WORKSPACE_VERSION,
+            "app_version": __version__,  # informative only
             "dbc_file": self._to_workspace_path(
                 self.dbc.dbc_filename if self.dbc is not None else None, base
             ),
-            "signals": [],
-            "sliders": [],
             "global_script": self._to_workspace_path(self.global_script_path, base),
-        }
-
-        for widget in self.slider_widgets:
-            config["sliders"].append(
-                {
-                    "msg_name": widget.msg_name,
-                    "signal_name": widget.signal.name,
-                    "frame_id": widget.frame_id,
-                    "is_ext": widget.is_ext,
-                    "min_val": widget.min_val,
-                    "max_val": widget.max_val,
-                    "step": widget.step,
-                    "unit": widget.unit,
-                    "value_index": widget.slider.value(),
-                    "value": widget.value(),
-                }
-            )
-
-        for entry in self._tx_entries():
-            config["signals"].append(
+            "signals": [
                 {
                     "enabled": entry.enabled,
                     "id": entry.id_text,
-                    "ext": "Y" if entry.is_ext else "n",
-                    "fd": "Y" if entry.is_fd else "n",
+                    "ext": entry.is_ext,
+                    "fd": entry.is_fd,
                     "name": entry.name,
                     "period": entry.period,
                     "payload": " ".join(f"{b:02X}" for b in entry.payload),
                     "dlc": entry.dlc,
                     "script_path": self._to_workspace_path(entry.script_path, base),
                 }
-            )
+                for entry in self._tx_entries()
+            ],
+            "sliders": [
+                {
+                    "msg_name": widget.msg_name,
+                    "signal_name": widget.signal.name,
+                    "frame_id": widget.frame_id,
+                    "is_ext": widget.is_ext,
+                    "value": widget.value(),
+                    "unit": widget.unit,  # informative only
+                }
+                for widget in self.slider_widgets
+            ],
+        }
         try:
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(config, f, indent=2)
@@ -176,6 +330,20 @@ class WorkspaceMixin:
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
         )
 
+    def _script_from_workspace(self, path, base_dir):
+        """Script path of a workspace; a renamed template is found by its new name,
+        through the same lookup (next to the JSON file, then the CWD)."""
+        resolved = self._from_workspace_path(path, base_dir)
+        if resolved and not os.path.exists(resolved):
+            new_name = TEMPLATE_RENAMES.get(os.path.basename(path))
+            if new_name:
+                renamed = self._from_workspace_path(
+                    os.path.join(os.path.dirname(path), new_name), base_dir
+                )
+                if os.path.exists(renamed):
+                    return renamed
+        return resolved
+
     def load_config(self, auto=False):
         """Replace the workspace with a JSON file (TODO 6.4); the table stays editable."""
         if auto:  # Load the default workspace file
@@ -189,12 +357,11 @@ class WorkspaceMixin:
             if not filename:
                 return
 
-        # Parse first: a broken file must not wipe the current workspace
+        # Parse and migrate first: a broken or too new file must not wipe the
+        # current workspace (TODO 6.7)
         try:
             with open(filename, "r", encoding="utf-8") as f:
-                config = json.load(f)
-            if not isinstance(config, dict):
-                raise ValueError("not a CANino workspace (no JSON object)")
+                config, notes = migrate(json.load(f))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
             log_exception(e)
@@ -207,7 +374,7 @@ class WorkspaceMixin:
             base = os.path.dirname(os.path.abspath(filename))
 
             # Loads DBC if existing
-            dbc_path = self._from_workspace_path(config.get("dbc_file"), base)
+            dbc_path = self._from_workspace_path(config["dbc_file"], base)
             if dbc_path is not None:
                 if os.path.exists(dbc_path):
                     self.dbc = load_dbc(dbc_path)
@@ -219,33 +386,24 @@ class WorkspaceMixin:
 
             # Restores global script (a missing file is reported at Start TX)
             self._set_global_script(
-                self._from_workspace_path(config.get("global_script"), base)
+                self._script_from_workspace(config["global_script"], base)
             )
 
-            for sig in config.get("signals") or []:
-                try:
-                    frame_id = int(sig.get("id", "0"), 16)
-                except (TypeError, ValueError):
-                    continue
-                # Files written before 1.5 carry no "ext": they could not send
-                # IDs above 0x7FF, so the number decides (TODO 1.6)
-                is_ext = json_flag(sig.get("ext")) or frame_id > CAN_MAX_STD_ID
-                if frame_id > CAN_MAX_EXT_ID or self._find_entry(frame_id, is_ext):
-                    continue  # invalid, or a duplicate row in the file
+            for sig in config["signals"]:
                 self._add_tx_row(
-                    frame_id,
-                    sig.get("name", ""),
-                    period=sig.get("period", 100),
-                    dlc=sig.get("dlc", 8),
-                    is_fd=json_flag(sig.get("fd")),
-                    is_ext=is_ext,
-                    payload=sig.get("payload", ""),
-                    script_path=self._from_workspace_path(sig.get("script_path"), base),
-                    enabled=bool(sig.get("enabled")),
+                    int(sig["id"], 16),
+                    sig["name"],
+                    period=sig["period"],
+                    dlc=sig["dlc"],
+                    is_fd=sig["fd"],
+                    is_ext=sig["ext"],
+                    payload=sig["payload"],
+                    script_path=self._script_from_workspace(sig["script_path"], base),
+                    enabled=sig["enabled"],
                 )
 
             # Load sliders
-            sliders_cfg = config.get("sliders") or []
+            sliders_cfg = config["sliders"]
             if sliders_cfg and self.dbc is None:
                 QMessageBox.warning(
                     self,
@@ -253,37 +411,44 @@ class WorkspaceMixin:
                     f"{len(sliders_cfg)} slider(s) skipped: they need the workspace DBC, which is not loaded.",
                 )
                 sliders_cfg = []
+            missing = []
             for meta in sliders_cfg:
                 msg = self._find_slider_message(meta)
                 sig = next(
                     (
                         s
                         for s in getattr(msg, "signals", [])
-                        if s.name == meta.get("signal_name")
+                        if s.name == meta["signal_name"]
                     ),
                     None,
                 )
                 if sig is None:
+                    missing.append(meta["signal_name"])
                     continue
-                value = meta.get("value")
-                if value is None:  # files before 1.5: index into the old range
-                    value = meta.get("min_val", 0) + meta.get(
-                        "value_index", 0
-                    ) * meta.get("step", 1)
-                self._add_slider_widget(msg, sig, value)
+                self._add_slider_widget(msg, sig, meta["value"])
+            if missing:
+                notes.append(
+                    "Slider(s) for signals not in the DBC skipped: "
+                    + ", ".join(missing)
+                    + "."
+                )
 
             # Row-dependent buttons follow the table, sliders or not (TODO 6.2)
             has_rows = self.tx_model.rowCount() > 0
             self.btn_disable_all_ids.setEnabled(has_rows)
             self.btn_delete_all_ids.setEnabled(has_rows)
 
+            dropped = [n for n in notes if "kipped" in n]
             if not auto:
                 stopped = "\n\nTransmission was stopped." if was_running else ""
+                details = "".join(f"\n\n{n}" for n in notes)
                 QMessageBox.information(
                     self,
                     "Configuration",
-                    f"Configuration loaded successfully.{stopped}",
+                    f"Configuration loaded successfully.{stopped}{details}",
                 )
+            elif dropped:  # at start-up only what was lost is worth a dialog
+                QMessageBox.warning(self, "Configuration", "\n\n".join(dropped))
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
             log_exception(e)
