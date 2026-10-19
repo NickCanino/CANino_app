@@ -106,7 +106,7 @@ class ExtendedIdTests(Base):
         self.assertEqual(self.rows(), [("0x18FF0001", True, False, 8)])
 
     def test_workspace_round_trip_keeps_flags(self):
-        """1.6 + 2.4: Save writes ext/fd from the roles, Load restores them."""
+        """1.6 + 2.4 + 6.7: Save writes ext/fd (JSON booleans), Load restores them."""
         self.load(
             [
                 row(0x123, id="0x00000123", ext="Y"),
@@ -118,7 +118,9 @@ class ExtendedIdTests(Base):
             saved = {
                 s["id"]: (s["ext"], s["fd"], s["dlc"]) for s in json.load(f)["signals"]
             }
-        self.assertEqual(saved, {"0x00000123": ("Y", "n", 8), "0x200": ("n", "Y", 12)})
+        self.assertEqual(
+            saved, {"0x00000123": (True, False, 8), "0x200": (False, True, 12)}
+        )
 
     def test_caninterface_builds_extended_message(self):
         """1.6: send_frame no longer hard-codes is_extended_id=False."""
