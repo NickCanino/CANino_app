@@ -329,7 +329,7 @@ class PayloadEditDelegate(QStyledItemDelegate):
 class RxBridge(QObject):
     """Carries received frames from the RX thread to the GUI thread (queued)."""
 
-    frame_received = Signal(int, object)
+    frame_received = Signal(int, bool, object)
 
 
 class MainWindow(QMainWindow):
@@ -1953,6 +1953,8 @@ class MainWindow(QMainWindow):
 
         # Invia il frame e aggiorna il payload nella finestra TX
         self.send_can_message(frame_id, final_payload, dlc, is_fd, is_ext)
+        if self.xmetro_windows:  # gauges follow transmitted frames too (TODO 7.2)
+            self._feed_gauges(frame_id, is_ext, final_payload)
         self._show_row_error(item, None)
         text = " ".join(f"{b:02X}" for b in final_payload)
         if item.text(TX_COL_6_payload) != text:
@@ -2085,19 +2087,20 @@ class MainWindow(QMainWindow):
             # Gauges live in the GUI thread: hand the frame over via a queued
             # signal, only while an XMetro window is open (TODO 7.1)
             if self.xmetro_windows:
-                self.rx_bridge.frame_received.emit(frame_id, bytes(data))
+                self.rx_bridge.frame_received.emit(frame_id, bool(is_ext), bytes(data))
 
         except Exception as e:
             log_exception(__file__, sys._getframe().f_lineno, e)
 
-    def _feed_gauges(self, frame_id, data):
-        """GUI thread: update every XMetro gauge showing `frame_id`."""
-        alive = [w for w in self.xmetro_windows if shiboken6.isValid(w)]
-        self.xmetro_windows[:] = alive
-        for window in alive:
-            for gauge in window.gauges:
-                if gauge.cb_messages.currentData() == frame_id:
-                    gauge.update_gauge(data)
+    def _feed_gauges(self, frame_id, is_ext, data):
+        """GUI thread: update every XMetro gauge showing this frame."""
+        for window in self.xmetro_windows:
+            if shiboken6.isValid(window):
+                window.feed(frame_id, is_ext, data)
+
+    def _forget_xmetro(self, window_id):
+        """A closed XMetro window leaves the list, so RX stops feeding it (TODO 7.5)."""
+        self.xmetro_windows[:] = [w for w in self.xmetro_windows if id(w) != window_id]
 
     def closeEvent(self, event):
         """Release TX, the PCAN channel, the CSV and the XMetro windows (TODO 1.9)."""
@@ -2115,28 +2118,23 @@ class MainWindow(QMainWindow):
         super().closeEvent(event)
 
     def open_xmetro_window(self):
-        print("Opening XMetro window...")
-
-        if not hasattr(self, "dbc") or self.dbc is None:
-            print("No DBC file loaded")
+        if self.dbc is None:
             QMessageBox.warning(self, "DBC", "Load a DBC file first!")
             return
-
-        if not self.dbc.db.messages:
-            print("No messages in DBC")
-            QMessageBox.warning(self, "XMetro", "No messages in DBC file.")
+        if not any(m.signals for m in self.dbc.messages):
+            QMessageBox.warning(self, "XMetro", "No messages with signals in DBC file.")
             return
 
         try:
             xmetro = XMetroWindow(self.dbc)
-            self.xmetro_windows.append(xmetro)
-
             xmetro.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            xmetro.destroyed.connect(
+                lambda _=None, wid=id(xmetro): self._forget_xmetro(wid)
+            )
+            self.xmetro_windows.append(xmetro)
             xmetro.show()
-            print("XMetro window created and shown")
-
         except Exception as e:
-            print(f"Error creating XMetro window: {str(e)}")
+            QMessageBox.critical(self, "XMetro", f"Cannot open XMetro: {e}")
             log_exception(__file__, sys._getframe().f_lineno, e)
 
     def timer_busload_elapsed(self):

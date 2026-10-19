@@ -44,6 +44,7 @@ class DBCSignal:
         maximum: Optional[float],
         unit: str,
         is_float: bool = False,
+        choices: Optional[dict] = None,
     ):
         self.name = name
         self.start_bit = start_bit
@@ -56,6 +57,7 @@ class DBCSignal:
         self.maximum = maximum
         self.unit = unit
         self.is_float = is_float
+        self.choices = choices or {}  # raw value -> enum text
 
 
 class DBCMessage:
@@ -112,6 +114,7 @@ class DBCLoader:
                     s.maximum,
                     s.unit if s.unit is not None else "",
                     is_float=bool(s.is_float),
+                    choices={int(k): str(v) for k, v in (s.choices or {}).items()},
                 )
                 signals.append(sig)
 

@@ -18,8 +18,6 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# TODO: add tooltips in XMETRO window
-
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -36,17 +34,17 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QPainter, QColor, QPen, QFont, QIcon
 from PySide6.QtCore import Qt, QPointF
 
-# from cantools.database.can.signal import NamedSignalValue
-# from src.exceptions_logger import log_exception
-from src.utils import resource_path
+from src.dbc_loader import decode_signal, signal_range, dbc_bit_label
+from src.utils import resource_path, format_can_id
 import math
+import os
 
 
 class XMetroWindow(QWidget):
     def __init__(self, dbc_loader):
-        print("Initializing XMetro window...")
         super().__init__()
-        self.setWindowTitle("XMetro Gauges")
+        name = os.path.basename(getattr(dbc_loader, "dbc_filename", "") or "")
+        self.setWindowTitle(f"XMetro Gauges - {name}" if name else "XMetro Gauges")
         self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo.ico")))
         self.setMinimumSize(800, 600)
 
@@ -58,6 +56,10 @@ class XMetroWindow(QWidget):
 
         # Add Gauge button at the top
         btn_add_gauge = QPushButton("Add Gauge")
+        btn_add_gauge.setToolTip(
+            "Add a gauge for one DBC signal. Gauges follow received and transmitted\n"
+            "frames; drag a gauge to move it on the grid."
+        )
         btn_add_gauge.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
         )
@@ -88,7 +90,6 @@ class XMetroWindow(QWidget):
             (self.gauge_size[1] + self.grid_spacing) * self.grid_rows,
         )  # Dimensione iniziale
         self.scroll_area.setWidget(self.gauge_container)
-        print("XMetro window initialized successfully")
 
     def add_gauge(self):
         # Trova la prima posizione libera nella griglia
@@ -118,6 +119,14 @@ class XMetroWindow(QWidget):
         self.gauges.append(gauge_widget)
         self.grid[row][col] = 1  # Segna la cella come occupata
 
+    def remove_gauge(self, gauge):
+        """Free the gauge's grid cell and delete it (TODO 7.4)."""
+        if gauge in self.gauges:
+            self.gauges.remove(gauge)
+            self.grid[gauge.row][gauge.col] = 0
+        gauge.hide()
+        gauge.deleteLater()
+
     def find_first_free_position(self):
         # Cerca la prima cella libera nella griglia
         for row in range(self.grid_rows):
@@ -131,9 +140,15 @@ class XMetroWindow(QWidget):
         self.grid[old_row][old_col] = 0  # Libera la vecchia posizione
         self.grid[new_row][new_col] = 1  # Occupa la nuova posizione
 
+    def feed(self, frame_id, is_ext, payload):
+        """Update every gauge showing this frame (std and ext kept apart)."""
+        for gauge in self.gauges:
+            if gauge.frame_key() == (frame_id, bool(is_ext)):
+                gauge.update_gauge(payload)
+
 
 class DraggableGaugeBox(QFrame):
-    def __init__(self, parent, dbc_loader, gauge_size, grid_spacing, window, row, col):
+    def __init__(self, parent, dbc_loader, gauge_size, grid_spacing, xmetro, row, col):
         super().__init__(parent)
         self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Raised)
         self.setStyleSheet("background-color: #2b2b2b; border: 1px solid #555;")
@@ -142,49 +157,72 @@ class DraggableGaugeBox(QFrame):
         self.dbc = dbc_loader
         self.grid_spacing = grid_spacing
         self.gauge_size = gauge_size
-        self.window = window  # Riferimento alla finestra principale
+        # The XMetro window; `self.window` shadowed QWidget.window() (TODO 7.4)
+        self.xmetro = xmetro
         self.row = row  # Riga corrente nella griglia
         self.col = col  # Colonna corrente nella griglia
         self.drag_start_position = None
+        # DBC messages by combo index: std and ext may share a number (TODO 4.11)
+        self.messages = [m for m in self.dbc.messages if m.signals]
 
         layout = QVBoxLayout(self)
 
         # Add controls
         top_layout = QHBoxLayout()
         self.cb_messages = QComboBox()
-        self.cb_messages.setFixedSize(180, 30)
+        self.cb_messages.setFixedSize(160, 30)
+        self.cb_messages.setToolTip("DBC message whose frames drive this gauge.")
         self.cb_signals = QComboBox()
-        self.cb_signals.setFixedSize(180, 30)
+        self.cb_signals.setFixedSize(140, 30)
+        self.cb_signals.setToolTip("Signal shown by the needle.")
+        btn_remove = QPushButton()
+        btn_remove.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+        )
+        btn_remove.setFixedSize(30, 30)
+        btn_remove.setToolTip("Remove this gauge.")
+        btn_remove.clicked.connect(lambda: self.xmetro.remove_gauge(self))
 
         # Populate messages from DBC
-        for msg in self.dbc.db.messages:
-            label = f"{msg.name} (0x{msg.frame_id:X})"
+        for msg in self.messages:
+            label = f"{msg.name} ({format_can_id(msg.frame_id, msg.is_extended_frame)})"
             self.cb_messages.addItem(label, msg.frame_id)
 
         top_layout.addWidget(QLabel("Message:"))
         top_layout.addWidget(self.cb_messages)
         top_layout.addWidget(QLabel("Signal:"))
         top_layout.addWidget(self.cb_signals)
+        top_layout.addWidget(btn_remove)
         layout.addLayout(top_layout)
 
         self.gauge = SemiCircularGauge()
         layout.addWidget(self.gauge)
-
-        self.last_payload = bytes([0x00] * 8)
 
         self.cb_messages.currentIndexChanged.connect(self.populate_signals)
         self.cb_signals.currentIndexChanged.connect(self.update_signal_range)
 
         self.populate_signals()
 
+    def current_message(self):
+        idx = self.cb_messages.currentIndex()
+        return self.messages[idx] if 0 <= idx < len(self.messages) else None
+
+    def current_signal(self):
+        msg = self.current_message()
+        idx = self.cb_signals.currentIndex()
+        if msg is None or not 0 <= idx < len(msg.signals):
+            return None
+        return msg.signals[idx]
+
+    def frame_key(self):
+        msg = self.current_message()
+        return None if msg is None else (msg.frame_id, bool(msg.is_extended_frame))
+
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
             self.drag_start_position = event.pos()
 
     def mouseMoveEvent(self, event):
-        # if not hasattr(self, "drag_start_position"):
-        #     return
-
         if self.drag_start_position is None:
             return
 
@@ -199,8 +237,6 @@ class DraggableGaugeBox(QFrame):
 
     def mouseReleaseEvent(self, event):
         self.setCursor(Qt.CursorShape.ArrowCursor)
-        # if hasattr(self, "drag_start_position"):
-        #     del self.drag_start_position
         self.drag_start_position = None
 
     def snap_to_grid(self, new_pos):
@@ -210,12 +246,12 @@ class DraggableGaugeBox(QFrame):
 
         # Controlla se la nuova posizione è valida
         if (
-            0 <= row < self.window.grid_rows
-            and 0 <= col < self.window.grid_cols
-            and self.window.grid[row][col] == 0
+            0 <= row < self.xmetro.grid_rows
+            and 0 <= col < self.xmetro.grid_cols
+            and self.xmetro.grid[row][col] == 0
         ):
             # Aggiorna la posizione nella griglia
-            self.window.update_grid(self.row, self.col, row, col)
+            self.xmetro.update_grid(self.row, self.col, row, col)
             self.row, self.col = row, col
             self.move(
                 col * (self.gauge_size[0] + self.grid_spacing),
@@ -229,56 +265,37 @@ class DraggableGaugeBox(QFrame):
             )
 
     def populate_signals(self):
+        self.cb_signals.blockSignals(True)
         self.cb_signals.clear()
-        frame_id = self.cb_messages.currentData()
-        if frame_id is not None and self.dbc:
-            try:
-                msg = self.dbc.db.get_message_by_frame_id(frame_id)
-                if msg and msg.signals:
-                    for sig in msg.signals:
-                        self.cb_signals.addItem(sig.name, sig)
-            except Exception as e:
-                print(f"Error populating signals: {e}")
+        msg = self.current_message()
+        for sig in msg.signals if msg is not None else []:
+            self.cb_signals.addItem(sig.name)
+        self.cb_signals.blockSignals(False)
         self.update_signal_range()
 
     def update_signal_range(self):
-        signal = self.cb_signals.currentData()
-        if signal:
-            factor = getattr(signal, "factor", getattr(signal, "scale", 1.0)) or 1.0
-            offset = getattr(signal, "offset", 0.0)
-            bit_length = getattr(signal, "length", 8)
-            is_signed = getattr(signal, "is_signed", False)
-
-            if is_signed:
-                raw_min = -(2 ** (bit_length - 1))
-                raw_max = 2 ** (bit_length - 1) - 1
-            else:
-                raw_min = 0
-                raw_max = 2**bit_length - 1
-
-            min_val = raw_min * factor + offset
-            max_val = raw_max * factor + offset
-
-            self.gauge.setRange(min_val, max_val)
-            self.gauge.setValue(min_val, signal.unit if signal.unit else "")
+        """Scale = the DBC [min|max] when set, else the raw range, as for sliders."""
+        sig = self.current_signal()
+        if sig is None:
+            return
+        lo, hi = signal_range(sig)
+        unit = sig.unit or ""
+        self.gauge.setRange(lo, hi)
+        self.gauge.setValue(lo, unit)
+        msg = self.current_message()
+        self.setToolTip(
+            f"{msg.name} ({format_can_id(msg.frame_id, msg.is_extended_frame)})\n"
+            f"{sig.name} [{dbc_bit_label(sig)}], {lo:g} .. {hi:g} {unit}"
+        )
 
     def update_gauge(self, payload):
-        frame_id = self.cb_messages.currentData()
-        signal = self.cb_signals.currentData()
-
-        if frame_id is None or signal is None:
+        """Decode only this signal: no whole-message decode that can fail (TODO 7.3)."""
+        sig = self.current_signal()
+        if sig is None:
             return
-
-        try:
-            msg = self.dbc.db.get_message_by_frame_id(frame_id)
-            if msg:
-                decoded = msg.decode(payload)
-                if signal.name in decoded:
-                    # Enum signals decode to NamedSignalValue: draw its number
-                    value = getattr(decoded[signal.name], "value", decoded[signal.name])
-                    self.gauge.setValue(value, signal.unit if signal.unit else "")
-        except Exception as e:
-            print(f"Error updating gauge: {e}")
+        value = decode_signal(bytes(payload), sig)
+        label = (getattr(sig, "choices", None) or {}).get(int(value))
+        self.gauge.setValue(value, sig.unit or "", label)
 
 
 class SemiCircularGauge(QWidget):
@@ -288,15 +305,24 @@ class SemiCircularGauge(QWidget):
         self.max_val = 180
         self.value = 0
         self.unit = ""
+        self.label = None
 
     def setRange(self, min_val, max_val):
         self.min_val = min_val if min_val is not None else 0
         self.max_val = max_val if max_val is not None else 180
 
-    def setValue(self, value, unit=""):
+    def setValue(self, value, unit="", label=None):
         self.value = value
         self.unit = unit
+        self.label = label  # enum text of the value, if the signal has choices
         self.update()
+
+    def needle_ratio(self):
+        """Needle position 0..1, clamped: out-of-range values stop at the ends (TODO 7.3)."""
+        span = self.max_val - self.min_val
+        if not span:
+            return 0.0
+        return min(max((self.value - self.min_val) / span, 0.0), 1.0)
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -333,7 +359,12 @@ class SemiCircularGauge(QWidget):
             painter.setPen(QPen(Qt.GlobalColor.white, 2))
             painter.drawLine(QPointF(x_inner, y_inner), QPointF(x_outer, y_outer))
 
-            val_label = int(self.min_val + ratio * (self.max_val - self.min_val))
+            val_label = self.min_val + ratio * (self.max_val - self.min_val)
+            val_label = (
+                int(round(val_label))
+                if abs(self.max_val - self.min_val) >= 12
+                else round(val_label, 2)
+            )
             typewriter_font = QFont("Courier New", 16)
             typewriter_font.setStyleHint(QFont.StyleHint.TypeWriter)
             painter.setFont(typewriter_font)
@@ -378,7 +409,7 @@ class SemiCircularGauge(QWidget):
                 painter.drawLine(QPointF(x_inner, y_inner), QPointF(x_outer, y_outer))
 
         # Lancetta
-        needle_ratio = (self.value - self.min_val) / (self.max_val - self.min_val)
+        needle_ratio = self.needle_ratio()
         needle_angle = math.radians(180 - needle_ratio * 180)
         needle_x = center.x() + radius * 0.7 * math.cos(needle_angle)
         needle_y = center.y() - radius * 0.7 * math.sin(needle_angle)
@@ -393,6 +424,8 @@ class SemiCircularGauge(QWidget):
         painter.setPen(QPen(Qt.GlobalColor.white))
 
         text = f"{self.value:.2f} {self.unit}"
+        if self.label:
+            text += f" ({self.label})"
         metrics = painter.fontMetrics()
         text_width = metrics.horizontalAdvance(text)
         painter.drawText(QPointF(center.x() - text_width / 2, center.y() + 30), text)
