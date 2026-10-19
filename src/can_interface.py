@@ -95,7 +95,8 @@ class CANInterface:
         self.receive_thread = None
         self.running = False
         self.error_frames = 0
-        self.receive_callback: Optional[Callable[[int, bytes], None]] = None
+        # (id, data, dlc, is_fd, timestamp, is_ext, bitrate_switch, is_echo)
+        self.receive_callback: Optional[Callable[..., None]] = None
 
         self.open_bus()
 
@@ -107,7 +108,9 @@ class CANInterface:
             timing=self.timing,
             state=can.BusState.PASSIVE if self.listen_only else can.BusState.ACTIVE,
             auto_reset=True,
-            receive_own_messages=False,
+            # Echo of every frame this channel got onto the wire: the busload
+            # counts what really went out, not what was queued (TODO 9.8)
+            receive_own_messages=True,
         )
 
         self.running = True
@@ -198,13 +201,15 @@ class CANInterface:
                             msg.is_fd,
                             msg.timestamp,
                             msg.is_extended_id,
+                            msg.bitrate_switch,
+                            not msg.is_rx,  # echo of an own frame
                         )
             except Exception as e:
                 # recv() raises on every call while the bus is in trouble
                 log_throttled("RX", e)
                 time.sleep(0.05)
 
-    def set_receive_callback(self, callback: Optional[Callable[[int, bytes], None]]):
+    def set_receive_callback(self, callback: Optional[Callable[..., None]]):
         self.receive_callback = callback
 
     def close(self):

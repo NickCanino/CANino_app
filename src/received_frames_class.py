@@ -69,8 +69,10 @@ class ReceivedFramesWindow(QWidget):
         self.log_active = False
         self.log_paused = False
 
-        self.busload_rx_arbitration_bits = 0  # busload Rx statistics
-        self.busload_rx_data_bits = 0  # busload Rx statistics
+        # Bits seen on the wire (received + own echoes) since the last
+        # take_busload_bits(): at the nominal rate, at the CAN FD data rate
+        self.busload_nominal_bits = 0
+        self.busload_data_bits = 0
 
         layout = QVBoxLayout()
 
@@ -213,15 +215,12 @@ class ReceivedFramesWindow(QWidget):
         self.refresh_timer.timeout.connect(self.drain)
         self.refresh_timer.start(RX_DRAIN_MS)
 
-    def clear_busload_stats(self):
-        self.busload_rx_arbitration_bits = 0
-        self.busload_rx_data_bits = 0
-
-    def get_busload_rx_arbitration_bits(self):
-        return self.busload_rx_arbitration_bits
-
-    def get_busload_rx_data_bits(self):
-        return self.busload_rx_data_bits
+    def take_busload_bits(self):
+        """(nominal-rate bits, data-rate bits) since the last call; resets them."""
+        self.drain()
+        bits = (self.busload_nominal_bits, self.busload_data_bits)
+        self.busload_nominal_bits = self.busload_data_bits = 0
+        return bits
 
     def clear_rx_table(self):
         self._queue.clear()
@@ -235,11 +234,15 @@ class ReceivedFramesWindow(QWidget):
         is_fd: bool = False,
         timestamp: float = None,
         is_ext: bool = False,
+        brs: bool = None,
+        is_echo: bool = False,
     ):
         """RX-thread callback: queue the frame, nothing else (TODO 1.8).
 
         `timestamp` is the PCAN hardware time. Frames are keyed by (ID, is_ext):
         standard 0x123 and extended 0x00000123 are different frames (TODO 1.7).
+        `is_echo` marks a frame this channel transmitted: it only counts for
+        the busload. `brs` (bit-rate switch) defaults to `is_fd`.
         """
         self._queue.append(
             (
@@ -249,6 +252,8 @@ class ReceivedFramesWindow(QWidget):
                 is_fd,
                 time.time() if timestamp is None else timestamp,
                 bool(is_ext),
+                is_fd if brs is None else brs,
+                is_echo,
             )
         )
 
@@ -261,21 +266,25 @@ class ReceivedFramesWindow(QWidget):
         model = self.model
         writer = self.csv_writer if self.log_active and not self.log_paused else None
         latest = {}
-        arbitration_bits = data_bits = 0
+        nominal_bits = data_bits = 0
         for _ in range(n):
-            frame_id, data, dlc, is_fd, timestamp, is_ext = queue.popleft()
+            frame_id, data, dlc, is_fd, timestamp, is_ext, brs, is_echo = (
+                queue.popleft()
+            )
             data = bytes(data)
+            nominal, data_rate = frame_bits(frame_id, data, is_fd, is_ext, brs)
+            nominal_bits += nominal
+            data_bits += data_rate
+            if is_echo:  # own frame on the wire: busload only
+                continue
             dlc = max(0, min(int(len(data) if dlc is None else dlc), 64))
-            arb, dat = frame_bits(dlc, is_fd, is_ext)
-            arbitration_bits += arb
-            data_bits += dat
             row = model.row_for(frame_id, is_ext)
             row.add(data, dlc, timestamp)
             latest[(frame_id, is_ext)] = data
             if writer is not None:
                 self._log_row(writer, row, timestamp)
-        self.busload_rx_arbitration_bits += arbitration_bits
-        self.busload_rx_data_bits += data_bits
+        self.busload_nominal_bits += nominal_bits
+        self.busload_data_bits += data_bits
         model.commit()
         if writer is not None:
             try:

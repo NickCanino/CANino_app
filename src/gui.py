@@ -71,7 +71,6 @@ from src.exceptions_logger import log_exception, __version__, log_dir as LOG_DIR
 from src.xmetro_class import XMetroWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
-from src.busload import frame_bits
 from src.utils import resource_path, format_can_id
 from src.PCANBasic import (
     PCAN_BAUD_1M,
@@ -350,9 +349,6 @@ class MainWindow(QMainWindow):
         self.script_instances = {}
         self.workspace_path = None  # file of the last Load / Save (TODO 6.6)
 
-        self.busload_tx_arbitration_bits = 0
-        self.busload_tx_data_bits = 0
-
         # --- MENU ---
         menubar = QMenuBar(self)
         menubar.setStyleSheet(
@@ -465,7 +461,13 @@ class MainWindow(QMainWindow):
         self.timer_busload.timeout.connect(self.timer_busload_elapsed)
         self.timer_busload.start(BUSLOAD_refresh_rate_ms)
 
-        self.lbl_busload = QLabel("BusLoad:")
+        self._busload_since = time.monotonic()
+        self.lbl_busload = QLabel("BusLoad: -")
+        self.lbl_busload.setToolTip(
+            "Share of the last second the bus was busy: every frame seen on the "
+            "wire (received, and transmitted from the adapter's echo), stuff "
+            "bits, ACK, EOF and intermission included. Error frames are not counted."
+        )
         self.lbl_busload.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_busload, alignment=Qt.AlignmentFlag.AlignVCenter)
 
@@ -837,16 +839,6 @@ class MainWindow(QMainWindow):
             # Disable the buttons that need rows
             self.btn_disable_all_ids.setEnabled(False)
             self.btn_delete_all_ids.setEnabled(False)
-
-    def clear_busload_stats(self):
-        self.busload_tx_arbitration_bits = 0
-        self.busload_tx_data_bits = 0
-
-    def get_busload_tx_arbitration_bits(self):
-        return self.busload_tx_arbitration_bits
-
-    def get_busload_tx_data_bits(self):
-        return self.busload_tx_data_bits
 
     def save_config(self):
         """Save to the workspace file last loaded or saved; Save As if there is none (TODO 6.6)."""
@@ -2050,18 +2042,10 @@ class MainWindow(QMainWindow):
         if not self.can_if:
             return
         try:
-            # determine DLC
             if dlc is None:
                 dlc = len(data) if data else 0
             dlc = max(0, min(int(dlc), 64))
-
-            # Busload counters: arbitration at the nominal rate, data phase at
-            # the data rate for FD
-            arbitration_bits, data_phase_bits = frame_bits(dlc, is_fd, is_ext)
-            self.busload_tx_arbitration_bits += arbitration_bits
-            self.busload_tx_data_bits += data_phase_bits
-
-            # send
+            # Not counted for the busload here: the adapter's echo is (TODO 9.8)
             self.can_if.send_frame(frame_id, data, dlc, is_fd, is_ext=is_ext)
         except Exception as e:
             log_exception(e)
@@ -2118,46 +2102,23 @@ class MainWindow(QMainWindow):
             log_exception(e)
 
     def timer_busload_elapsed(self):
-        # Sums of TX bits in arbitration phase and data phase (for CAN-FD)
-        tot_arbitration_bits = (
-            self.rx_window.get_busload_rx_arbitration_bits()
-            + self.get_busload_tx_arbitration_bits()
-        )
-        tot_data_bits = (
-            self.rx_window.get_busload_rx_data_bits() + self.get_busload_tx_data_bits()
-        )
+        """Busload over the time since the last update, at the channel's own rates.
 
-        # Stats reset
-        self.rx_window.clear_busload_stats()
-        self.clear_busload_stats()
-
-        # Extraction of values from selected baudrate
-        label, pcan_val, real_data_val, real_arb_val = self.baudrate_values[
-            self.cb_baudrate.currentIndex()
-        ]
-
-        # Total time occupied in the bus
-        if real_arb_val > 0:
-            # CAN-FD: arbitration phase (500 kbit/s) + data phase (2 Mbit/s)
-            arbitration_baudrate = real_arb_val
-            data_baudrate = real_data_val
-
-            tot_arbitration_time_s = float(tot_arbitration_bits) / arbitration_baudrate
-            tot_data_time_s = float(tot_data_bits) / data_baudrate
+        The rates come from the open channel, not from the combo box, which
+        can be changed after connecting (TODO 9.8).
+        """
+        nominal_bits, data_bits = self.rx_window.take_busload_bits()
+        now = time.monotonic()
+        elapsed, self._busload_since = now - self._busload_since, now
+        timing = getattr(self.can_if, "timing", None)
+        if timing is None or elapsed <= 0:
+            self.lbl_busload.setText("BusLoad: -")
+            return
+        if isinstance(timing, can.BitTimingFd):
+            busy_s = nominal_bits / timing.nom_bitrate + data_bits / timing.data_bitrate
         else:
-            # classic CAN: fixed bitrate for arbitration and data phases
-            arbitration_baudrate = real_data_val  # unique bitrate
-            tot_arbitration_time_s = (
-                float(tot_arbitration_bits + tot_data_bits) / arbitration_baudrate
-            )
-            tot_data_time_s = 0.0  # no separate data phase
-
-        # Busload as percentage
-        busload = ((tot_arbitration_time_s + tot_data_time_s) * 100) / (
-            float(BUSLOAD_refresh_rate_ms) / 1000
-        )
-
-        self.lbl_busload.setText(f"BusLoad: {busload:3.1f}%")
+            busy_s = (nominal_bits + data_bits) / timing.bitrate
+        self.lbl_busload.setText(f"BusLoad: {100 * busy_s / elapsed:3.1f}%")
 
 
 if __name__ == "__main__":
