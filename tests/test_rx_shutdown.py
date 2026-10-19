@@ -17,6 +17,7 @@ from PySide6.QtCore import QCoreApplication, Qt  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+import src.dbc_loader as dbc_loader  # noqa: E402
 
 DBC = """VERSION ""
 NS_ :
@@ -132,7 +133,7 @@ class RxTableTests(Base):
             f.write(DBC)
         self.rx.push_frame(0x100, bytes(8), 8, False)
         self.rx.drain()
-        self.rx.set_dbc(gui.load_dbc("names.dbc"))
+        self.rx.set_dbc(dbc_loader.load_dbc("names.dbc"))
         self.assertEqual(h.rx_view_rows(self.rx)[0][1], "MSG_A")
         self.rx.set_dbc(None)
         self.assertEqual(h.rx_view_rows(self.rx)[0][1], "")

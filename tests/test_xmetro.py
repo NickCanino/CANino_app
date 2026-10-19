@@ -12,6 +12,7 @@ from PySide6.QtCore import QCoreApplication, QEvent  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+import src.dbc_loader as dbc_loader  # noqa: E402
 from test_tx_engine import FakeIf  # noqa: E402
 
 # STD_A and EXT_A share the number 0x100
@@ -36,7 +37,7 @@ class Base(unittest.TestCase):
         with open("xm.dbc", "w", encoding="utf-8") as f:
             f.write(DBC)
         self.mw = gui.MainWindow()
-        self.mw.dbc = gui.load_dbc("xm.dbc")
+        self.mw.dbc = dbc_loader.load_dbc("xm.dbc")
 
     def tearDown(self):
         self.mw.stop_tx()

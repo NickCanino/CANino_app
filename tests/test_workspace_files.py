@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QFileDialog  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+import src.tx_panel as tx_panel  # noqa: E402
 from test_tx_engine import FakeIf  # noqa: E402
 
 DBC = """VERSION ""
@@ -132,12 +133,12 @@ class LoadReplacesTests(Base):
             dlg.accept()
             return dlg.result()
 
-        orig = gui.AddIdDialog.exec
-        gui.AddIdDialog.exec = fake_exec
+        orig = tx_panel.AddIdDialog.exec
+        tx_panel.AddIdDialog.exec = fake_exec
         try:
             self.mw.add_manual_id()
         finally:
-            gui.AddIdDialog.exec = orig
+            tx_panel.AddIdDialog.exec = orig
         self.assertEqual(self.ids(), ["0x100", "0x101"])
 
     def test_broken_file_keeps_the_current_workspace(self):

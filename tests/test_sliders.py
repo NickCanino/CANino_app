@@ -13,6 +13,9 @@ from PySide6.QtWidgets import QInputDialog, QLabel  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+import src.dbc_loader as dbc_loader  # noqa: E402
+import src.slider_panel as slider_panel  # noqa: E402
+import src.tx_model as tx_model  # noqa: E402
 from test_tx_engine import FakeIf  # noqa: E402
 
 # MSG_A and EXT_A share the number 0x100 (std / ext)
@@ -40,7 +43,7 @@ class Base(unittest.TestCase):
         with open("sliders.dbc", "w", encoding="utf-8") as f:
             f.write(DBC)
         self.mw = gui.MainWindow()
-        self.mw.dbc = gui.load_dbc("sliders.dbc")
+        self.mw.dbc = dbc_loader.load_dbc("sliders.dbc")
         self.db = cantools.database.load_file("sliders.dbc")
         self.rows = {
             (0x100, False): self.mw._add_tx_row(0x100, "MSG_A"),
@@ -87,7 +90,7 @@ class RangeTests(Base):
     def test_32_bit_signal_fits_qslider(self):
         """4.4: a 32-bit raw range no longer overflows QSlider.setMaximum."""
         w = self.slider("MSG_A", "SIG_BIG")
-        self.assertEqual(w.slider.maximum(), gui.SLIDER_MAX_STEPS)
+        self.assertEqual(w.slider.maximum(), slider_panel.SLIDER_MAX_STEPS)
         self.assertEqual(w.max_val, 2**32 - 1)
         w.slider.setValue(w.slider.maximum())
         data = self.send_once()[(0x100, False)]
@@ -193,7 +196,7 @@ class AddSliderDialogTests(Base):
         h.tx_edit(
             self.mw,
             self.rows[(0x200, False)],
-            gui.TX_COL_6_payload,
+            tx_model.TX_COL_6_payload,
             "05 2A 00 00 00 00 00 00",
         )
         answers = iter(["MSG_B (0x200)", "SIG_L"])

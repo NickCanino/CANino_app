@@ -16,6 +16,8 @@ from PySide6.QtCore import Qt  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+import src.tx_model as tx_model  # noqa: E402
+import src.tx_panel as tx_panel  # noqa: E402
 from src.utils import resource_path  # noqa: E402
 from test_tx_engine import FakeIf  # noqa: E402
 
@@ -57,7 +59,7 @@ class TemplateTests(unittest.TestCase):
         )
 
     def load(self, name, tag=""):
-        return gui.load_payload_function(
+        return tx_panel.load_payload_function(
             os.path.join(self.tpl, name), f"tpl_{name[:-3]}{tag}"
         )
 
@@ -188,7 +190,7 @@ class GuiScriptTests(unittest.TestCase):
 
     def tip(self):
         return h.tx_cell(
-            self.mw, self.item, gui.TX_COL_6_payload, Qt.ItemDataRole.ToolTipRole
+            self.mw, self.item, tx_model.TX_COL_6_payload, Qt.ItemDataRole.ToolTipRole
         )
 
     def errors_logged(self):
@@ -235,13 +237,13 @@ class GuiScriptTests(unittest.TestCase):
         self.assertIsNotNone(self.errors_logged()[0].exc_info)  # traceback kept once
         self.assertIn("boom", self.tip())
         self.assertEqual(
-            h.tx_cell(self.mw, self.item, gui.TX_COL_6_payload, FG).name().upper(),
-            gui.ROW_ERROR_COLOR,
+            h.tx_cell(self.mw, self.item, tx_model.TX_COL_6_payload, FG).name().upper(),
+            tx_model.ROW_ERROR_COLOR,
         )
         self.tick()
         self.assertEqual(len(self.sent()), 1)
         self.assertEqual(self.tip(), "")
-        self.assertIsNone(h.tx_cell(self.mw, self.item, gui.TX_COL_6_payload, FG))
+        self.assertIsNone(h.tx_cell(self.mw, self.item, tx_model.TX_COL_6_payload, FG))
 
     def test_none_means_manual_payload(self):
         """3.7 / script API: None -> the row's manual payload goes out."""

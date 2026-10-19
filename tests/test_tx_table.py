@@ -12,6 +12,10 @@ from PySide6.QtCore import SIGNAL, Qt  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+from PySide6.QtWidgets import QSlider, QWidget  # noqa: E402
+import src.dbc_loader as dbc_loader  # noqa: E402
+import src.tx_model as tx_model  # noqa: E402
+import src.tx_panel as tx_panel  # noqa: E402
 from src.utils import resource_path  # noqa: E402
 from test_tx_engine import FakeIf  # noqa: E402
 
@@ -98,12 +102,12 @@ class ToggleTests(Base):
             dlg.accept()
             return dlg.result()
 
-        orig = gui.AddIdDialog.exec
-        gui.AddIdDialog.exec = fake_exec
+        orig = tx_panel.AddIdDialog.exec
+        tx_panel.AddIdDialog.exec = fake_exec
         try:
             self.mw.add_manual_id()
         finally:
-            gui.AddIdDialog.exec = orig
+            tx_panel.AddIdDialog.exec = orig
         self.assertIs(self.timer(0x100), t100)
         self.assertEqual(len(self.mw.tx_scheduler.entries()), 4)
         self.tick()
@@ -121,13 +125,13 @@ class ToggleTests(Base):
         """2.6: slider overrides are read per tick: add applies, remove stops applying."""
         with open("tbl.dbc", "w", encoding="utf-8") as f:
             f.write(DBC)
-        self.mw.dbc = gui.load_dbc("tbl.dbc")
+        self.mw.dbc = dbc_loader.load_dbc("tbl.dbc")
         self.mw.start_stop_transmission()
         self.tick()
-        w = gui.QWidget()
+        w = QWidget()
         w.frame_id, w.is_ext, w.min_val, w.step = 0x100, False, 0, 1
         w.signal = next(s for s in self.mw.dbc.messages[0].signals)
-        w.slider = gui.QSlider()
+        w.slider = QSlider()
         w.slider.setRange(0, 255)
         w.slider.setValue(42)
         self.mw.slider_widgets.append(w)
@@ -135,7 +139,10 @@ class ToggleTests(Base):
         self.tick()
         self.mw.remove_slider_widget(w)
         h.tx_edit(
-            self.mw, self.items[0x100], gui.TX_COL_6_payload, "07 00 00 00 00 00 00 00"
+            self.mw,
+            self.items[0x100],
+            tx_model.TX_COL_6_payload,
+            "07 00 00 00 00 00 00 00",
         )
         self.tick()
         self.assertEqual([d[0] for d in self.sent(0x100)], [0, 42, 7])
@@ -156,13 +163,13 @@ class PeriodTests(Base):
         """2.7: a period edit during TX changes that timer's interval in place."""
         self.mw.start_stop_transmission()
         t100, t200 = self.timer(0x100), self.timer(0x200)
-        h.tx_edit(self.mw, self.items[0x100], gui.TX_COL_5_period, 20)
+        h.tx_edit(self.mw, self.items[0x100], tx_model.TX_COL_5_period, 20)
         self.assertIs(self.timer(0x100), t100)
         self.assertEqual(t100.period_ns, 20_000_000)
         self.assertEqual(t200.period_ns, 100_000_000)
 
     def test_period_is_clamped(self):
-        h.tx_edit(self.mw, self.items[0x100], gui.TX_COL_5_period, 0)
+        h.tx_edit(self.mw, self.items[0x100], tx_model.TX_COL_5_period, 0)
         self.assertEqual(self.items[0x100].period, 1)
 
 
@@ -176,7 +183,7 @@ class PayloadWriteTests(Base):
         self.tick(5)
         self.assertEqual(rejected, [])
         self.assertEqual(
-            h.tx_cell(self.mw, self.items[0x100], gui.TX_COL_6_payload)[-2:], "05"
+            h.tx_cell(self.mw, self.items[0x100], tx_model.TX_COL_6_payload)[-2:], "05"
         )
 
     def test_tx_writes_repaint_at_the_refresh_not_per_frame(self):
@@ -196,13 +203,13 @@ class PayloadWriteTests(Base):
         """2.8: a bad manual payload is refused; the row keeps its own."""
         good = "01 02 03 04 05 06 07 08"
         self.assertTrue(
-            h.tx_edit(self.mw, self.items[0x200], gui.TX_COL_6_payload, good)
+            h.tx_edit(self.mw, self.items[0x200], tx_model.TX_COL_6_payload, good)
         )
         self.assertFalse(
-            h.tx_edit(self.mw, self.items[0x200], gui.TX_COL_6_payload, "zz")
+            h.tx_edit(self.mw, self.items[0x200], tx_model.TX_COL_6_payload, "zz")
         )
         self.assertEqual(
-            h.tx_cell(self.mw, self.items[0x200], gui.TX_COL_6_payload), good
+            h.tx_cell(self.mw, self.items[0x200], tx_model.TX_COL_6_payload), good
         )
         self.assertEqual(h.DIALOGS[-1][0], "warning")
 

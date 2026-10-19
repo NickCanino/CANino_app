@@ -14,6 +14,9 @@ from PySide6.QtWidgets import QDialog  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+import src.dbc_loader as dbc_loader  # noqa: E402
+import src.tx_model as tx_model  # noqa: E402
+import src.tx_panel as tx_panel  # noqa: E402
 from src.tx_model import ENTRY_ROLE  # noqa: E402
 from test_tx_engine import FakeIf  # noqa: E402
 
@@ -163,15 +166,19 @@ class ExtendedIdTests(Base):
 
     def test_rx_dbc_name_matches_the_id_format(self):
         """1.7: the DBC name of the ext message never lands on the std frame."""
-        self.mw.rx_window.set_dbc(gui.load_dbc("flags.dbc"))
-        self.assertEqual(self.mw.rx_window._dbc_name(0x123, False), "STD_123")
-        self.assertEqual(self.mw.rx_window._dbc_name(0x123, True), "EXT_123")
+        self.mw.rx_window.set_dbc(dbc_loader.load_dbc("flags.dbc"))
+        rx = self.mw.rx_window
+        rx.push_frame(0x123, bytes(8), 8, False, None, False)
+        rx.push_frame(0x123, bytes(4), 4, False, None, True)
+        rx.drain()
+        names = {r[0]: r[1] for r in h.rx_view_rows(rx)}
+        self.assertEqual(names, {"0x123": "STD_123", "0x00000123": "EXT_123"})
 
 
 class FdFlagTests(Base):
     def test_dbc_rows_take_fd_and_ext_from_the_dbc(self):
         """2.4: FD/ext come from the DBC message, not from the connection mode."""
-        self.mw.dbc = gui.load_dbc("flags.dbc")
+        self.mw.dbc = dbc_loader.load_dbc("flags.dbc")
         self.mw.populate_signal_tree()
         self.assertEqual(
             self.rows(),
@@ -204,7 +211,7 @@ class FdFlagTests(Base):
         """2.9: no "(0 - 7)" on a table that carries 64-byte frames."""
         self.assertEqual(
             self.mw.tx_view.model().headerData(
-                gui.TX_COL_6_payload, Qt.Orientation.Horizontal
+                tx_model.TX_COL_6_payload, Qt.Orientation.Horizontal
             ),
             "Payload",
         )
@@ -212,7 +219,7 @@ class FdFlagTests(Base):
 
 class AddIdFormTests(Base):
     def dialog(self, existing=()):
-        return gui.AddIdDialog(None, existing)
+        return tx_panel.AddIdDialog(None, existing)
 
     def test_defaults(self):
         """2.2: the form proposes 100 ms and 8 bytes."""
@@ -254,7 +261,7 @@ class AddIdFormTests(Base):
         dlg.cb_fd.setChecked(True)
         self.assertEqual(
             [dlg.cb_dlc.itemData(i) for i in range(dlg.cb_dlc.count())],
-            list(gui.CAN_FD_LENGTHS),
+            list(tx_model.CAN_FD_LENGTHS),
         )
 
     def test_add_manual_id_adds_the_row(self):
@@ -269,19 +276,19 @@ class AddIdFormTests(Base):
             dlg.accept()
             return dlg.result()
 
-        orig = gui.AddIdDialog.exec
-        gui.AddIdDialog.exec = fake_exec
+        orig = tx_panel.AddIdDialog.exec
+        tx_panel.AddIdDialog.exec = fake_exec
         try:
             self.mw.add_manual_id()
         finally:
-            gui.AddIdDialog.exec = orig
+            tx_panel.AddIdDialog.exec = orig
         self.assertEqual(self.rows(), [("0x18FF0001", True, True, 16)])
         entry = self.entries()[0]
-        self.assertEqual(h.tx_cell(self.mw, entry, gui.TX_COL_4_name), "MY_ID")
+        self.assertEqual(h.tx_cell(self.mw, entry, tx_model.TX_COL_4_name), "MY_ID")
         self.assertEqual(
-            h.tx_cell(self.mw, entry, gui.TX_COL_6_payload), " ".join(["00"] * 16)
+            h.tx_cell(self.mw, entry, tx_model.TX_COL_6_payload), " ".join(["00"] * 16)
         )
-        self.assertEqual(h.tx_cell(self.mw, entry, gui.TX_COL_5_period), "100")
+        self.assertEqual(h.tx_cell(self.mw, entry, tx_model.TX_COL_5_period), "100")
         self.assertTrue(self.mw.btn_delete_all_ids.isEnabled())
 
 
@@ -293,7 +300,9 @@ class SortTests(Base):
         )
         self.run_tx()
         self.mw.can_if.flags.clear()
-        self.mw.tx_view.sortByColumn(gui.TX_COL_5_period, Qt.SortOrder.AscendingOrder)
+        self.mw.tx_view.sortByColumn(
+            tx_model.TX_COL_5_period, Qt.SortOrder.AscendingOrder
+        )
         self.assertEqual(h.tx_view_ids(self.mw), ["0x200", "0x300", "0x100"])
         h.fire_tx(self.mw)
         self.assertCountEqual(
@@ -310,7 +319,7 @@ class SortTests(Base):
                 row(0x80),
             ]
         )
-        self.mw.tx_view.sortByColumn(gui.TX_COL_2_id, Qt.SortOrder.AscendingOrder)
+        self.mw.tx_view.sortByColumn(tx_model.TX_COL_2_id, Qt.SortOrder.AscendingOrder)
         self.assertEqual(
             h.tx_view_ids(self.mw), ["0x080", "0x7FF", "0x00000123", "0x18FF0001"]
         )
@@ -329,7 +338,7 @@ class LoadDbcTests(Base):
     def test_load_dbc_twice_adds_no_duplicates(self):
         """6.9: Load DBC adds only the missing messages and keeps manual rows."""
         self.load([row(0x555), row(0x123, period=20)])
-        self.mw.dbc = gui.load_dbc("flags.dbc")
+        self.mw.dbc = dbc_loader.load_dbc("flags.dbc")
         self.mw.populate_signal_tree()
         self.mw.populate_signal_tree()
         ids = [r[0] for r in self.rows()]
