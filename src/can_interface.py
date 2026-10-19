@@ -20,7 +20,6 @@
 
 import can
 import threading
-import sys
 import time
 from typing import Callable, NamedTuple, Optional
 from can.interfaces.pcan.basic import (
@@ -177,7 +176,7 @@ class CANInterface:
             return True
         except Exception as e:
             self.bus = None
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
             return False
 
     def _receive_loop(self):
@@ -226,7 +225,7 @@ class CANInterface:
                 TPCANHandle(channel), PCAN_CHANNEL_FEATURES
             )
         except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
             return False
         return status == PCAN_ERROR_OK and bool(features & FEATURE_FD_CAPABLE)
 
@@ -242,7 +241,7 @@ class CANInterface:
             CANInterface.scan_error = (
                 "PCAN driver not found - install the PEAK-System device driver"
             )
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
             return available
         if status == PCAN_ERROR_OK:
             for ch in channels_info:

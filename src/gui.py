@@ -49,8 +49,8 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QCheckBox,
 )
-from PySide6.QtGui import QAction, QIcon, QPixmap, QFont, QColor
-from PySide6.QtCore import Qt, QTimer, QObject, Signal
+from PySide6.QtGui import QAction, QIcon, QPixmap, QFont, QColor, QDesktopServices
+from PySide6.QtCore import Qt, QTimer, QObject, Signal, QUrl
 import shiboken6
 import importlib.util
 import json
@@ -69,7 +69,7 @@ from src.dbc_loader import (
     dbc_bit_label,
 )
 from src.can_interface import CANInterface
-from src.exceptions_logger import log_exception, __version__
+from src.exceptions_logger import log_exception, __version__, log_dir as LOG_DIR
 from src.xmetro_class import XMetroWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
@@ -405,6 +405,13 @@ class MainWindow(QMainWindow):
         file_menu.addAction(action_load)
         menubar.addMenu(file_menu)
 
+        help_menu = QMenu("&Help", self)
+        action_logs = QAction("Open log folder", self)
+        action_logs.setToolTip(LOG_DIR)
+        action_logs.triggered.connect(self.open_log_folder)
+        help_menu.addAction(action_logs)
+        self.action_open_logs = action_logs
+
         # --- AGGIUNGI L'AZIONE "VAGILETTA" ALLA MENUBAR ---
         action_vagiletta = QAction("VAGILETTA", self)
         action_vagiletta.triggered.connect(self.open_vagiletta_window)
@@ -416,6 +423,7 @@ class MainWindow(QMainWindow):
         action_xmetro.triggered.connect(self.open_xmetro_window)
         menubar.addAction(action_xmetro)
 
+        menubar.addMenu(help_menu)
         self.setMenuBar(menubar)
 
         # --- CONTROLLI IN ALTO ---
@@ -955,7 +963,7 @@ class MainWindow(QMainWindow):
                 json.dump(config, f, indent=2)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving configuration: {e}")
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
             return False
         self._set_workspace_path(filename)
         QMessageBox.information(
@@ -1004,7 +1012,7 @@ class MainWindow(QMainWindow):
                 raise ValueError("not a CANino workspace (no JSON object)")
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
             return
 
         try:
@@ -1094,7 +1102,12 @@ class MainWindow(QMainWindow):
                 )
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
+
+    def open_log_folder(self):
+        """Logs live in the user's app data now, not next to the exe (TODO 9.3)."""
+        os.makedirs(LOG_DIR, exist_ok=True)
+        QDesktopServices.openUrl(QUrl.fromLocalFile(LOG_DIR))
 
     def open_vagiletta_window(self):
         dlg = VagilettaWindow(self)
@@ -1360,7 +1373,7 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 self.can_if = None
                 QMessageBox.critical(self, "Error", f"Error opening CAN: {e}")
-                log_exception(__file__, sys._getframe().f_lineno, e)
+                log_exception(e)
                 self.btn_connect.setChecked(False)
                 self.btn_start_tx.setEnabled(False)  # <--- Disable if error
 
@@ -2074,7 +2087,7 @@ class MainWindow(QMainWindow):
             # send
             self.can_if.send_frame(frame_id, data, dlc, is_fd, is_ext=is_ext)
         except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
 
     def process_received_frame(
         self, frame_id, data, dlc=None, is_fd=False, timestamp=None, is_ext=False
@@ -2090,7 +2103,7 @@ class MainWindow(QMainWindow):
                 self.rx_bridge.frame_received.emit(frame_id, bool(is_ext), bytes(data))
 
         except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
 
     def _feed_gauges(self, frame_id, is_ext, data):
         """GUI thread: update every XMetro gauge showing this frame."""
@@ -2135,7 +2148,7 @@ class MainWindow(QMainWindow):
             xmetro.show()
         except Exception as e:
             QMessageBox.critical(self, "XMetro", f"Cannot open XMetro: {e}")
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
 
     def timer_busload_elapsed(self):
         # Sums of TX bits in arbitration phase and data phase (for CAN-FD)
@@ -2171,13 +2184,6 @@ class MainWindow(QMainWindow):
                 float(tot_arbitration_bits + tot_data_bits) / arbitration_baudrate
             )
             tot_data_time_s = 0.0  # no distiction
-
-        # print(
-        #     f"arbitration_baudrate={arbitration_baudrate} data_baudrate={real_data_val} "
-        #     f"tot_arbitration_time_s={tot_arbitration_time_s:6.4f} tot_data_time_s={tot_data_time_s:6.4f} "
-        #     f"tot_arbitration_bits={tot_arbitration_bits:6.4f} tot_data_bits={tot_data_bits:6.4f} "
-        #     f"real_arb_val={real_arb_val} real_data_val={real_data_val}"
-        # )
 
         # Busload as percentage
         busload = ((tot_arbitration_time_s + tot_data_time_s) * 100) / (

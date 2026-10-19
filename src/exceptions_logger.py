@@ -19,8 +19,12 @@
 # -----------------------------------------------------------------------------
 
 import logging
+import logging.handlers
 import datetime
+import glob
 import os
+import sys
+import tempfile
 import threading
 import time
 
@@ -33,22 +37,74 @@ try:
 except Exception:
     __version__ = "0.0.0"
 
-# Crea un nome file log con data e ora
-log_dir = "log"
+LOG_KEEP = 30  # newest log files kept; older ones are deleted at start-up
+LOG_MAX_BYTES = 5 * 1024 * 1024
+LOG_FORMAT = "%(asctime)s [%(levelname)s] %(name)s %(module)s:%(lineno)d: %(message)s"
+
+
+def default_log_dir() -> str:
+    """Per-user log folder (TODO 9.3); CANINO_LOG_DIR overrides it (tests).
+
+    Logs used to go to ./log in the CWD - inside the OneDrive repo when run
+    from source, next to the exe in dist/ - with one empty file per launch.
+    """
+    override = os.environ.get("CANINO_LOG_DIR")
+    if override:
+        return override
+    base = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+    return os.path.join(base, "CANinoApp", "log")
+
+
+def _prune_old_logs(directory: str, keep: int = LOG_KEEP):
+    files = sorted(
+        glob.glob(os.path.join(directory, "canino_app_*.log*")), key=os.path.getmtime
+    )
+    for old in files[:-keep] if keep else files:
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+
+
+log_dir = default_log_dir()
 os.makedirs(log_dir, exist_ok=True)
+_prune_old_logs(log_dir)
 log_time = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
 log_filename = os.path.join(log_dir, f"canino_app_v{__version__}_{log_time}.log")
 
-logging.basicConfig(
-    filename=log_filename,
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
+# delay=True: the file appears with the first record, so a clean session
+# leaves nothing behind
+_file_handler = logging.handlers.RotatingFileHandler(
+    log_filename,
+    maxBytes=LOG_MAX_BYTES,
+    backupCount=2,
+    encoding="utf-8",
+    delay=True,
 )
+_file_handler.setFormatter(logging.Formatter(LOG_FORMAT))
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+_root.addHandler(_file_handler)
+
+# From source, warnings also reach the console; the windowed exe has none
+if (
+    not getattr(sys, "frozen", False)
+    and sys.stderr is not None
+    and os.environ.get("CANINO_LOG_CONSOLE", "1") != "0"
+):
+    _console = logging.StreamHandler()
+    _console.setLevel(logging.WARNING)
+    _console.setFormatter(
+        logging.Formatter("[%(levelname)s] %(module)s:%(lineno)d: %(message)s")
+    )
+    _root.addHandler(_console)
 
 
-def log_exception(filename="", line_number="", e=""):
-    print(f"Exception occurred [{filename}:{line_number}]: {e}")
-    logging.error("Exception occurred", exc_info=e)
+def log_exception(e: BaseException):
+    """Log `e` with its traceback, stamped with the caller's module:line (TODO 9.4)."""
+    logging.getLogger("canino").error(
+        "%s: %s", type(e).__name__, e, exc_info=e, stacklevel=2
+    )
 
 
 class ThrottleFilter(logging.Filter):

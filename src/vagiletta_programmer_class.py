@@ -39,7 +39,6 @@ import hashlib
 import json
 import os
 import subprocess
-import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -165,7 +164,7 @@ class PortScanWorker(QObject):
             else:
                 self.done.emit(res.stdout, "")
         except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
             self.done.emit("", str(e))
 
 
@@ -248,7 +247,7 @@ class FlashWorker(QObject):
             self.finished.emit(True, f"Flashed {self.port}.")
 
         except Exception as e:
-            log_exception(__file__, sys._getframe().f_lineno, e)
+            log_exception(e)
             self.finished.emit(False, str(e))
 
 

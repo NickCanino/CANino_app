@@ -36,7 +36,6 @@ from PySide6.QtGui import QFont
 from PySide6.QtCore import Qt, QTimer, QDateTime
 import time
 import csv
-import sys
 import statistics
 import threading
 from datetime import datetime
@@ -542,7 +541,7 @@ class ReceivedFramesWindow(QWidget):
                 )
                 self.csv_file.flush()
             except Exception as e:
-                log_exception(__file__, sys._getframe().f_lineno, e)
+                log_exception(e)
 
     def start_log(self):  # metodo per avviare il log e aprire il file CSV
         if not self.csv_path:
