@@ -184,10 +184,14 @@ class BusloadLabelTests(unittest.TestCase):
         self.mw.can_if = FakeIf(gui.pcan_timing(gui.PCAN_BAUD_500K))
         for _ in range(1000):
             self.rx.push_frame(0x000, b"", 0, False)
-        self.assertAlmostEqual(self.load_after(1.0), 10.6, delta=0.05)
+        self.assertAlmostEqual(
+            self.load_after(1.0), 10.6, delta=0.1
+        )  # the label has 0.1 % steps
         for _ in range(1000):
             self.rx.push_frame(0x000, b"", 0, False)
-        self.assertAlmostEqual(self.load_after(2.0), 5.3, delta=0.05)
+        self.assertAlmostEqual(
+            self.load_after(2.0), 5.3, delta=0.1
+        )  # the label has 0.1 % steps
 
     def test_rate_comes_from_the_channel_not_the_combo(self):
         """9.8: changing the combo after connecting does not rescale the load."""
@@ -195,7 +199,9 @@ class BusloadLabelTests(unittest.TestCase):
         self.mw.cb_baudrate.setCurrentIndex(4)  # 250 kBit/s
         for _ in range(1000):
             self.rx.push_frame(0x000, b"", 0, False)
-        self.assertAlmostEqual(self.load_after(1.0), 10.6, delta=0.05)
+        self.assertAlmostEqual(
+            self.load_after(1.0), 10.6, delta=0.1
+        )  # the label has 0.1 % steps
 
     def test_fd_data_phase_at_the_data_rate(self):
         self.mw.can_if = FakeIf(gui.PCAN_BAUD_FD_2M)
@@ -203,7 +209,9 @@ class BusloadLabelTests(unittest.TestCase):
             self.rx.push_frame(0x123, bytes(64), 64, True)
         nominal, data = frame_bits(0x123, bytes(64), True)
         expected = 100 * (nominal / 500_000 + data / 2_000_000) * 100
-        self.assertAlmostEqual(self.load_after(1.0), expected, delta=0.05)
+        self.assertAlmostEqual(
+            self.load_after(1.0), expected, delta=0.1
+        )  # the label has 0.1 % steps
 
     def test_disconnected_shows_no_load(self):
         self.rx.push_frame(0x000, b"", 0, False)
