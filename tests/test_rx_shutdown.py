@@ -109,6 +109,9 @@ class RxTableTests(Base):
         self.assertGreater(drains, 1)
         self.assertEqual(self.rx.model.rowCount(), 2000)
 
+    @unittest.skipIf(
+        os.environ.get("CI"), "measures the machine's timing, not the code"
+    )
     def test_refresh_cost_with_many_rows(self):
         """5.6: 1,000 IDs updated per drain stay far below the old 465 ms rebuild."""
         self.rx.resize(1000, 600)

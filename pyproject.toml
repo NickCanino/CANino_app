@@ -1,0 +1,17 @@
+# Tool settings only: CANino App is run from source (python main.py) or built
+# with PyInstaller (CANinoApp_exe_setup.spec), not installed as a package.
+
+[tool.ruff]
+line-length = 88
+target-version = "py310"
+# PEAK's vendor wrapper is kept byte-for-byte as shipped
+extend-exclude = ["src/PCANBasic.py"]
+
+[tool.ruff.lint]
+# Ruff's defaults (pyflakes + the error subset of pycodestyle)
+select = ["E4", "E7", "E9", "F"]
+
+[tool.black]
+line-length = 88
+target-version = ["py310"]
+force-exclude = "src/PCANBasic\\.py"
