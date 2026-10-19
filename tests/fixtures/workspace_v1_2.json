@@ -1,0 +1,13 @@
+{
+  "dbc_file": null,
+  "global_script": "..\\resources\\script_templates\\GLO_TPS_sawtooth.py",
+  "signals": [
+    {
+      "enabled": true,
+      "id": "0x100",
+      "fd": null,
+      "dlc": 8
+    }
+  ],
+  "sliders": []
+}

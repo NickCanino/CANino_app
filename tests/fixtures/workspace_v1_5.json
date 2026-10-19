@@ -1,0 +1,30 @@
+{
+  "dbc_file": "dbc/a.dbc",
+  "global_script": null,
+  "signals": [
+    {
+      "enabled": true,
+      "id": "0x00000123",
+      "ext": "Y",
+      "fd": "n",
+      "dlc": 4
+    },
+    {
+      "enabled": true,
+      "id": "0x200",
+      "ext": "n",
+      "fd": "Y",
+      "dlc": 12
+    }
+  ],
+  "sliders": [
+    {
+      "msg_name": "MSG_A",
+      "signal_name": "SIG_X",
+      "frame_id": 256,
+      "is_ext": false,
+      "value": 7.5,
+      "value_index": 99
+    }
+  ]
+}

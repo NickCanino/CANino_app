@@ -1,7 +1,7 @@
 """Phase 2 / sub-task 6 — TODO 6.7: versioned workspace schema + migration.
 
-The version-1 fixtures copy the layouts of real files written by CANino
-1.0.2, 1.2.x, 1.3.5 and 1.5. Run from the repo root:
+The version-1 fixtures (tests/fixtures/workspace_v1_*.json, TODO 11.2) copy
+the layouts of real files written by CANino 1.0.2, 1.2.x and 1.5. Run from the repo root:
     python -m unittest discover -s tests -v
 """
 
@@ -24,68 +24,20 @@ from src.workspace import (  # noqa: E402
     migrate,
 )
 
+FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
+
+
+def fixture(name):
+    with open(os.path.join(FIXTURES, name), encoding="utf-8") as f:
+        return json.load(f)
+
+
 # CANino 1.0.2: no "fd", no "ext", Windows paths, sliders by index
-V1_0_2 = {
-    "dbc_file": "resources\\dbc_files\\a.dbc",
-    "signals": [
-        {
-            "enabled": True,
-            "id": "0x123",
-            "name": "A",
-            "period": 10,
-            "payload": "00 00 00 00 00 00 00 00",
-            "dlc": 8,
-            "script_path": "resources\\script_templates\\template_payload_script_sawtooth.py",
-        },
-        {
-            "enabled": False,
-            "id": "0x18FF0001",
-            "name": "B",
-            "period": 100,
-            "payload": "",
-            "dlc": 8,
-            "script_path": None,
-        },
-    ],
-    "sliders": [
-        {
-            "msg_name": "SIG_X",  # before 1.5 this held the signal name
-            "signal_name": "SIG_X",
-            "frame_id": 256,
-            "min_val": 0,
-            "max_val": 255,
-            "step": 1,
-            "unit": "",
-            "value_index": 42,
-        }
-    ],
-}
+V1_0_2 = fixture("workspace_v1_0_2.json")
 # CANino 1.2.x: "fd": null
-V1_2 = {
-    "dbc_file": None,
-    "global_script": "..\\resources\\script_templates\\GLO_TPS_sawtooth.py",
-    "signals": [{"enabled": True, "id": "0x100", "fd": None, "dlc": 8}],
-    "sliders": [],
-}
+V1_2 = fixture("workspace_v1_2.json")
 # CANino 1.5: "ext"/"fd" as "Y"/"n", "/" paths, slider values
-V1_5 = {
-    "dbc_file": "dbc/a.dbc",
-    "global_script": None,
-    "signals": [
-        {"enabled": True, "id": "0x00000123", "ext": "Y", "fd": "n", "dlc": 4},
-        {"enabled": True, "id": "0x200", "ext": "n", "fd": "Y", "dlc": 12},
-    ],
-    "sliders": [
-        {
-            "msg_name": "MSG_A",
-            "signal_name": "SIG_X",
-            "frame_id": 256,
-            "is_ext": False,
-            "value": 7.5,
-            "value_index": 99,  # ignored: "value" wins
-        }
-    ],
-}
+V1_5 = fixture("workspace_v1_5.json")
 
 
 class MigrateTests(unittest.TestCase):

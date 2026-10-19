@@ -1,0 +1,35 @@
+{
+  "dbc_file": "resources\\dbc_files\\a.dbc",
+  "signals": [
+    {
+      "enabled": true,
+      "id": "0x123",
+      "name": "A",
+      "period": 10,
+      "payload": "00 00 00 00 00 00 00 00",
+      "dlc": 8,
+      "script_path": "resources\\script_templates\\template_payload_script_sawtooth.py"
+    },
+    {
+      "enabled": false,
+      "id": "0x18FF0001",
+      "name": "B",
+      "period": 100,
+      "payload": "",
+      "dlc": 8,
+      "script_path": null
+    }
+  ],
+  "sliders": [
+    {
+      "msg_name": "SIG_X",
+      "signal_name": "SIG_X",
+      "frame_id": 256,
+      "min_val": 0,
+      "max_val": 255,
+      "step": 1,
+      "unit": "",
+      "value_index": 42
+    }
+  ]
+}

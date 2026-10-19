@@ -30,6 +30,9 @@ Thumbs.db
 *.log
 *.json
 *.dbc
+# Synthetic test fixtures only - never research data (TODO 11.2)
+!tests/fixtures/*.json
+!tests/fixtures/*.dbc
 tmp/
 arduino_build/
 
