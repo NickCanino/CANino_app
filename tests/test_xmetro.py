@@ -73,8 +73,7 @@ class FeedTests(Base):
         self.mw._add_tx_row(0x100, "STD_A", payload="2A 00 00 00 00 00 00 00")
         self.mw.can_if = FakeIf()
         self.mw.start_stop_transmission()
-        for t in list(self.mw.timers):
-            t.timeout.emit()
+        h.fire_tx(self.mw)
         self.assertEqual(g.gauge.value, 42)
 
     def test_std_and_ext_with_the_same_number_stay_apart(self):

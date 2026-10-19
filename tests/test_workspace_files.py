@@ -119,7 +119,7 @@ class LoadReplacesTests(Base):
         self.mw.start_stop_transmission()
         self.load(self.write("c.json", {"signals": [row(0x300)]}))
         self.assertFalse(self.mw.tx_running)
-        self.assertEqual(self.mw.timers, [])
+        self.assertEqual(self.mw.tx_scheduler.entries(), [])
         self.assertEqual(self.mw.can_if.flushes, 1)
         self.assertEqual(self.ids(), ["0x300"])
 
@@ -175,8 +175,7 @@ class PathTests(Base):
         self.assertTrue(os.path.isabs(path) and os.path.exists(path), path)
         self.mw.can_if = FakeIf()
         self.mw.start_stop_transmission()
-        for t in list(self.mw.timers):
-            t.timeout.emit()
+        h.fire_tx(self.mw)
         # script 7s, then the slider writes SIG_X = 9 into byte 0
         self.assertEqual(self.mw.can_if.sent, [(0x100, bytes([9] + [7] * 7))])
 

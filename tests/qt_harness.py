@@ -25,6 +25,12 @@ from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 app = QApplication.instance() or QApplication([])
 
+import src.tx_scheduler as _tx_scheduler  # noqa: E402
+
+# No TX thread: tests fire the scheduled rows themselves (fire_tx), so frame
+# counts never depend on the wall clock. Timing tests opt in per instance.
+_tx_scheduler.TxScheduler.threaded = False
+
 DIALOGS = []
 
 
@@ -154,10 +160,11 @@ def tx_check(mw, entry, checked):
 
 
 def fire_tx(mw, times=1):
-    """One tick of every running TX timer."""
+    """One tick of every scheduled TX row (no TX thread in tests), then the
+    GUI refresh that repaints the rows and feeds XMetro."""
     for _ in range(times):
-        for t in list(mw.timers):
-            t.timeout.emit()
+        mw.tx_scheduler.fire_all()
+    mw._tx_refresh()
 
 
 def rx_view_rows(rx):

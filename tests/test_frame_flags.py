@@ -81,9 +81,7 @@ class Base(unittest.TestCase):
         self.mw.can_if = FakeIf()
         self.mw.can_if.is_fd = is_fd
         self.mw.start_stop_transmission()
-        for _ in range(ticks):
-            for t in list(self.mw.timers):
-                t.timeout.emit()
+        h.fire_tx(self.mw, ticks)
         return self.mw.can_if.flags
 
 

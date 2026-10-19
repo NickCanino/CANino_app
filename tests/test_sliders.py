@@ -69,8 +69,7 @@ class Base(unittest.TestCase):
         self.mw.can_if.sent.clear()
         self.mw.can_if.flags.clear()
         self.mw.start_stop_transmission()
-        for t in list(self.mw.timers):
-            t.timeout.emit()
+        h.fire_tx(self.mw)
         self.mw.stop_tx()
         return {
             (f, x): d

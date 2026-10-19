@@ -10,7 +10,6 @@ import unittest
 import qt_harness as h  # noqa: F401  (must come before src imports)
 
 import can  # noqa: E402
-from PySide6.QtCore import Qt  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
@@ -84,9 +83,7 @@ class TxEngineTests(unittest.TestCase):
         self.mw.close()
 
     def tick(self, n=1):
-        for _ in range(n):
-            for t in list(self.mw.timers):
-                t.timeout.emit()
+        h.fire_tx(self.mw, n)
 
     def last_bytes(self, fid):
         return [d[-1] for f, d in self.mw.can_if.sent if f == fid]
@@ -120,12 +117,11 @@ class TxEngineTests(unittest.TestCase):
         self.tick(2)
         self.assertEqual(self.last_bytes(0x100), [1, 2])
 
-    def test_timers_are_precise(self):
-        """2.10: CoarseTimer would round 50/100 ms to 15.625 ms ticks."""
+    def test_rows_are_scheduled_with_their_period(self):
+        """2.10/2.11: every enabled row is a scheduler job with its exact period."""
         self.mw.start_stop_transmission()
-        self.assertTrue(self.mw.timers)
-        for t in self.mw.timers:
-            self.assertEqual(t.timerType(), Qt.TimerType.PreciseTimer)
+        jobs = [self.mw.tx_scheduler.job(e) for e in self.mw._tx_entries()]
+        self.assertEqual([j.period_ns for j in jobs], [100_000_000] * 3)
 
     def test_user_stop_flushes_the_tx_queue(self):
         """1.14: Stop TX drops what the driver could not send yet."""

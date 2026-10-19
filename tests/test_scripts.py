@@ -181,9 +181,7 @@ class GuiScriptTests(unittest.TestCase):
         self.mw._set_script_link(self.item, name)
 
     def tick(self, n=1):
-        for _ in range(n):
-            for t in list(self.mw.timers):
-                t.timeout.emit()
+        h.fire_tx(self.mw, n)
 
     def sent(self):
         return self.mw.can_if.sent

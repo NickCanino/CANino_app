@@ -46,12 +46,10 @@ class Base(unittest.TestCase):
         self.mw.close()
 
     def timer(self, fid):
-        return self.mw._timer_of(self.items[fid])
+        return self.mw.tx_scheduler.job(self.items[fid])
 
     def tick(self, n=1):
-        for _ in range(n):
-            for t in list(self.mw.timers):
-                t.timeout.emit()
+        h.fire_tx(self.mw, n)
 
     def sent(self, fid):
         return [d for f, d in self.mw.can_if.sent if f == fid]
@@ -62,7 +60,7 @@ class Base(unittest.TestCase):
 
 class ToggleTests(Base):
     def test_toggling_one_row_leaves_the_other_timers_alone(self):
-        """2.6: unchecking/re-checking 0x300 must not recreate 0x100/0x200's timers."""
+        """2.6: unchecking/re-checking 0x300 must not reschedule 0x100/0x200."""
         self.mw.start_stop_transmission()
         t100, t200, t300 = self.timer(0x100), self.timer(0x200), self.timer(0x300)
         self.set_enabled(0x300, False)
@@ -72,7 +70,7 @@ class ToggleTests(Base):
         self.set_enabled(0x300, True)
         self.assertIsNot(self.timer(0x300), t300)
         self.assertIs(self.timer(0x100), t100)
-        self.assertTrue(t100.isActive() and t200.isActive())
+        self.assertCountEqual(self.mw.tx_scheduler.entries(), list(self.items.values()))
 
     def test_disable_all_is_one_sync_not_a_restart_per_row(self):
         """2.6: Disable All stops every timer without restarting TX per row."""
@@ -82,10 +80,10 @@ class ToggleTests(Base):
         self.mw.start_tx = lambda: restarts.append(1) or orig()
         try:
             self.mw.disable_all_ids_tx()
-            self.assertEqual(self.mw.timers, [])
+            self.assertEqual(self.mw.tx_scheduler.entries(), [])
             self.assertTrue(self.mw.tx_running)
             self.mw.disable_all_ids_tx()  # Enable All
-            self.assertEqual(len(self.mw.timers), 3)
+            self.assertEqual(len(self.mw.tx_scheduler.entries()), 3)
         finally:
             self.mw.start_tx = orig
         self.assertEqual(restarts, [])
@@ -107,7 +105,7 @@ class ToggleTests(Base):
         finally:
             gui.AddIdDialog.exec = orig
         self.assertIs(self.timer(0x100), t100)
-        self.assertEqual(len(self.mw.timers), 4)
+        self.assertEqual(len(self.mw.tx_scheduler.entries()), 4)
         self.tick()
         self.assertEqual(len(self.sent(0x400)), 1)
 
@@ -133,6 +131,7 @@ class ToggleTests(Base):
         w.slider.setRange(0, 255)
         w.slider.setValue(42)
         self.mw.slider_widgets.append(w)
+        self.mw._refresh_slider_overrides()
         self.tick()
         self.mw.remove_slider_widget(w)
         h.tx_edit(
@@ -159,8 +158,8 @@ class PeriodTests(Base):
         t100, t200 = self.timer(0x100), self.timer(0x200)
         h.tx_edit(self.mw, self.items[0x100], gui.TX_COL_5_period, 20)
         self.assertIs(self.timer(0x100), t100)
-        self.assertEqual(t100.interval(), 20)
-        self.assertEqual(t200.interval(), 100)
+        self.assertEqual(t100.period_ns, 20_000_000)
+        self.assertEqual(t200.period_ns, 100_000_000)
 
     def test_period_is_clamped(self):
         h.tx_edit(self.mw, self.items[0x100], gui.TX_COL_5_period, 0)
@@ -187,7 +186,8 @@ class PayloadWriteTests(Base):
         self.mw.tx_model.flush()
         changed = []
         self.mw.tx_model.dataChanged.connect(lambda *a: changed.append(a))
-        self.tick(5)
+        for _ in range(5):
+            self.mw.tx_scheduler.fire_all()  # the TX thread's ticks, no GUI refresh
         self.assertEqual(changed, [])
         self.mw.tx_model.flush()
         self.assertEqual(len(changed), 1)
@@ -220,7 +220,7 @@ class ViewTests(Base):
         self.mw.start_stop_transmission()
         self.mw.tx_buttons.delete_clicked.emit(self.items[0x200])
         self.assertEqual(h.tx_view_ids(self.mw), ["0x100", "0x300"])
-        self.assertIsNone(self.mw._timer_of(self.items[0x200]))
+        self.assertIsNone(self.mw.tx_scheduler.job(self.items[0x200]))
 
     def test_click_on_the_painted_buttons(self):
         """2.13: a click in the script cell links; in the delete cell deletes."""
