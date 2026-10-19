@@ -18,8 +18,6 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# TODO: assicurarsi che se si fa "load config" e poi "load DBC", la tabella venga aggiornata correttamente (no ID doppioni, mantenuti ID non inclusi nel DBC)
-
 from PySide6.QtWidgets import (
     QApplication,
     QMainWindow,
@@ -412,12 +410,12 @@ class MainWindow(QMainWindow):
         help_menu.addAction(action_logs)
         self.action_open_logs = action_logs
 
-        # --- AGGIUNGI L'AZIONE "VAGILETTA" ALLA MENUBAR ---
+        # --- "VAGILETTA" action in the menu bar ---
         action_vagiletta = QAction("VAGILETTA", self)
         action_vagiletta.triggered.connect(self.open_vagiletta_window)
         menubar.addAction(action_vagiletta)
 
-        # --- AGGIUNGI L'AZIONE "XMETRO" ALLA MENUBAR ---
+        # --- "XMetro" action in the menu bar ---
         action_xmetro = QAction("XMetro", self)
         # action_xmetro.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogInfoView))
         action_xmetro.triggered.connect(self.open_xmetro_window)
@@ -426,13 +424,13 @@ class MainWindow(QMainWindow):
         menubar.addMenu(help_menu)
         self.setMenuBar(menubar)
 
-        # --- CONTROLLI IN ALTO ---
+        # --- TOP CONTROLS ---
         top_controls = QWidget()
         top_layout = QHBoxLayout()
         top_controls.setLayout(top_layout)
-        top_controls.setFixedHeight(50)  # Imposta l'altezza fissa del box superiore
+        top_controls.setFixedHeight(50)  # Fixed height of the top bar
 
-        # --- PULSANTI E COMBOBOX IN ALTO ---
+        # --- TOP BUTTONS AND COMBO BOXES ---
         self.btn_load_dbc = QPushButton("  Load DBC")
         self.btn_load_dbc.setToolTip(
             "Load a DBC file to be used for TX list, RX decoding, Sliders, and XMetro Gauges."
@@ -444,7 +442,7 @@ class MainWindow(QMainWindow):
         self.btn_load_dbc.clicked.connect(self.load_dbc_file)
         top_layout.addWidget(self.btn_load_dbc)
 
-        ## ComboBox per selezionare il canale CAN
+        # Combo box to select the CAN channel
         self.lbl_bus_tx = QLabel("Channel:")
         self.lbl_bus_tx.setToolTip(
             "Select the USB-to-CAN bus channel to be used for TX and RX."
@@ -467,7 +465,7 @@ class MainWindow(QMainWindow):
         self.btn_refresh_bus.clicked.connect(self.refresh_bus_list)
         top_layout.addWidget(self.btn_refresh_bus)
 
-        # Timer per aggiornare il busload
+        # Timer that refreshes the busload
         self.timer_busload = QTimer(self)
         self.timer_busload.timeout.connect(self.timer_busload_elapsed)
         self.timer_busload.start(BUSLOAD_refresh_rate_ms)
@@ -555,7 +553,7 @@ class MainWindow(QMainWindow):
         )
         self.btn_start_tx.setFixedSize(100, 30)
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
-        self.btn_start_tx.setEnabled(False)  # Disabilita il pulsante all'inizio
+        self.btn_start_tx.setEnabled(False)  # Disabled until connected
 
         # Button to disable all ID in TX
         self.btn_disable_all_ids = QPushButton("Disable All")
@@ -565,7 +563,7 @@ class MainWindow(QMainWindow):
         )
         self.btn_disable_all_ids.setFixedSize(100, 30)
         self.btn_disable_all_ids.clicked.connect(self.disable_all_ids_tx)
-        self.btn_disable_all_ids.setEnabled(False)  # Disabilita il pulsante all'inizio
+        self.btn_disable_all_ids.setEnabled(False)  # Disabled until there are rows
 
         # Button to delete all IDs in TX
         self.btn_delete_all_ids = QPushButton("Delete All")
@@ -575,7 +573,7 @@ class MainWindow(QMainWindow):
         )
         self.btn_delete_all_ids.setFixedSize(100, 30)
         self.btn_delete_all_ids.clicked.connect(self.delete_all_ids_tx)
-        self.btn_delete_all_ids.setEnabled(False)  # Disabilitato all'inizio
+        self.btn_delete_all_ids.setEnabled(False)  # Disabled until there are rows
 
         # # Button to open the XMetro window
         # self.btn_add_xmetro = QPushButton("Add XMetro")
@@ -608,10 +606,10 @@ class MainWindow(QMainWindow):
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
         )
         self.btn_remove_global_script.setFixedSize(30, 30)
-        self.btn_remove_global_script.setEnabled(False)  # Disabilitato di default
+        self.btn_remove_global_script.setEnabled(False)  # Nothing linked yet
         self.btn_remove_global_script.clicked.connect(self.remove_global_payload_script)
 
-        # Layout orizzontale per i due pulsanti
+        # Horizontal layout for the TX buttons
         tx_buttons_layout = QHBoxLayout()
         tx_buttons_layout.addWidget(self.btn_add_id)
         tx_buttons_layout.addWidget(self.btn_delete_all_ids)
@@ -623,7 +621,7 @@ class MainWindow(QMainWindow):
         tx_buttons_layout.addWidget(self.btn_link_global_script)
         tx_buttons_layout.addWidget(self.btn_remove_global_script)
 
-        # --- ALBERO DEI SEGNALI ---
+        # --- TX TABLE (signal tree) ---
         self.signal_tree = QTreeWidget()
         self.signal_tree.setHeaderLabels(
             [
@@ -651,12 +649,12 @@ class MainWindow(QMainWindow):
         self.signal_tree.setItemDelegate(PayloadEditDelegate(self.signal_tree))
         self.signal_tree.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Groupbox per i controlli di trasmissione
+        # Group box for the transmission controls
         tx_group = QGroupBox()
         tx_group.setStyleSheet(
             "QGroupBox { border: 2px solid #4CAF50; border-radius: 5px; }"
         )
-        # Crea il layout verticale per il gruppo di trasmissione
+        # Vertical layout of the TX group
         tx_layout = QVBoxLayout()
         tx_group.setLayout(tx_layout)
         tx_title = QLabel("Transmitted CAN Frames (TX)")
@@ -666,7 +664,7 @@ class MainWindow(QMainWindow):
         tx_layout.addLayout(tx_buttons_layout)
         tx_layout.addWidget(self.signal_tree)
 
-        # Aggiungi il layout dei controlli di ricezione al layout principale
+        # RX controls
         self.rx_window = ReceivedFramesWindow(self.dbc)
         # RX thread -> GUI thread hand-over for the XMetro gauges
         self.xmetro_windows = []
@@ -676,7 +674,7 @@ class MainWindow(QMainWindow):
         rx_group.setStyleSheet(
             "QGroupBox { border: 2px solid #2196F3; border-radius: 5px; }"
         )
-        # Crea il layout verticale per il gruppo di ricezione
+        # Vertical layout of the RX group
         rx_layout = QVBoxLayout()
         rx_group.setLayout(rx_layout)
         rx_title = QLabel("Received CAN Frames (RX)")
@@ -685,7 +683,7 @@ class MainWindow(QMainWindow):
         rx_layout.addWidget(rx_title)
         rx_layout.addWidget(self.rx_window)
 
-        # --- GRUPPO DEGLI SLIDER ---
+        # --- SLIDER GROUP ---
         slider_group = QGroupBox()
         slider_group.setStyleSheet(
             "QGroupBox { border: 2px solid #FF9800; border-radius: 5px; }"
@@ -710,7 +708,7 @@ class MainWindow(QMainWindow):
         self.btn_add_slider.setFixedSize(150, 30)
         slider_layout.addWidget(self.btn_add_slider)
 
-        # Area scrollabile
+        # Scroll area
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
         slider_scroll_widget = QWidget()
@@ -727,9 +725,9 @@ class MainWindow(QMainWindow):
 
         self.btn_add_slider.clicked.connect(self.add_slider)
 
-        # --- SPLITTER PRINCIPALE ---
+        # --- MAIN SPLITTER ---
         main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        # Box sinistra: splitter verticale con TX e RX
+        # Left side: vertical splitter with TX and RX
         left_splitter = QSplitter(Qt.Orientation.Vertical)
         left_splitter.addWidget(tx_group)
         left_splitter.addWidget(rx_group)
@@ -740,9 +738,9 @@ class MainWindow(QMainWindow):
         main_splitter.setStretchFactor(0, 5)
         main_splitter.setStretchFactor(1, 2)
 
-        # --- BARRA IN FONDO CON IMMAGINE ---
+        # --- FOOTER WITH LOGOS ---
         footer_widget = QWidget()
-        footer_widget.setFixedHeight(40)  # Altezza fissa, puoi cambiare il valore
+        footer_widget.setFixedHeight(40)  # Fixed height
 
         footer_bar = QHBoxLayout(footer_widget)
         footer_bar.setContentsMargins(0, 0, 0, 0)
@@ -758,7 +756,7 @@ class MainWindow(QMainWindow):
             Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom
         )
 
-        # Scala la figura in base all'altezza fissa
+        # Scale the images to the footer height
         footer_height = footer_widget.height()
 
         pixmap_banner_app = QPixmap(
@@ -778,7 +776,7 @@ class MainWindow(QMainWindow):
         footer_bar.addWidget(footer_label_banner)
         footer_bar.addWidget(footer_label_dii)
 
-        # Layout principale
+        # Main layout
         main_layout = QVBoxLayout()
         main_layout.addWidget(top_controls)
         main_layout.addWidget(main_splitter)
@@ -789,13 +787,13 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(container)
 
         self.refresh_bus_list()
-        # Carica la configurazione all'avvio, se esiste
+        # Load the default workspace at start-up, if it exists
         self.load_config(auto=True)
 
     def disable_all_ids_tx(self):
         if (
             self.btn_disable_all_ids.text() == "Enable All"
-        ):  # Attualmente disabilitati, quindi abilita tutti
+        ):  # Currently disabled: enable all
             self._set_all_enabled(True)
 
             self.btn_disable_all_ids.setText("Disable All")
@@ -803,7 +801,7 @@ class MainWindow(QMainWindow):
             self.btn_disable_all_ids.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
             )
-        else:  # Attualmente abilitati, quindi disabilita tutti
+        else:  # Currently enabled: disable all
             self._set_all_enabled(False)
 
             self.btn_disable_all_ids.setText("Enable All")
@@ -814,12 +812,12 @@ class MainWindow(QMainWindow):
 
     def delete_all_ids_tx(self):
         """
-        Elimina tutti gli ID dalla tabella TX dopo conferma.
+        Delete every ID from the TX table, after confirmation.
         """
         if self.signal_tree.topLevelItemCount() == 0:
-            return  # Tabella già vuota
+            return  # Table already empty
 
-        # Chiedi conferma
+        # Ask for confirmation
         reply = QMessageBox.question(
             self,
             "Confirm Deletion",
@@ -829,19 +827,19 @@ class MainWindow(QMainWindow):
         )
 
         if reply == QMessageBox.StandardButton.Yes:
-            # Ferma la trasmissione se è attiva
+            # Stop the transmission if it is running
             if self.tx_running:
                 self.stop_tx()
             else:
-                # Assicurati che i timer siano puliti anche se non in "running"
+                # Make sure no timer is left, even when not running
                 for t in self.timers:
                     t.stop()
                 self.timers.clear()
 
-            # Pulisci la tabella
+            # Clear the table
             self.signal_tree.clear()
 
-            # Disabilita i pulsanti che dipendono dalla lista
+            # Disable the buttons that need rows
             self.btn_disable_all_ids.setEnabled(False)
             self.btn_delete_all_ids.setEnabled(False)
 
@@ -993,11 +991,11 @@ class MainWindow(QMainWindow):
 
     def load_config(self, auto=False):
         """Replace the workspace with a JSON file (TODO 6.4); the table stays editable."""
-        if auto:  # Carica automaticamente il file di configurazione predefinito
+        if auto:  # Load the default workspace file
             filename = self.CONFIG_FILE
             if not os.path.exists(filename):
                 return
-        else:  # Carica tramite dialogo
+        else:  # Ask for the file
             filename, _ = QFileDialog.getOpenFileName(
                 self, "Load configuration", "", "File JSON (*.json)"
             )
@@ -1397,9 +1395,9 @@ class MainWindow(QMainWindow):
             self.cb_bus_tx.setEnabled(True)
             self.btn_refresh_bus.setEnabled(True)
             self.btn_add_id.setEnabled(True)
-            self.btn_start_tx.setEnabled(False)  # <--- Disabilita dopo disconnessione
+            self.btn_start_tx.setEnabled(False)  # No TX without a channel
             if self.tx_running:
-                self.stop_tx()  # <--- Ferma la trasmissione se attiva
+                self.stop_tx()  # Stop the transmission if it is running
 
     def load_dbc_file(self):
         filename, _ = QFileDialog.getOpenFileName(
@@ -1581,17 +1579,17 @@ class MainWindow(QMainWindow):
             self._update_slider_enabled(item)
 
     def on_signal_tree_item_changed(self, item, column):
-        if column == TX_COL_1_enable:  # Checkbox abilitazione
+        if column == TX_COL_1_enable:  # Enable checkbox
             self._sync_tx_timers()  # starts/stops this row only (TODO 2.6)
             self._update_slider_enabled(item)
 
         elif column == TX_COL_6_payload and not self._tx_writing_payload:  # Payload
             text = item.text(TX_COL_6_payload).strip()
-            parti = text.split()
+            parts = text.split()
             dlc = item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or None
 
             hex_pair_re = re.compile(r"^[0-9a-fA-F]{2}$")
-            if len(parti) != dlc or any(not hex_pair_re.match(p) for p in parti):
+            if len(parts) != dlc or any(not hex_pair_re.match(p) for p in parts):
                 QMessageBox.warning(
                     self,
                     "Error Payload",
@@ -1614,7 +1612,7 @@ class MainWindow(QMainWindow):
             )
 
     def remove_global_payload_script(self):
-        """Rimuove il link allo script di payload globale."""
+        """Unlink the global payload script."""
         self._set_global_script(None)
 
     def _set_global_script(self, path):
@@ -1636,7 +1634,7 @@ class MainWindow(QMainWindow):
         self.btn_remove_global_script.setEnabled(bool(self.global_script_path))
 
     def remove_local_payload_script(self, item):
-        """Rimuove il link allo script di payload per un ID specifico."""
+        """Unlink the payload script of one row."""
         self._set_script_link(item, None)
 
     def _set_script_link(self, item, script_path):
@@ -1663,18 +1661,17 @@ class MainWindow(QMainWindow):
 
     def _setup_script_buttons_for_item(self, item):
         """
-        Crea il widget composito con i pulsanti Link/Unlink
-        per la colonna script della tabella TX.
+        Build the composite Link/Unlink widget of the TX table's script column.
         """
-        # Contenitore principale
+        # Container
         script_widget = QWidget()
         script_layout = QHBoxLayout()
-        script_layout.setContentsMargins(2, 0, 2, 0)  # Spaziatura ridotta
+        script_layout.setContentsMargins(2, 0, 2, 0)  # Tight margins
         script_layout.setSpacing(5)
 
-        # Pulsante Link
+        # Link button
         btn_link_local = QPushButton("Link Script")
-        btn_link_local.setObjectName("btn_link_local")  # Per trovarlo dopo
+        btn_link_local.setObjectName("btn_link_local")  # Looked up by name later
         btn_link_local.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
@@ -1685,15 +1682,15 @@ class MainWindow(QMainWindow):
             lambda _, it=item: self.modify_payload_script(it)
         )
 
-        # Pulsante Unlink
+        # Unlink button
         btn_unlink_local = QPushButton()
-        btn_unlink_local.setObjectName("btn_unlink_local")  # Per trovarlo dopo
+        btn_unlink_local.setObjectName("btn_unlink_local")  # Looked up by name later
         btn_unlink_local.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
         )
         btn_unlink_local.setToolTip("Remove the linked Payload Script.")
-        btn_unlink_local.setFixedSize(30, 25)  # Rendilo piccolo
-        btn_unlink_local.setEnabled(False)  # Disabilitato di default
+        btn_unlink_local.setFixedSize(30, 25)  # Small
+        btn_unlink_local.setEnabled(False)  # Nothing linked yet
         btn_unlink_local.clicked.connect(
             lambda _, it=item: self.remove_local_payload_script(it)
         )
@@ -1964,7 +1961,7 @@ class MainWindow(QMainWindow):
             self._row_failed(item, frame_id, is_ext, e)
             return
 
-        # Invia il frame e aggiorna il payload nella finestra TX
+        # Send the frame and show its payload in the TX table
         self.send_can_message(frame_id, final_payload, dlc, is_fd, is_ext)
         if self.xmetro_windows:  # gauges follow transmitted frames too (TODO 7.2)
             self._feed_gauges(frame_id, is_ext, final_payload)
@@ -2094,7 +2091,7 @@ class MainWindow(QMainWindow):
     ):
         """Runs in the RX thread: no Qt widget may be touched from here."""
         try:
-            # aggiorna il buffer/tabella RX
+            # RX buffer (the table refreshes from it)
             self.rx_window.update_frame(frame_id, data, dlc, is_fd, timestamp, is_ext)
 
             # Gauges live in the GUI thread: hand the frame over via a queued
@@ -2183,7 +2180,7 @@ class MainWindow(QMainWindow):
             tot_arbitration_time_s = (
                 float(tot_arbitration_bits + tot_data_bits) / arbitration_baudrate
             )
-            tot_data_time_s = 0.0  # no distiction
+            tot_data_time_s = 0.0  # no separate data phase
 
         # Busload as percentage
         busload = ((tot_arbitration_time_s + tot_data_time_s) * 100) / (

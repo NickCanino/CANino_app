@@ -75,7 +75,7 @@ class DBCMessage:
         self.name = name
         self.cycle_time = cycle_time
         self.signals = signals
-        self.payload_length = payload_length  # lunghezza in byte del payload
+        self.payload_length = payload_length  # payload length in bytes
         self.is_fd = is_fd
         self.is_extended_frame = is_extended_frame
 
@@ -118,7 +118,7 @@ class DBCLoader:
                 )
                 signals.append(sig)
 
-            payload_len = msg.length  # <-- Ecco la lunghezza del payload
+            payload_len = msg.length
             self.messages.append(
                 DBCMessage(
                     msg.frame_id,

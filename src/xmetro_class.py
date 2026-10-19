@@ -72,13 +72,13 @@ class XMetroWindow(QWidget):
         self.scroll_area.setWidgetResizable(True)
         layout.addWidget(self.scroll_area)
 
-        # Griglia di flag (4x5)
+        # Occupancy grid (4x5)
         self.grid_rows = 4
         self.grid_cols = 5
         self.grid = [[0 for _ in range(self.grid_cols)] for _ in range(self.grid_rows)]
-        # Dimensioni dei box e spaziatura
-        self.gauge_size = (400, 280)  # Dimensioni standard di un DraggableGaugeBox
-        self.grid_spacing = 10  # Spaziatura tra le celle della griglia
+        # Box size and spacing
+        self.gauge_size = (400, 280)  # Size of one DraggableGaugeBox
+        self.grid_spacing = 10  # Spacing between grid cells
         self.gauges = []
 
         # Container widget for gauges
@@ -88,11 +88,11 @@ class XMetroWindow(QWidget):
         self.gauge_container.setMinimumSize(
             (self.gauge_size[0] + self.grid_spacing) * self.grid_cols,
             (self.gauge_size[1] + self.grid_spacing) * self.grid_rows,
-        )  # Dimensione iniziale
+        )  # Initial size
         self.scroll_area.setWidget(self.gauge_container)
 
     def add_gauge(self):
-        # Trova la prima posizione libera nella griglia
+        # First free cell of the grid
         pos = self.find_first_free_position()
         if pos is None:
             QMessageBox.warning(
@@ -117,7 +117,7 @@ class XMetroWindow(QWidget):
         gauge_widget.show()
 
         self.gauges.append(gauge_widget)
-        self.grid[row][col] = 1  # Segna la cella come occupata
+        self.grid[row][col] = 1  # Mark the cell as taken
 
     def remove_gauge(self, gauge):
         """Free the gauge's grid cell and delete it (TODO 7.4)."""
@@ -128,17 +128,17 @@ class XMetroWindow(QWidget):
         gauge.deleteLater()
 
     def find_first_free_position(self):
-        # Cerca la prima cella libera nella griglia
+        # Look for the first free cell
         for row in range(self.grid_rows):
             for col in range(self.grid_cols):
                 if self.grid[row][col] == 0:
                     return row, col
-        return None  # Nessuna posizione libera trovata
+        return None  # No free cell
 
     def update_grid(self, old_row, old_col, new_row, new_col):
-        # Aggiorna la matrice di flag
-        self.grid[old_row][old_col] = 0  # Libera la vecchia posizione
-        self.grid[new_row][new_col] = 1  # Occupa la nuova posizione
+        # Update the occupancy grid
+        self.grid[old_row][old_col] = 0  # Free the old cell
+        self.grid[new_row][new_col] = 1  # Take the new cell
 
     def feed(self, frame_id, is_ext, payload):
         """Update every gauge showing this frame (std and ext kept apart)."""
@@ -159,8 +159,8 @@ class DraggableGaugeBox(QFrame):
         self.gauge_size = gauge_size
         # The XMetro window; `self.window` shadowed QWidget.window() (TODO 7.4)
         self.xmetro = xmetro
-        self.row = row  # Riga corrente nella griglia
-        self.col = col  # Colonna corrente nella griglia
+        self.row = row  # Current grid row
+        self.col = col  # Current grid column
         self.drag_start_position = None
         # DBC messages by combo index: std and ext may share a number (TODO 4.11)
         self.messages = [m for m in self.dbc.messages if m.signals]
@@ -240,17 +240,17 @@ class DraggableGaugeBox(QFrame):
         self.drag_start_position = None
 
     def snap_to_grid(self, new_pos):
-        # Calcola la posizione nella griglia
+        # Grid cell under the drop position
         col = round(new_pos.x() / (self.gauge_size[0] + self.grid_spacing))
         row = round(new_pos.y() / (self.gauge_size[1] + self.grid_spacing))
 
-        # Controlla se la nuova posizione è valida
+        # Is the new cell valid and free?
         if (
             0 <= row < self.xmetro.grid_rows
             and 0 <= col < self.xmetro.grid_cols
             and self.xmetro.grid[row][col] == 0
         ):
-            # Aggiorna la posizione nella griglia
+            # Move to the new cell
             self.xmetro.update_grid(self.row, self.col, row, col)
             self.row, self.col = row, col
             self.move(
@@ -258,7 +258,7 @@ class DraggableGaugeBox(QFrame):
                 row * (self.gauge_size[1] + self.grid_spacing),
             )
         else:
-            # Torna alla posizione precedente
+            # Back to the previous cell
             self.move(
                 self.col * (self.gauge_size[0] + self.grid_spacing),
                 self.row * (self.gauge_size[1] + self.grid_spacing),
@@ -331,12 +331,12 @@ class SemiCircularGauge(QWidget):
         center = QPointF(w / 2, h * 0.85)
         radius = min(w, h) * 0.8 / 1
 
-        # Sfondo
+        # Background
         painter.setBrush(QColor(0, 0, 0))
         painter.setPen(QPen(Qt.GlobalColor.black, 2))
         painter.drawEllipse(center, radius, radius)
 
-        # Semicerchio di riferimento
+        # Scale arc
         painter.setPen(QPen(QColor(200, 200, 200), 4))
         arc_rect = (
             int(center.x() - radius),
@@ -346,7 +346,7 @@ class SemiCircularGauge(QWidget):
         )
         painter.drawArc(*arc_rect, 0 * 16, 180 * 16)
 
-        # Tacche principali
+        # Major ticks
         tick_count = 6
         for i in range(tick_count + 1):
             ratio = i / tick_count
@@ -369,31 +369,31 @@ class SemiCircularGauge(QWidget):
             typewriter_font.setStyleHint(QFont.StyleHint.TypeWriter)
             painter.setFont(typewriter_font)
 
-            # Calcoli per posizionamento label nei tick
-            label_distance = radius - 25  # distanza dal centro
-            offset_towards_center = 15  # quanto rientrare in direzione del centro
-            # Calcola la posizione base della label
+            # Tick label position
+            label_distance = radius - 25  # distance from the centre
+            offset_towards_center = 15  # inset towards the centre
+            # Base position of the label
             label_x = center.x() + label_distance * math.cos(angle_rad)
             label_y = center.y() - label_distance * math.sin(angle_rad)
-            # Calcola direzione vettoriale verso il centro
+            # Unit vector towards the centre
             dx = center.x() - label_x
             dy = center.y() - label_y
             length = math.hypot(dx, dy)
-            ux, uy = dx / length, dy / length  # direzione normalizzata
-            # Applica offset verso il centro
+            ux, uy = dx / length, dy / length  # normalised direction
+            # Apply the inset
             label_x += ux * offset_towards_center
             label_y += uy * offset_towards_center
-            # Centra il testo rispetto al punto
+            # Centre the text on the point
             text = str(val_label)
             metrics = painter.fontMetrics()
             text_width = metrics.horizontalAdvance(text)
             text_height = metrics.height()
-            # Aggiunge il testo effettivamente
+            # Draw the text
             painter.drawText(
                 QPointF(label_x - text_width / 2, label_y + text_height / 4), text
             )
 
-        # Sub-tick: 4 tra ogni coppia principale
+        # Minor ticks: 4 between two major ones
         for i in range(tick_count):
             for j in range(1, 5):  # 4 sub-ticks
                 ratio = (i + j / 5) / tick_count
@@ -405,10 +405,10 @@ class SemiCircularGauge(QWidget):
                 x_inner = center.x() + (radius - 10) * math.cos(angle_rad)
                 y_inner = center.y() - (radius - 10) * math.sin(angle_rad)
 
-                painter.setPen(QPen(Qt.GlobalColor.gray, 1))  # sottile
+                painter.setPen(QPen(Qt.GlobalColor.gray, 1))  # thin
                 painter.drawLine(QPointF(x_inner, y_inner), QPointF(x_outer, y_outer))
 
-        # Lancetta
+        # Needle
         needle_ratio = self.needle_ratio()
         needle_angle = math.radians(180 - needle_ratio * 180)
         needle_x = center.x() + radius * 0.7 * math.cos(needle_angle)
@@ -417,7 +417,7 @@ class SemiCircularGauge(QWidget):
         painter.setPen(QPen(QColor(255, 128, 0), 4))
         painter.drawLine(center, QPointF(needle_x, needle_y))
 
-        # Valore istantaneo
+        # Current value
         instant_font = QFont("Courier New", 18, QFont.Weight.Bold)
         instant_font.setStyleHint(QFont.StyleHint.TypeWriter)
         painter.setFont(instant_font)

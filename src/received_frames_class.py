@@ -18,9 +18,6 @@
 #  limitations under the License.
 # -----------------------------------------------------------------------------
 
-# TODO: controllare perché in RX non si ha la decodifica dei nomi facendo il LOAD di un .json nel quale era stato collegato un DBC
-# FIXME: in certi casi la tabella RX non si aggiorna correttamente (es. dopo aver fatto sorting) ed il nome è come fosse invertito rispetto a DLC, payload, count, ...
-
 from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
@@ -90,9 +87,9 @@ class ReceivedFramesWindow(QWidget):
 
         layout = QVBoxLayout()
 
-        # --- Barra pulsanti log ---
+        # --- Log button bar ---
         log_btn_layout = QHBoxLayout()
-        # Pulsante per collegare il file CSV
+        # Link the CSV file
         self.btn_link_csv = QPushButton("Link CSV")
         self.btn_link_csv.setToolTip("Link a CSV file for logging")
         self.btn_link_csv.setIcon(
@@ -101,7 +98,7 @@ class ReceivedFramesWindow(QWidget):
         self.btn_link_csv.setFixedSize(120, 30)
         self.btn_link_csv.setCheckable(True)
 
-        # Pulsante per avviare il log
+        # Start logging
         self.btn_start_log = QPushButton("Start LOG")
         self.btn_start_log.setToolTip("Start logging to CSV")
         self.btn_start_log.setIcon(
@@ -109,7 +106,7 @@ class ReceivedFramesWindow(QWidget):
         )
         self.btn_start_log.setFixedSize(100, 30)
 
-        # Pulsante per mettere in pausa il log
+        # Pause logging
         self.btn_pause_log = QPushButton("Pause LOG")
         self.btn_pause_log.setToolTip("Pause logging to CSV")
         self.btn_pause_log.setIcon(
@@ -117,7 +114,7 @@ class ReceivedFramesWindow(QWidget):
         )
         self.btn_pause_log.setFixedSize(100, 30)
 
-        # Pulsante per fermare il log
+        # Stop logging
         self.btn_stop_log = QPushButton("Stop LOG")
         self.btn_stop_log.setToolTip("Stop logging to CSV")
         self.btn_stop_log.setIcon(
@@ -125,7 +122,7 @@ class ReceivedFramesWindow(QWidget):
         )
         self.btn_stop_log.setFixedSize(100, 30)
 
-        # Pulsante per pulire tabella RX
+        # Clear the RX table
         self.btn_clear_table = QPushButton("Clear")
         self.btn_clear_table.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
@@ -146,7 +143,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
             }
         """
-        )  # Bordo verde
+        )  # green border
         self.btn_pause_log.setStyleSheet(
             """
             QPushButton {
@@ -159,7 +156,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
             }
         """
-        )  # Bordo azzurro
+        )  # blue border
         self.btn_stop_log.setStyleSheet(
             """
             QPushButton {
@@ -172,7 +169,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
             }
         """
-        )  # Bordo rosso
+        )  # red border
 
         self.btn_start_log.setEnabled(False)
         self.btn_pause_log.setEnabled(False)
@@ -193,8 +190,8 @@ class ReceivedFramesWindow(QWidget):
         self.btn_pause_log.clicked.connect(self.pause_log)
         self.btn_stop_log.clicked.connect(self.stop_log)
 
-        # --- Tabella RX ---
-        self.table = QTableWidget(0, 10)  # 10 colonne
+        # --- RX table ---
+        self.table = QTableWidget(0, 10)  # 10 columns
         self.table.setHorizontalHeaderLabels(
             [
                 "ID",
@@ -209,7 +206,7 @@ class ReceivedFramesWindow(QWidget):
                 "Last Received",
             ]
         )
-        # Imposta larghezza colonne
+        # Column widths
         self.table.setColumnWidth(RX_COL_0_id, 50)
         self.table.setColumnWidth(RX_COL_1_name, 100)
         self.table.setColumnWidth(RX_COL_2_dlc, 50)
@@ -225,26 +222,26 @@ class ReceivedFramesWindow(QWidget):
         self.table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
 
-        # Abilita l'ordinamento delle colonne
+        # Sortable columns
         self.table.setSortingEnabled(True)
         self.table.horizontalHeader().sectionClicked.connect(
             lambda _: self.frames.clear()
-        )  # Pulisci il mapping quando si riordinano le righe della tabella
+        )  # Drop the row mapping when the rows are re-sorted
         # self.table.sortItems(0, Qt.SortOrder.AscendingOrder)
 
-        # Aggiungi un menu contestuale per rimuovere le righe
+        # Table
         layout.addWidget(self.table)
         self.setLayout(layout)
         self.frames = {}
-        self._rx_buffer = {}  # <--- buffer temporaneo
+        self._rx_buffer = {}  # (id, is_ext) -> stats, filled by the RX thread
         # The RX thread writes _rx_buffer and the CSV, the GUI thread reads the
         # buffer and opens/closes the CSV: both go through this lock (TODO 5.2/5.5)
         self._lock = threading.Lock()
 
-        # Timer per aggiornare la tabella ogni secondo
+        # Table refresh timer
         self.refresh_timer = QTimer(self)
         self.refresh_timer.timeout.connect(self.refresh_table)
-        self.refresh_timer.start(RX_refresh_rate_ms)  # ogni 500 ms
+        self.refresh_timer.start(RX_refresh_rate_ms)  # every 500 ms
 
     def clear_busload_stats(self):
         self.busload_rx_arbitration_bits = 0
@@ -279,17 +276,17 @@ class ReceivedFramesWindow(QWidget):
             self._update_frame_locked(frame_id, data, dlc, is_fd, timestamp, is_ext)
 
     def _update_frame_locked(self, frame_id, data, dlc, is_fd, timestamp, is_ext):
-        # Aggiorna solo il buffer, non la tabella direttamente
+        # Only the buffer: the table is refreshed from it in the GUI thread
 
-        # determina DLC se non fornito
+        # DLC from the data when not given
         if dlc is None:
             dlc = len(data) if data else 0
         dlc = max(0, min(int(dlc), 64))
 
-        # Conteggio compatto dei bit:
+        # Compact bit counting:
         # arbitration = SOF(1) + ID(11|29) + RTR/IDE/RES(≈3) + DLC(4)
         # data_phase = data(8*dlc) + CRC(+delim)
-        # NOTE: ACK/EOF/IFS sono trasmessi al nominale in CAN-FD -> spostarli in arbitration_bits per is_fd
+        # NOTE: ACK/EOF/IFS go at the nominal bitrate in CAN FD -> counted in arbitration_bits
         arbitration_bits = 1 + (29 if is_ext else 11) + 3 + 4
         if not is_fd:
             crc_total = 15 + 1
@@ -299,13 +296,13 @@ class ReceivedFramesWindow(QWidget):
             data_phase_bits = 8 * dlc + crc_total
             arbitration_bits += 2 + 7 + 3
 
-        # aggiorna i contatori RX (arbitration parte a nominale, data parte a data-rate per FD)
+        # RX counters (arbitration at the nominal rate, data phase at the data rate for FD)
         self.busload_rx_arbitration_bits += arbitration_bits
         self.busload_rx_data_bits += data_phase_bits
 
         now = timestamp if timestamp is not None else time.time()
         key = (frame_id, bool(is_ext))
-        if key not in self._rx_buffer:  # Nuovo frame
+        if key not in self._rx_buffer:  # New frame
             f = self._rx_buffer[key] = {
                 "count": 1,
                 "dlc": dlc if dlc is not None else len(data),
@@ -316,7 +313,7 @@ class ReceivedFramesWindow(QWidget):
                 "max": None,
                 "avg_period": None,
             }
-        else:  # Frame già esistente
+        else:  # Known frame
             f = self._rx_buffer[key]
             f["count"] += 1
             period = (now - f["last_time"]) * 1000
@@ -325,25 +322,25 @@ class ReceivedFramesWindow(QWidget):
             f["data"] = data
             f["periods"].append(period)
 
-            if f["min"] is None:  # primo aggiornamento
+            if f["min"] is None:  # first period
                 f["min"] = period
             else:
                 f["min"] = period if period < f["min"] else f["min"]
 
-            if f["max"] is None:  # primo aggiornamento
+            if f["max"] is None:  # first period
                 f["max"] = period
             else:
                 f["max"] = period if period > f["max"] else f["max"]
 
-            if f["avg_period"] is None:  # primo aggiornamento
+            if f["avg_period"] is None:  # first period
                 f["avg_period"] = period
-            else:  # aggiorna l'EMA
+            else:  # update the EMA
                 f["avg_period"] = 0.1 * period + 0.9 * f["avg_period"]
 
             if (
                 len(f["periods"]) > 20 or f["count"] < 5
-            ):  # Limita a 20 periodi per evitare overflow butta i primi 5 per calcolare la deviazione standard
-                f["periods"].pop(0)  # rimuovi il più vecchio
+            ):  # Keep the last 20 periods; drop the first 5 from the std-dev
+                f["periods"].pop(0)  # drop the oldest
 
         # Log the frame that just arrived, stamped with its own time (TODO 5.3/5.4)
         self.log_frame_to_csv(
@@ -377,18 +374,18 @@ class ReceivedFramesWindow(QWidget):
         for (frame_id, is_ext), f in snapshot:
             id_str = format_can_id(frame_id, is_ext)
             row = None
-            # Cerca la riga con l'ID giusto (colonna 0)
+            # Find this ID's row (column 0)
             for r in range(self.table.rowCount()):
                 item = self.table.item(r, 0)
                 if item and item.text() == id_str:
                     row = r
                     break
             if row is None:
-                # crea nuova riga
+                # new row
                 row = self.table.rowCount()
                 self.table.insertRow(row)
                 self.table.setItem(row, RX_COL_0_id, QTableWidgetItem(id_str))
-            # Aggiorna sempre il nome dalla DBC (anche se già presente)
+            # Name from the DBC, refreshed every time
             msg_name = self._dbc_name(frame_id, is_ext)
             self.table.setItem(row, RX_COL_1_name, QTableWidgetItem(msg_name))
             self.table.setItem(row, RX_COL_2_dlc, QTableWidgetItem(str(f["dlc"])))
@@ -448,7 +445,7 @@ class ReceivedFramesWindow(QWidget):
     def set_dbc(self, dbc):
         self.dbc = dbc
         self._dbc_names = self._names_of(dbc)
-        # Aggiorna i nomi dei messaggi già presenti in tabella
+        # Names of the rows already in the table
         for frame_id, f in self.frames.items():
             row = f["row"]
             msg_name = ""
@@ -484,21 +481,21 @@ class ReceivedFramesWindow(QWidget):
                     background-color: #8C8C8C;
                 }
             """
-            )  # Bordo verde
+            )  # green border
             self.btn_pause_log.setStyleSheet(
                 """
                 QPushButton {
                     background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
                 }
             """
-            )  # Bordo azzurro
+            )  # blue border
             self.btn_stop_log.setStyleSheet(
                 """
                 QPushButton {
                     background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
                 }
             """
-            )  # Bordo rosso
+            )  # red border
 
             self.log_active = False
             self.log_paused = False
@@ -543,10 +540,10 @@ class ReceivedFramesWindow(QWidget):
             except Exception as e:
                 log_exception(e)
 
-    def start_log(self):  # metodo per avviare il log e aprire il file CSV
+    def start_log(self):  # start logging, open the CSV file
         if not self.csv_path:
             return
-        # Se il log era stoppato, pulisci il file
+        # After a Stop the file starts over
         with self._lock:
             if not self.log_active or not self.csv_file:
                 self.csv_file = open(self.csv_path, "w", newline="", encoding="utf-8")
@@ -583,7 +580,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #488E3C; color: white; border: 2px solid #388E3C; border-radius: 6px;
             }
         """
-        )  # Bordo verde
+        )  # green border
 
         self.btn_pause_log.setEnabled(True)
         self.btn_pause_log.setStyleSheet(
@@ -595,7 +592,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #8C8C8C;
             }
         """
-        )  # Bordo azzurro
+        )  # blue border
 
         self.btn_stop_log.setEnabled(True)
         self.btn_stop_log.setStyleSheet(
@@ -607,9 +604,9 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #8C8C8C;
             }
         """
-        )  # Bordo rosso
+        )  # red border
 
-    def pause_log(self):  # metodo per mettere in pausa il log e non chiudere il file
+    def pause_log(self):  # pause logging, keep the file open
         if self.log_active:
             self.log_paused = True
 
@@ -632,7 +629,7 @@ class ReceivedFramesWindow(QWidget):
                     background-color: #8C8C8C;
                 }
             """
-            )  # Bordo verde
+            )  # green border
 
             self.btn_pause_log.setEnabled(False)
             self.btn_pause_log.setStyleSheet(
@@ -641,7 +638,7 @@ class ReceivedFramesWindow(QWidget):
                     background-color: #1565C0; color: white; border: 2px solid #1565C0; border-radius: 6px;
                 }
             """
-            )  # Bordo e interno azzurro
+            )  # blue border and fill
 
             self.btn_stop_log.setEnabled(True)
             self.btn_stop_log.setStyleSheet(
@@ -654,9 +651,9 @@ class ReceivedFramesWindow(QWidget):
                 }
             """
             )
-            # Non chiudere il file, solo mettere in pausa
+            # The file stays open
 
-    def stop_log(self):  # metodo per fermare il log e chiudere il file
+    def stop_log(self):  # stop logging, close the file
         self.log_active = False
         self.log_paused = False
 
@@ -679,7 +676,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #8C8C8C;
             }
         """
-        )  # Bordo verde
+        )  # green border
 
         self.btn_pause_log.setEnabled(False)
         self.btn_pause_log.setStyleSheet(
@@ -688,7 +685,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #3C3C3C; color: white; border: none; border-radius: 6px;
             }
         """
-        )  # Bordo azzurro
+        )  # blue border
 
         self.btn_stop_log.setEnabled(False)
         self.btn_stop_log.setStyleSheet(
@@ -697,7 +694,7 @@ class ReceivedFramesWindow(QWidget):
                 background-color: #B71C1C; color: white; border: 2px solid #B71C1C; border-radius: 6px;
             }
         """
-        )  # Bordo e interno rosso
+        )  # red border and fill
 
         with self._lock:
             if self.csv_file:

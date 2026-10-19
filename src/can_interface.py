@@ -120,7 +120,7 @@ class CANInterface:
             if self.bus is None:
                 raise can.CanOperationError("CAN bus not initialized")
 
-            # CAN-FD: dlc può essere fino a 64, CAN classico fino a 8
+            # DLC up to 64 for CAN FD, up to 8 for classic CAN
             if dlc is None:
                 dlc = len(data)
             if not isinstance(data, (bytes, bytearray)):
