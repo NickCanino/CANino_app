@@ -154,10 +154,10 @@ These workflows apply to both `python main.py` and the built `.exe`.
 3. Set the `Baudrate` of the network, between 5 kBit/s and 1 MBit/s, or `2 MBit/s (CANFD)` on an FD-capable channel, then press `Connect`.
 4. Configure the payloads:
 
-   - a. Edit the hex bytes in the table,
+   - a. Edit the hex bytes in the table (double-click the `Payload` cell; a payload that is not exactly DLC hex bytes is refused and the row keeps its own),
    - b. Link a Python script to a row (`Link Script`) or to every row (`Link Global Script`), or
    - c. **With a DBC loaded**, drive one signal of a frame with a slider (`Add Slider`).
-5. Press `Start TX`. Extended IDs are shown with 8 hex digits (`0x18FF0001`, `0x00000123`), standard IDs with 3 (`0x123`).
+5. Set each row's `Period (ms)` (double-click the cell, 1–10000 ms), then press `Start TX`. Extended IDs are shown with 8 hex digits (`0x18FF0001`, `0x00000123`), standard IDs with 3 (`0x123`).
 
 > Rows can be added, deleted, enabled or disabled, and periods changed, while transmitting: only the affected row's timer changes, the others keep running. Linking a script or adding a slider also takes effect during transmission.
 >
