@@ -8,11 +8,11 @@ jobs:
   test-and-build:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0 # the exe is named after the commit
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
           cache: pip
@@ -29,8 +29,10 @@ jobs:
       # Offscreen Qt, fake PCAN driver: no adapter and no PEAK driver needed.
       # CI=true (set by GitHub) skips the tests that measure this machine's
       # timer precision rather than CANino's code.
+      # faulthandler: a native crash (Qt abort) prints the Python stack
+      # instead of ending the step with a bare exit code
       - name: Tests
-        run: python -m unittest discover -s tests -v
+        run: python -X faulthandler -m unittest discover -s tests -v
 
       - name: Build exe
         run: pyinstaller --noconfirm CANinoApp_exe_setup.spec
