@@ -159,7 +159,7 @@ These workflows apply to both `python main.py` and the built `.exe`.
    - c. **With a DBC loaded**, drive one signal of a frame with a slider (`Add Slider`).
 5. Set each row's `Period (ms)` (double-click the cell, 1–10000 ms), then press `Start TX`. Extended IDs are shown with 8 hex digits (`0x18FF0001`, `0x00000123`), standard IDs with 3 (`0x123`).
 
-> Rows can be added, deleted, enabled or disabled, and periods changed, while transmitting: only the affected row's timer changes, the others keep running. Linking a script or adding a slider also takes effect during transmission.
+> Rows can be added, deleted, enabled or disabled, and periods changed, while transmitting: only the affected row changes, the others keep their timing. Linking a script or adding a slider also takes effect during transmission.
 >
 > `Stop TX` also drops the frames the adapter could not send yet, so no stale backlog reaches the bus later.
 
