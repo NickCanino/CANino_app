@@ -14,21 +14,33 @@ REPO = h.REPO
 SPEC = os.path.join(REPO, "CANinoApp_exe_setup.spec")
 
 
+class Analysis:
+    """What the spec reads from PyInstaller's Analysis: TOC lists of (dest, src, type)."""
+
+    def __init__(self, binaries=(), datas=()):
+        self.pure = []
+        self.scripts = []
+        self.binaries = list(binaries)
+        self.datas = list(datas)
+
+
 class Recorder:
-    def __init__(self):
+    def __init__(self, analysis=None):
         self.calls = {}
+        self.analysis = analysis or Analysis()
 
     def __getattr__(self, name):
         def stub(*args, **kwargs):
             self.calls[name] = (args, kwargs)
-            return Recorder()  # the spec reads a.pure, a.scripts, ...
+            return self.analysis if name == "Analysis" else object()
 
         return stub
 
 
-def run_spec(git_outputs):
+def run_spec(git_outputs, analysis=None, onedir=False):
     """Execute the spec; git_outputs maps a git subcommand to its stdout (or an exception)."""
-    rec = Recorder()
+    rec = Recorder(analysis)
+    os.environ["CANINO_ONEDIR"] = "1" if onedir else "0"
 
     def fake_check_output(cmd, *a, **k):
         out = git_outputs[cmd[1]]
@@ -45,6 +57,7 @@ def run_spec(git_outputs):
             "Analysis": rec.Analysis,
             "PYZ": rec.PYZ,
             "EXE": rec.EXE,
+            "COLLECT": rec.COLLECT,
             "__name__": "spec",
         }
         with open(SPEC, encoding="utf-8") as f:
@@ -52,6 +65,7 @@ def run_spec(git_outputs):
     finally:
         subprocess.check_output = orig
         os.chdir(cwd)
+        os.environ.pop("CANINO_ONEDIR", None)
     return rec.calls
 
 
@@ -99,6 +113,54 @@ class SpecTests(unittest.TestCase):
         ]
         self.assertTrue(shipped)
         self.assertFalse([s for s in shipped if " " in s], shipped)
+
+
+class QtTrimTests(unittest.TestCase):
+    GIT = {"rev-parse": "abc1234", "status": "", "ls-files": TEMPLATES}
+
+    def test_unused_qt_parts_are_dropped(self):
+        """10.11: OpenGL/QML/PDF/network Qt parts out, what CANino uses stays."""
+        keep = [
+            "PySide6/Qt6Core.dll",
+            "PySide6/Qt6Gui.dll",
+            "PySide6/Qt6Widgets.dll",
+            "PySide6/Qt6Svg.dll",
+            "PySide6/plugins/platforms/qwindows.dll",
+            "PySide6/plugins/imageformats/qico.dll",
+            "PySide6/plugins/styles/qmodernwindowsstyle.dll",
+            "libcrypto-3.dll",  # Python's hashlib (VAGILETTA's sketch hash)
+        ]
+        drop = [
+            "PySide6/opengl32sw.dll",
+            "PySide6/Qt6Quick.dll",
+            "PySide6/Qt6Qml.dll",
+            "PySide6/Qt6QmlModels.dll",
+            "PySide6/Qt6Pdf.dll",
+            "PySide6/Qt6Network.dll",
+            "PySide6/QtNetwork.pyd",
+            "PySide6/Qt6OpenGL.dll",
+            "PySide6/Qt6VirtualKeyboard.dll",
+            "libssl-3-x64.dll",
+            "PySide6/plugins/tls/qopensslbackend.dll",
+            "PySide6/plugins/imageformats/qpdf.dll",
+            "PySide6/plugins/platforms/qdirect2d.dll",
+        ]
+        a = Analysis(
+            binaries=[(p.replace("/", "\\"), "src", "BINARY") for p in keep + drop],
+            datas=[("PySide6/translations/qtbase_de.qm", "src", "DATA")],
+        )
+        run_spec(self.GIT, a)
+        self.assertEqual([b[0].replace("\\", "/") for b in a.binaries], keep)
+        self.assertEqual(a.datas, [])
+
+    def test_onefile_by_default_onedir_on_request(self):
+        """10.8: CANINO_ONEDIR=1 builds a folder (COLLECT), else one exe."""
+        calls = run_spec(self.GIT)
+        self.assertNotIn("COLLECT", calls)
+        self.assertFalse(calls["EXE"][1]["exclude_binaries"])
+        calls = run_spec(self.GIT, onedir=True)
+        self.assertTrue(calls["EXE"][1]["exclude_binaries"])
+        self.assertEqual(calls["COLLECT"][1]["name"], calls["EXE"][1]["name"])
 
 
 class RequirementsTests(unittest.TestCase):
