@@ -48,7 +48,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 from PySide6.QtGui import QAction, QIcon, QPixmap, QFont, QColor, QDesktopServices
-from PySide6.QtCore import Qt, QTimer, QObject, Signal, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 import shiboken6
 import importlib.util
 import json
@@ -71,6 +71,7 @@ from src.exceptions_logger import log_exception, __version__, log_dir as LOG_DIR
 from src.xmetro_class import XMetroWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
+from src.busload import frame_bits
 from src.utils import resource_path, format_can_id
 from src.PCANBasic import (
     PCAN_BAUD_1M,
@@ -322,12 +323,6 @@ class PayloadEditDelegate(QStyledItemDelegate):
             font = QFont("Courier New", 10)
             font.setStyleHint(QFont.StyleHint.Monospace)
             option.font = font
-
-
-class RxBridge(QObject):
-    """Carries received frames from the RX thread to the GUI thread (queued)."""
-
-    frame_received = Signal(int, bool, object)
 
 
 class MainWindow(QMainWindow):
@@ -666,10 +661,10 @@ class MainWindow(QMainWindow):
 
         # RX controls
         self.rx_window = ReceivedFramesWindow(self.dbc)
-        # RX thread -> GUI thread hand-over for the XMetro gauges
+        # The RX window drains the RX queue in the GUI thread and hands the
+        # latest payload of each frame to the XMetro gauges
         self.xmetro_windows = []
-        self.rx_bridge = RxBridge(self)
-        self.rx_bridge.frame_received.connect(self._feed_gauges)
+        self.rx_window.frames_received.connect(self._feed_latest)
         rx_group = QGroupBox()
         rx_group.setStyleSheet(
             "QGroupBox { border: 2px solid #2196F3; border-radius: 5px; }"
@@ -1342,7 +1337,7 @@ class MainWindow(QMainWindow):
                 self.can_if = CANInterface(
                     channel, timing=timing, listen_only=listen_only
                 )
-                self.can_if.set_receive_callback(self.process_received_frame)
+                self.can_if.set_receive_callback(self.rx_window.push_frame)
                 mode = "listen only (no TX)" if listen_only else "normal"
                 QMessageBox.information(
                     self,
@@ -2060,24 +2055,9 @@ class MainWindow(QMainWindow):
                 dlc = len(data) if data else 0
             dlc = max(0, min(int(dlc), 64))
 
-            # Compact bit counting:
-            # arbitration = SOF(1) + ID(11|29) + RTR/IDE/RES(≈3) + DLC(4)
-            # data_phase = data(8*dlc) + CRC(+delim)
-            # NOTE: ACK/EOF/IFS are transmitted at nominal bitrate in CAN-FD -> count them in arbitration_bits for is_fd
-            arbitration_bits = 1 + (29 if is_ext else 11) + 3 + 4
-            if not is_fd:
-                crc_total = 15 + 1
-                data_phase_bits = (
-                    8 * dlc + crc_total + 2 + 7 + 3
-                )  # ACK+EOF+IFS at same bitrate
-            else:
-                crc_total = (17 + 1) if dlc <= 16 else (21 + 1)
-                data_phase_bits = 8 * dlc + crc_total  # only data+CRC at data-rate
-                arbitration_bits += (
-                    2 + 7 + 3
-                )  # ACK + EOF + IFS are at nominal (arbitration) bitrate
-
-            # update counters (arbitration at nominal rate, data phase at data rate for FD)
+            # Busload counters: arbitration at the nominal rate, data phase at
+            # the data rate for FD
+            arbitration_bits, data_phase_bits = frame_bits(dlc, is_fd, is_ext)
             self.busload_tx_arbitration_bits += arbitration_bits
             self.busload_tx_data_bits += data_phase_bits
 
@@ -2086,21 +2066,11 @@ class MainWindow(QMainWindow):
         except Exception as e:
             log_exception(e)
 
-    def process_received_frame(
-        self, frame_id, data, dlc=None, is_fd=False, timestamp=None, is_ext=False
-    ):
-        """Runs in the RX thread: no Qt widget may be touched from here."""
-        try:
-            # RX buffer (the table refreshes from it)
-            self.rx_window.update_frame(frame_id, data, dlc, is_fd, timestamp, is_ext)
-
-            # Gauges live in the GUI thread: hand the frame over via a queued
-            # signal, only while an XMetro window is open (TODO 7.1)
-            if self.xmetro_windows:
-                self.rx_bridge.frame_received.emit(frame_id, bool(is_ext), bytes(data))
-
-        except Exception as e:
-            log_exception(e)
+    def _feed_latest(self, latest):
+        """GUI thread, after each RX drain: the newest payload of each frame (TODO 7.1)."""
+        if self.xmetro_windows:
+            for (frame_id, is_ext), data in latest.items():
+                self._feed_gauges(frame_id, is_ext, data)
 
     def _feed_gauges(self, frame_id, is_ext, data):
         """GUI thread: update every XMetro gauge showing this frame."""
