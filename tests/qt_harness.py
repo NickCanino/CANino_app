@@ -17,6 +17,8 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if REPO not in sys.path:
     sys.path.insert(0, REPO)
 WORKDIR = tempfile.mkdtemp(prefix="canino_tests_")
+os.environ["CANINO_LOG_DIR"] = os.path.join(WORKDIR, "log")
+os.environ["CANINO_LOG_CONSOLE"] = "0"
 os.chdir(WORKDIR)
 
 from PySide6.QtWidgets import QApplication, QMessageBox  # noqa: E402
