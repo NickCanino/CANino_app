@@ -368,6 +368,9 @@ class VagilettaWindow(QDialog):
         self.scan_thread.start()
 
     def _scan_finished(self):
+        # finished is emitted from inside the thread, just before it ends:
+        # deleting a QThread that still runs aborts the whole process
+        self.scan_thread.wait()
         self.scan_thread.deleteLater()
         self.scan_worker.deleteLater()
         self.scan_thread = self.scan_worker = None
@@ -481,6 +484,9 @@ class VagilettaWindow(QDialog):
             QMessageBox.critical(self, "VAGILETTA", message)
 
     def _flash_thread_finished(self):
+        # finished is emitted from inside the thread, just before it ends:
+        # deleting a QThread that still runs aborts the whole process
+        self.flash_thread.wait()
         self.flash_thread.deleteLater()
         self.flash_worker.deleteLater()
         self.flash_thread = self.flash_worker = None
