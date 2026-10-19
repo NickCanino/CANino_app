@@ -114,6 +114,52 @@ def install_fake_pcan():
     FakePCAN.status_result = 0
 
 
+def tx_view_ids(mw):
+    """TX ID column in view (sorted) order."""
+    proxy = mw.tx_view.model()
+    return [proxy.index(r, 2).data() for r in range(proxy.rowCount())]
+
+
+def tx_index(mw, entry, col):
+    """View (proxy) index of an entry's cell: what a click or an edit goes through."""
+    row = mw.tx_model.row_of(entry)
+    return mw.tx_view.model().mapFromSource(mw.tx_model.index(row, col))
+
+
+def tx_cell(mw, entry, col, role=None):
+    from PySide6.QtCore import Qt
+
+    return tx_index(mw, entry, col).data(
+        Qt.ItemDataRole.DisplayRole if role is None else role
+    )
+
+
+def tx_edit(mw, entry, col, value):
+    """A user edit (Period / Payload), as the view's delegate commits it."""
+    from PySide6.QtCore import Qt
+
+    return mw.tx_view.model().setData(
+        tx_index(mw, entry, col), value, Qt.ItemDataRole.EditRole
+    )
+
+
+def tx_check(mw, entry, checked):
+    """The user ticks / unticks a row's En box."""
+    from PySide6.QtCore import Qt
+
+    state = Qt.CheckState.Checked if checked else Qt.CheckState.Unchecked
+    return mw.tx_view.model().setData(
+        tx_index(mw, entry, 1), state.value, Qt.ItemDataRole.CheckStateRole
+    )
+
+
+def fire_tx(mw, times=1):
+    """One tick of every running TX timer."""
+    for _ in range(times):
+        for t in list(mw.timers):
+            t.timeout.emit()
+
+
 def rx_view_rows(rx):
     """The RX table as the user sees it: one list of cell texts per row, in view order."""
     proxy = rx.table.model()

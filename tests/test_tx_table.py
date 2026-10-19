@@ -57,10 +57,7 @@ class Base(unittest.TestCase):
         return [d for f, d in self.mw.can_if.sent if f == fid]
 
     def set_enabled(self, fid, on):
-        self.items[fid].setCheckState(
-            gui.TX_COL_1_enable,
-            Qt.CheckState.Checked if on else Qt.CheckState.Unchecked,
-        )
+        h.tx_check(self.mw, self.items[fid], on)
 
 
 class ToggleTests(Base):
@@ -138,63 +135,121 @@ class ToggleTests(Base):
         self.mw.slider_widgets.append(w)
         self.tick()
         self.mw.remove_slider_widget(w)
-        self.items[0x100].setText(gui.TX_COL_6_payload, "07 00 00 00 00 00 00 00")
+        h.tx_edit(
+            self.mw, self.items[0x100], gui.TX_COL_6_payload, "07 00 00 00 00 00 00 00"
+        )
         self.tick()
         self.assertEqual([d[0] for d in self.sent(0x100)], [0, 42, 7])
 
 
-class PeriodSpinTests(Base):
-    def spin(self, fid):
-        return self.mw.signal_tree.itemWidget(self.items[fid], gui.TX_COL_5_period)
-
-    def test_spinbox_handler_connected_once(self):
-        """2.7: Start/Stop TX five times must not stack valueChanged handlers."""
-        before = self.spin(0x100).receivers(SIGNAL("valueChanged(int)"))
+class PeriodTests(Base):
+    def test_period_handler_connected_once(self):
+        """2.7: Start/Stop TX five times must not stack period handlers."""
+        signal = SIGNAL("period_changed(PyObject)")
+        before = self.mw.tx_model.receivers(signal)
         for _ in range(5):
             self.mw.start_stop_transmission()
             self.mw.start_stop_transmission()
-        self.assertEqual(
-            self.spin(0x100).receivers(SIGNAL("valueChanged(int)")), before
-        )
+        self.assertEqual(self.mw.tx_model.receivers(signal), before)
         self.assertEqual(before, 1)
 
     def test_period_edit_retimes_only_that_row(self):
         """2.7: a period edit during TX changes that timer's interval in place."""
         self.mw.start_stop_transmission()
         t100, t200 = self.timer(0x100), self.timer(0x200)
-        self.spin(0x100).setValue(20)
+        h.tx_edit(self.mw, self.items[0x100], gui.TX_COL_5_period, 20)
         self.assertIs(self.timer(0x100), t100)
         self.assertEqual(t100.interval(), 20)
         self.assertEqual(t200.interval(), 100)
 
+    def test_period_is_clamped(self):
+        h.tx_edit(self.mw, self.items[0x100], gui.TX_COL_5_period, 0)
+        self.assertEqual(self.items[0x100].period, 1)
+
 
 class PayloadWriteTests(Base):
     def test_tx_writes_do_not_run_the_edit_validation(self):
-        """2.8: payload cells refreshed by TX skip the user-edit check."""
-        calls = []
-        orig = self.mw.on_signal_tree_item_changed
-        self.mw.signal_tree.itemChanged.disconnect()
-        self.mw.signal_tree.itemChanged.connect(
-            lambda it, col: (
-                col == gui.TX_COL_6_payload
-                and not getattr(self.mw, "_tx_writing_payload", False)
-                and calls.append(1),
-                orig(it, col),
-            )
-        )
+        """2.8: payloads written by TX never go through the user-edit check."""
+        rejected = []
+        self.mw.tx_model.payload_rejected.connect(lambda *a: rejected.append(a))
         self.mw._set_script_link(self.items[0x100], "sawtooth.py")
         self.mw.start_stop_transmission()
         self.tick(5)
-        self.assertEqual(calls, [])
-        self.assertEqual(self.items[0x100].text(gui.TX_COL_6_payload)[-2:], "05")
+        self.assertEqual(rejected, [])
+        self.assertEqual(
+            h.tx_cell(self.mw, self.items[0x100], gui.TX_COL_6_payload)[-2:], "05"
+        )
+
+    def test_tx_writes_repaint_at_the_refresh_not_per_frame(self):
+        """2.12: 5 ticks x 3 rows -> no repaint until flush(), then one signal."""
+        self.mw._set_script_link(self.items[0x100], "sawtooth.py")
+        self.mw.start_stop_transmission()
+        self.mw.tx_model.flush()
+        changed = []
+        self.mw.tx_model.dataChanged.connect(lambda *a: changed.append(a))
+        self.tick(5)
+        self.assertEqual(changed, [])
+        self.mw.tx_model.flush()
+        self.assertEqual(len(changed), 1)
 
     def test_user_edit_is_still_validated(self):
-        """2.8: a bad manual payload is still rejected and reset."""
-        self.items[0x200].setText(gui.TX_COL_6_payload, "zz")
+        """2.8: a bad manual payload is refused; the row keeps its own."""
+        good = "01 02 03 04 05 06 07 08"
+        self.assertTrue(
+            h.tx_edit(self.mw, self.items[0x200], gui.TX_COL_6_payload, good)
+        )
+        self.assertFalse(
+            h.tx_edit(self.mw, self.items[0x200], gui.TX_COL_6_payload, "zz")
+        )
         self.assertEqual(
-            self.items[0x200].text(gui.TX_COL_6_payload), " ".join(["00"] * 8)
+            h.tx_cell(self.mw, self.items[0x200], gui.TX_COL_6_payload), good
         )
         self.assertEqual(h.DIALOGS[-1][0], "warning")
+
+
+class ViewTests(Base):
+    def test_rows_hold_no_widgets(self):
+        """2.13: buttons and spin boxes are painted/edited by delegates."""
+        proxy = self.mw.tx_view.model()
+        for r in range(proxy.rowCount()):
+            for c in range(proxy.columnCount()):
+                self.assertIsNone(self.mw.tx_view.indexWidget(proxy.index(r, c)))
+
+    def test_delete_button_removes_its_row(self):
+        """2.13: the painted Delete button acts on the row it is drawn on."""
+        self.mw.start_stop_transmission()
+        self.mw.tx_buttons.delete_clicked.emit(self.items[0x200])
+        self.assertEqual(h.tx_view_ids(self.mw), ["0x100", "0x300"])
+        self.assertIsNone(self.mw._timer_of(self.items[0x200]))
+
+    def test_click_on_the_painted_buttons(self):
+        """2.13: a click in the script cell links; in the delete cell deletes."""
+        from PySide6.QtCore import QPoint
+        from PySide6.QtTest import QTest
+
+        self.mw.resize(1200, 600)
+        self.mw.show()
+        picked = []
+        self.mw.modify_payload_script = lambda e: picked.append(e)
+        self.mw.tx_buttons.link_clicked.disconnect()
+        self.mw.tx_buttons.link_clicked.connect(self.mw.modify_payload_script)
+        view = self.mw.tx_view
+        rect = view.visualRect(h.tx_index(self.mw, self.items[0x300], 7))
+        QTest.mouseClick(
+            view.viewport(),
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            QPoint(rect.left() + 10, rect.center().y()),
+        )
+        self.assertEqual(picked, [self.items[0x300]])
+        rect = view.visualRect(h.tx_index(self.mw, self.items[0x100], 0))
+        QTest.mouseClick(
+            view.viewport(),
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+            rect.center(),
+        )
+        self.assertEqual(h.tx_view_ids(self.mw), ["0x200", "0x300"])
 
 
 if __name__ == "__main__":

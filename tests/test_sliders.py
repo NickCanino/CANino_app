@@ -191,8 +191,11 @@ class WorkspaceTests(Base):
 class AddSliderDialogTests(Base):
     def test_add_slider_starts_from_the_current_payload(self):
         """4.9: Add Slider picks message + signal and starts at the value being sent."""
-        self.rows[(0x200, False)].setText(
-            gui.TX_COL_6_payload, "05 2A 00 00 00 00 00 00"
+        h.tx_edit(
+            self.mw,
+            self.rows[(0x200, False)],
+            gui.TX_COL_6_payload,
+            "05 2A 00 00 00 00 00 00",
         )
         answers = iter(["MSG_B (0x200)", "SIG_L"])
         orig = QInputDialog.getItem

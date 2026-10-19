@@ -82,7 +82,7 @@ class Base(unittest.TestCase):
         self.mw.load_config(auto=True)
 
     def ids(self):
-        return [it.text(gui.TX_COL_2_id) for it in self.mw._tx_items()]
+        return h.tx_view_ids(self.mw)
 
 
 class LoadReplacesTests(Base):
@@ -171,9 +171,7 @@ class PathTests(Base):
             os.chdir(cwd)
         self.assertIsNotNone(self.mw.dbc)
         self.assertEqual(len(self.mw.slider_widgets), 1)
-        path = self.mw._tx_items()[0].data(
-            gui.TX_COL_SCRIPTDATA, gui.TX_COL_SCRIPTDATA_path
-        )
+        path = self.mw._tx_entries()[0].script_path
         self.assertTrue(os.path.isabs(path) and os.path.exists(path), path)
         self.mw.can_if = FakeIf()
         self.mw.start_stop_transmission()
@@ -234,9 +232,7 @@ class PathTests(Base):
         finally:
             os.chdir(cwd)
         self.assertIsNotNone(self.mw.dbc)
-        path = self.mw._tx_items()[0].data(
-            gui.TX_COL_SCRIPTDATA, gui.TX_COL_SCRIPTDATA_path
-        )
+        path = self.mw._tx_entries()[0].script_path
         self.assertTrue(os.path.exists(path))
 
     def test_linked_script_is_stored_absolute(self):
@@ -250,9 +246,7 @@ class PathTests(Base):
             self.mw.select_global_payload_script()
         finally:
             QFileDialog.getOpenFileName = orig
-        self.assertEqual(
-            item.data(gui.TX_COL_SCRIPTDATA, gui.TX_COL_SCRIPTDATA_path), target
-        )
+        self.assertEqual(item.script_path, target)
         self.assertEqual(self.mw.global_script_path, target)
 
 

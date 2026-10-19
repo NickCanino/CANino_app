@@ -150,6 +150,9 @@ class TemplateTests(unittest.TestCase):
                     self.assertNotEqual({fn(8, 0x300)[1] for _ in range(200)}, {0xA7})
 
 
+FG = Qt.ItemDataRole.ForegroundRole
+
+
 class GuiScriptTests(unittest.TestCase):
     def setUp(self):
         h.DIALOGS.clear()
@@ -185,6 +188,11 @@ class GuiScriptTests(unittest.TestCase):
     def sent(self):
         return self.mw.can_if.sent
 
+    def tip(self):
+        return h.tx_cell(
+            self.mw, self.item, gui.TX_COL_6_payload, Qt.ItemDataRole.ToolTipRole
+        )
+
     def errors_logged(self):
         return [
             r
@@ -200,7 +208,7 @@ class GuiScriptTests(unittest.TestCase):
         self.assertEqual(self.sent(), [])
         self.assertEqual(h.DIALOGS[-1][0], "warning")
         self.assertIn("gone.py", h.DIALOGS[-1][2])
-        self.assertIn("not found", self.item.toolTip(gui.TX_COL_6_payload))
+        self.assertIn("not found", self.tip())
         self.assertEqual(len(self.errors_logged()), 1)
 
     def test_missing_global_script_is_reported(self):
@@ -227,17 +235,15 @@ class GuiScriptTests(unittest.TestCase):
         self.assertEqual(self.sent(), [])
         self.assertEqual(len(self.errors_logged()), 1)
         self.assertIsNotNone(self.errors_logged()[0].exc_info)  # traceback kept once
-        self.assertIn("boom", self.item.toolTip(gui.TX_COL_6_payload))
+        self.assertIn("boom", self.tip())
         self.assertEqual(
-            self.item.foreground(gui.TX_COL_6_payload).color().name().upper(),
+            h.tx_cell(self.mw, self.item, gui.TX_COL_6_payload, FG).name().upper(),
             gui.ROW_ERROR_COLOR,
         )
         self.tick()
         self.assertEqual(len(self.sent()), 1)
-        self.assertEqual(self.item.toolTip(gui.TX_COL_6_payload), "")
-        self.assertIsNone(
-            self.item.data(gui.TX_COL_6_payload, Qt.ItemDataRole.ForegroundRole)
-        )
+        self.assertEqual(self.tip(), "")
+        self.assertIsNone(h.tx_cell(self.mw, self.item, gui.TX_COL_6_payload, FG))
 
     def test_none_means_manual_payload(self):
         """3.7 / script API: None -> the row's manual payload goes out."""
@@ -251,9 +257,7 @@ class GuiScriptTests(unittest.TestCase):
         self.mw.start_stop_transmission()
         self.tick()
         self.assertEqual(self.sent(), [])
-        self.assertIn(
-            "returned 1 bytes, the DLC is 8", self.item.toolTip(gui.TX_COL_6_payload)
-        )
+        self.assertIn("returned 1 bytes, the DLC is 8", self.tip())
         self.mw.stop_tx()
         self.script(
             "ba.py", "def get_payload(dlc, id):\n    return bytearray(range(dlc))\n"

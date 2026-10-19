@@ -95,7 +95,7 @@ class WorkspaceTests(unittest.TestCase):
         kinds = [d[0] for d in h.DIALOGS]
         self.assertNotIn("critical", kinds)
         self.assertIn("warning", kinds)
-        self.assertEqual(self.mw.signal_tree.topLevelItemCount(), 1)
+        self.assertEqual(self.mw.tx_model.rowCount(), 1)
         self.assertEqual(self.mw.slider_widgets, [])
 
     def test_sliders_live_inside_the_scroll_area(self):

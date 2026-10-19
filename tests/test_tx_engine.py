@@ -91,11 +91,8 @@ class TxEngineTests(unittest.TestCase):
     def last_bytes(self, fid):
         return [d[-1] for f, d in self.mw.can_if.sent if f == fid]
 
-    def item(self, fid):
-        for i in range(self.mw.signal_tree.topLevelItemCount()):
-            it = self.mw.signal_tree.topLevelItem(i)
-            if it.text(gui.TX_COL_2_id) == f"0x{fid:03X}":
-                return it
+    def entry(self, fid):
+        return self.mw._find_entry(fid, False)
 
     def test_same_script_runs_independently_per_id(self):
         """3.1: two IDs on one sawtooth file both count 1, 2, 3."""
@@ -108,8 +105,8 @@ class TxEngineTests(unittest.TestCase):
         """3.2: an internal TX restart must not reset running scripts."""
         self.mw.start_stop_transmission()
         self.tick(3)
-        self.item(0x300).setCheckState(gui.TX_COL_1_enable, Qt.CheckState.Unchecked)
-        self.item(0x300).setCheckState(gui.TX_COL_1_enable, Qt.CheckState.Checked)
+        h.tx_check(self.mw, self.entry(0x300), False)
+        h.tx_check(self.mw, self.entry(0x300), True)
         self.tick(2)
         self.assertEqual(self.last_bytes(0x100), [1, 2, 3, 4, 5])
 

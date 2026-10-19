@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QDialog  # noqa: E402
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+from src.tx_model import ENTRY_ROLE  # noqa: E402
 from test_tx_engine import FakeIf  # noqa: E402
 
 # 0x123 standard, 0x123 extended (bit 31 = extended in DBC), 0x18FF0001 extended FD
@@ -68,16 +69,13 @@ class Base(unittest.TestCase):
         self.mw.CONFIG_FILE = "ws_flags.json"
         self.mw.load_config(auto=True)
 
+    def entries(self):
+        """TX entries in view order (the table sorts by ID by default)."""
+        proxy = self.mw.tx_view.model()
+        return [proxy.index(r, 0).data(ENTRY_ROLE) for r in range(proxy.rowCount())]
+
     def rows(self):
-        return [
-            (
-                it.text(gui.TX_COL_2_id),
-                bool(it.data(gui.TX_COL_DATA, gui.TX_COL_DATA_ROLE_is_ext)),
-                bool(it.data(gui.TX_COL_DATA, gui.TX_COL_DATA_ROLE_is_fd)),
-                it.data(gui.TX_COL_DATA, gui.TX_COL_DATA_ROLE_dlc),
-            )
-            for it in self.mw._tx_items()
-        ]
+        return [(e.id_text, e.is_ext, e.is_fd, e.dlc) for e in self.entries()]
 
     def run_tx(self, ticks=1, is_fd=False):
         self.mw.can_if = FakeIf()
@@ -207,7 +205,10 @@ class FdFlagTests(Base):
     def test_payload_header(self):
         """2.9: no "(0 - 7)" on a table that carries 64-byte frames."""
         self.assertEqual(
-            self.mw.signal_tree.headerItem().text(gui.TX_COL_6_payload), "Payload"
+            self.mw.tx_view.model().headerData(
+                gui.TX_COL_6_payload, Qt.Orientation.Horizontal
+            ),
+            "Payload",
         )
 
 
@@ -277,12 +278,12 @@ class AddIdFormTests(Base):
         finally:
             gui.AddIdDialog.exec = orig
         self.assertEqual(self.rows(), [("0x18FF0001", True, True, 16)])
-        item = self.mw._tx_items()[0]
-        self.assertEqual(item.text(gui.TX_COL_4_name), "MY_ID")
-        self.assertEqual(item.text(gui.TX_COL_6_payload), " ".join(["00"] * 16))
+        entry = self.entries()[0]
+        self.assertEqual(h.tx_cell(self.mw, entry, gui.TX_COL_4_name), "MY_ID")
         self.assertEqual(
-            self.mw.signal_tree.itemWidget(item, gui.TX_COL_5_period).value(), 100
+            h.tx_cell(self.mw, entry, gui.TX_COL_6_payload), " ".join(["00"] * 16)
         )
+        self.assertEqual(h.tx_cell(self.mw, entry, gui.TX_COL_5_period), "100")
         self.assertTrue(self.mw.btn_delete_all_ids.isEnabled())
 
 
@@ -294,13 +295,9 @@ class SortTests(Base):
         )
         self.run_tx()
         self.mw.can_if.flags.clear()
-        self.mw.signal_tree.sortItems(gui.TX_COL_5_period, Qt.SortOrder.AscendingOrder)
-        self.assertEqual(
-            [it.text(gui.TX_COL_2_id) for it in self.mw._tx_items()],
-            ["0x200", "0x300", "0x100"],
-        )
-        for t in list(self.mw.timers):
-            t.timeout.emit()
+        self.mw.tx_view.sortByColumn(gui.TX_COL_5_period, Qt.SortOrder.AscendingOrder)
+        self.assertEqual(h.tx_view_ids(self.mw), ["0x200", "0x300", "0x100"])
+        h.fire_tx(self.mw)
         self.assertCountEqual(
             [f[0] for f in self.mw.can_if.flags], [0x100, 0x200, 0x300]
         )
@@ -315,20 +312,18 @@ class SortTests(Base):
                 row(0x80),
             ]
         )
-        self.mw.signal_tree.sortItems(gui.TX_COL_2_id, Qt.SortOrder.AscendingOrder)
+        self.mw.tx_view.sortByColumn(gui.TX_COL_2_id, Qt.SortOrder.AscendingOrder)
         self.assertEqual(
-            [it.text(gui.TX_COL_2_id) for it in self.mw._tx_items()],
-            ["0x080", "0x7FF", "0x00000123", "0x18FF0001"],
+            h.tx_view_ids(self.mw), ["0x080", "0x7FF", "0x00000123", "0x18FF0001"]
         )
 
     def test_delete_stops_only_its_own_timer(self):
         """1.6: deleting ext 0x123 keeps std 0x123 transmitting."""
         self.load([row(0x123), row(0x123, id="0x00000123", ext="Y")])
         self.run_tx()
-        self.mw.delete_signal_row(self.mw._find_tx_item(0x123, True))
+        self.mw.delete_signal_row(self.mw._find_entry(0x123, True))
         self.mw.can_if.flags.clear()
-        for t in list(self.mw.timers):
-            t.timeout.emit()
+        h.fire_tx(self.mw)
         self.assertEqual(self.mw.can_if.flags, [(0x123, False, False, 8)])
 
 
@@ -341,10 +336,7 @@ class LoadDbcTests(Base):
         self.mw.populate_signal_tree()
         ids = [r[0] for r in self.rows()]
         self.assertEqual(ids, ["0x123", "0x555", "0x00000123", "0x18FF0001"])
-        kept = self.mw._find_tx_item(0x123, False)
-        self.assertEqual(
-            self.mw.signal_tree.itemWidget(kept, gui.TX_COL_5_period).value(), 20
-        )
+        self.assertEqual(self.mw._find_entry(0x123, False).period, 20)
 
 
 if __name__ == "__main__":
