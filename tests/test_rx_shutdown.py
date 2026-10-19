@@ -141,10 +141,10 @@ class RxTableTests(Base):
         """1.8: the RX-thread callback touches no statistics, the GUI drain does."""
         self.rx.push_frame(0x100, bytes(8), 8, False)
         self.assertEqual(self.rx.model.rowCount(), 0)
-        self.assertEqual(self.rx.busload_rx_arbitration_bits, 0)
+        self.assertEqual(self.rx.busload_nominal_bits, 0)
         self.rx.drain()
         self.assertEqual(self.rx.model.rowCount(), 1)
-        self.assertGreater(self.rx.busload_rx_arbitration_bits, 0)
+        self.assertGreater(self.rx.busload_nominal_bits, 0)
 
     def test_clear_drops_rows_and_queue(self):
         self.rx.push_frame(0x100, bytes(8), 8, False)
