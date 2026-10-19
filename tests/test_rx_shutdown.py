@@ -46,42 +46,118 @@ class RxTableTests(Base):
         """5.1: sorted by DLC (all equal), every row still shows its own ID's data."""
         for fid, byte in ((0x300, 0x33), (0x200, 0x22), (0x100, 0x11)):
             for _ in range(fid >> 8):
-                self.rx.update_frame(fid, bytes([byte] * 8), 8, False)
-        self.rx.refresh_table()
+                self.rx.push_frame(fid, bytes([byte] * 8), 8, False)
+        self.rx.drain()
         self.rx.table.sortByColumn(2, Qt.SortOrder.AscendingOrder)
-        self.rx.refresh_table()
-        self.rx.refresh_table()
-        for r in range(self.rx.table.rowCount()):
-            fid = int(self.rx.table.item(r, 0).text(), 16)
-            f = self.rx._rx_buffer[(fid, False)]
-            self.assertEqual(
-                self.rx.table.item(r, 3).text(), " ".join(f"{b:02X}" for b in f["data"])
-            )
-            self.assertEqual(self.rx.table.item(r, 4).text(), str(f["count"]))
+        self.rx.push_frame(0x100, bytes([0x44] * 8), 8, False)
+        self.rx.drain()
+        rows = {r[0]: (r[3], r[4]) for r in h.rx_view_rows(self.rx)}
+        self.assertEqual(
+            rows,
+            {
+                "0x100": (" ".join(["44"] * 8), "2"),
+                "0x200": (" ".join(["22"] * 8), "2"),
+                "0x300": (" ".join(["33"] * 8), "3"),
+            },
+        )
+
+    def test_numeric_sort(self):
+        """5.8: Count sorts as a number (9 before 10), ID std before ext."""
+        for _ in range(10):
+            self.rx.push_frame(0x100, bytes(8), 8, False)
+        for _ in range(9):
+            self.rx.push_frame(0x200, bytes(8), 8, False)
+        self.rx.push_frame(0x050, bytes(8), 8, False, None, True)
+        self.rx.drain()
+        self.rx.table.sortByColumn(4, Qt.SortOrder.AscendingOrder)
+        self.assertEqual([r[4] for r in h.rx_view_rows(self.rx)], ["1", "9", "10"])
+        self.rx.table.sortByColumn(0, Qt.SortOrder.AscendingOrder)
+        self.assertEqual(
+            [r[0] for r in h.rx_view_rows(self.rx)], ["0x100", "0x200", "0x00000050"]
+        )
+
+    def test_period_statistics(self):
+        """Period min/max and std-dev from the frames' own timestamps."""
+        t = 1000.0
+        for dt in (0, 0.010, 0.010, 0.010, 0.020, 0.010):
+            t += dt
+            self.rx.push_frame(0x123, bytes(8), 8, False, t)
+        self.rx.drain()
+        (row,) = h.rx_view_rows(self.rx)
+        self.assertEqual((row[6], row[7]), ("10.0", "20.0"))
+        self.assertEqual(row[8], "4.7")  # pstdev(10, 20, 10)
 
     def test_refresh_survives_concurrent_new_ids(self):
-        """5.2: the RX thread adding IDs during a refresh must not raise."""
-        stop = threading.Event()
+        """5.2: the RX thread adding IDs during a drain must not raise."""
 
+        # A bounded burst: an unpaced loop outruns any real bus and the drain
         def writer():
-            fid = 0x400
-            while not stop.is_set():
-                self.rx.update_frame(fid, bytes(8), 8, False)
-                fid = 0x400 + ((fid - 0x400 + 1) % 2000)
+            for i in range(100_000):
+                self.rx.push_frame(0x400 + i % 2000, bytes(8), 8, False)
+                if i % 1000 == 0:
+                    time.sleep(0.001)  # let the GUI thread drain meanwhile
 
         t = threading.Thread(target=writer, daemon=True)
         t.start()
-        try:
-            t_end = time.time() + 3
-            while time.time() < t_end:
-                self.rx.refresh_table()  # raised "dictionary changed size" before
-        finally:
-            stop.set()
-            t.join()
+        drains = 0
+        while t.is_alive():
+            self.rx.drain()
+            drains += 1
+        t.join()
+        self.rx.drain()
+        self.assertGreater(drains, 1)
+        self.assertEqual(self.rx.model.rowCount(), 2000)
+
+    def test_refresh_cost_with_many_rows(self):
+        """5.6: 1,000 IDs updated per drain stay far below the old 465 ms rebuild."""
+        self.rx.resize(1000, 600)
+        self.rx.show()
+        for fid in range(1000):
+            self.rx.push_frame(fid, bytes(8), 8, False)
+        self.rx.drain()
+        self.rx.table.sortByColumn(4, Qt.SortOrder.DescendingOrder)
+        worst = 0.0
+        for _ in range(10):
+            for fid in range(1000):
+                self.rx.push_frame(fid, bytes([fid & 0xFF] * 8), 8, False)
+            t0 = time.perf_counter()
+            self.rx.drain()
+            QCoreApplication.processEvents()
+            worst = max(worst, time.perf_counter() - t0)
+        self.assertLess(worst, 0.1)
+
+    def test_set_dbc_names_existing_rows(self):
+        """5.7: rows already listed get their name when a DBC arrives."""
+        with open("names.dbc", "w", encoding="utf-8") as f:
+            f.write(DBC)
+        self.rx.push_frame(0x100, bytes(8), 8, False)
+        self.rx.drain()
+        self.rx.set_dbc(gui.load_dbc("names.dbc"))
+        self.assertEqual(h.rx_view_rows(self.rx)[0][1], "MSG_A")
+        self.rx.set_dbc(None)
+        self.assertEqual(h.rx_view_rows(self.rx)[0][1], "")
+
+    def test_rx_callback_only_queues(self):
+        """1.8: the RX-thread callback touches no statistics, the GUI drain does."""
+        self.rx.push_frame(0x100, bytes(8), 8, False)
+        self.assertEqual(self.rx.model.rowCount(), 0)
+        self.assertEqual(self.rx.busload_rx_arbitration_bits, 0)
+        self.rx.drain()
+        self.assertEqual(self.rx.model.rowCount(), 1)
+        self.assertGreater(self.rx.busload_rx_arbitration_bits, 0)
+
+    def test_clear_drops_rows_and_queue(self):
+        self.rx.push_frame(0x100, bytes(8), 8, False)
+        self.rx.drain()
+        self.rx.push_frame(0x200, bytes(8), 8, False)
+        self.rx.clear_rx_table()
+        self.rx.drain()
+        self.assertEqual(h.rx_view_rows(self.rx), [])
 
     def test_csv_logs_every_frame_with_its_own_time(self):
         """5.3 + 5.4: one row per frame, stamped with the frame's own time."""
         self.rx.csv_path = os.path.join(h.WORKDIR, "rx.csv")
+        self.rx.push_frame(0x7FE, b"\x00" * 8, 8, False)  # before Start: not logged
         self.rx.start_log()
         base = time.time()
         sent = [
@@ -90,8 +166,8 @@ class RxTableTests(Base):
             (0x7FF, b"\x09" * 8, base + 0.2),
         ]
         for fid, data, ts in sent:
-            self.rx.update_frame(fid, data, 8, False, ts)
-        self.rx.stop_log()
+            self.rx.push_frame(fid, data, 8, False, ts)
+        self.rx.stop_log()  # queued frames are logged before the file closes
         with open(self.rx.csv_path, newline="", encoding="utf-8") as f:
             rows = list(csv.reader(f))[1:]
         self.assertEqual(
@@ -103,29 +179,32 @@ class RxTableTests(Base):
             self.assertAlmostEqual(logged, ts, places=3)
 
     def test_stop_log_while_frames_arrive(self):
-        """5.5: closing the CSV from the GUI thread while the RX thread writes."""
+        """5.5: frames keep arriving from the RX thread across start/stop cycles."""
         self.rx.csv_path = os.path.join(h.WORKDIR, "rx_race.csv")
         stop = threading.Event()
         errors = []
-        orig = gui.log_exception
 
-        def writer():
+        def writer():  # ~10k frames/s, a busy real bus
             while not stop.is_set():
-                self.rx.update_frame(0x321, bytes(8), 8, False)
+                for _ in range(10):
+                    self.rx.push_frame(0x321, bytes(8), 8, False)
+                time.sleep(0.001)
 
         import src.received_frames_class as rfc
 
-        rfc.log_exception = lambda *a: errors.append(a[-1])
+        orig = rfc.log_throttled
+        rfc.log_throttled = lambda *a: errors.append(a[-1])
         t = threading.Thread(target=writer, daemon=True)
         t.start()
         try:
             for _ in range(200):
                 self.rx.start_log()
+                self.rx.drain()
                 self.rx.stop_log()
         finally:
             stop.set()
             t.join()
-            rfc.log_exception = orig
+            rfc.log_throttled = orig
         self.assertEqual(errors, [])
 
 
@@ -150,12 +229,11 @@ class XMetroAndShutdownTests(Base):
 
     def feed_from_rx_thread(self, data):
         t = threading.Thread(
-            target=self.mw.process_received_frame, args=(0x100, data, 8, False)
+            target=self.mw.rx_window.push_frame, args=(0x100, data, 8, False)
         )
         t.start()
         t.join()
-        for _ in range(20):
-            QCoreApplication.processEvents()
+        self.mw.rx_window.drain()
 
     def test_gauge_follows_received_frames(self):
         """7.1: frames received in the RX thread reach the gauge."""

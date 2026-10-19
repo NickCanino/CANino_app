@@ -156,16 +156,10 @@ class ExtendedIdTests(Base):
         """1.7: std 0x123 and ext 0x123 are two RX rows with their own data."""
         rx = self.mw.rx_window
         for _ in range(3):
-            self.mw.process_received_frame(0x123, b"\x11" * 8, 8, False, None, False)
-        self.mw.process_received_frame(0x123, b"\x22" * 4, 4, False, None, True)
-        rx.refresh_table()
-        rows = {
-            rx.table.item(r, 0).text(): (
-                rx.table.item(r, 3).text(),
-                rx.table.item(r, 4).text(),
-            )
-            for r in range(rx.table.rowCount())
-        }
+            rx.push_frame(0x123, b"\x11" * 8, 8, False, None, False)
+        rx.push_frame(0x123, b"\x22" * 4, 4, False, None, True)
+        rx.drain()
+        rows = {r[0]: (r[3], r[4]) for r in h.rx_view_rows(rx)}
         self.assertEqual(
             rows,
             {"0x123": (" ".join(["11"] * 8), "3"), "0x00000123": ("22 22 22 22", "1")},

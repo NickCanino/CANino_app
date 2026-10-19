@@ -112,3 +112,12 @@ def install_fake_pcan():
     FakePCAN.calls.clear()
     FakePCAN.init_result = None
     FakePCAN.status_result = 0
+
+
+def rx_view_rows(rx):
+    """The RX table as the user sees it: one list of cell texts per row, in view order."""
+    proxy = rx.table.model()
+    return [
+        [proxy.index(r, c).data() for c in range(proxy.columnCount())]
+        for r in range(proxy.rowCount())
+    ]

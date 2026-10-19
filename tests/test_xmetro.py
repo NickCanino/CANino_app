@@ -58,13 +58,12 @@ class Base(unittest.TestCase):
 
     def rx(self, frame_id, data, is_ext=False):
         t = threading.Thread(
-            target=self.mw.process_received_frame,
+            target=self.mw.rx_window.push_frame,
             args=(frame_id, data, len(data), False, None, is_ext),
         )
         t.start()
         t.join()
-        for _ in range(20):
-            QCoreApplication.processEvents()
+        self.mw.rx_window.drain()
 
 
 class FeedTests(Base):
