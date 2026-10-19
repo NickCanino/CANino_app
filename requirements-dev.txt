@@ -1,0 +1,5 @@
+# Build, lint and format tools - not needed to run CANino App (TODO 10.4)
+-r requirements.txt
+pyinstaller==6.14.2
+ruff==0.12.4
+black==25.1.0

@@ -1,4 +1,4 @@
-pyside6
-python-can
-cantools
-pyinstaller
+# Runtime dependencies, pinned to the versions CANino App is tested with (TODO 10.4)
+PySide6==6.9.1
+python-can==4.5.0
+cantools==40.2.3
