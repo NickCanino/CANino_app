@@ -28,8 +28,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QLabel,
     QGroupBox,
-    QTreeWidget,
-    QTreeWidgetItem,
     QSpinBox,
     QFileDialog,
     QMessageBox,
@@ -40,15 +38,17 @@ from PySide6.QtWidgets import (
     QMenu,
     QSlider,
     QScrollArea,
-    QStyledItemDelegate,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
     QLineEdit,
     QCheckBox,
+    QTableView,
+    QAbstractItemView,
+    QHeaderView,
 )
-from PySide6.QtGui import QAction, QIcon, QPixmap, QFont, QColor, QDesktopServices
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtGui import QAction, QIcon, QPixmap, QDesktopServices
+from PySide6.QtCore import Qt, QTimer, QUrl, QSortFilterProxyModel
 import shiboken6
 import importlib.util
 import json
@@ -56,7 +56,6 @@ import logging
 import os
 import sys
 import time
-import re
 import can
 
 from src.dbc_loader import (
@@ -72,6 +71,26 @@ from src.xmetro_class import XMetroWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
 from src.utils import resource_path, format_can_id
+from src.tx_model import (  # noqa: F401  (TX_COL_*, CAN_* are part of gui's API)
+    TxEntry,
+    TxTableModel,
+    TxButtonDelegate,
+    PeriodDelegate,
+    SORT_ROLE as TX_SORT_ROLE,
+    TX_COL_0_del,
+    TX_COL_1_enable,
+    TX_COL_2_id,
+    TX_COL_3_fd,
+    TX_COL_4_name,
+    TX_COL_5_period,
+    TX_COL_6_payload,
+    TX_COL_7_script,
+    CAN_MAX_STD_ID,
+    CAN_MAX_EXT_ID,
+    CAN_FD_LENGTHS,
+    ROW_ERROR_COLOR,
+    valid_dlc,
+)
 from src.PCANBasic import (
     PCAN_BAUD_1M,
     PCAN_BAUD_800K,
@@ -133,7 +152,6 @@ def load_payload_function(path: str, module_name: str):
 BUSLOAD_refresh_rate_ms = 1000
 # Slider positions; QSlider ranges are int32, 32/64-bit raw ranges are not
 SLIDER_MAX_STEPS = 10000
-ROW_ERROR_COLOR = "#E53935"
 BUS_STATUS_POLL_MS = 250
 # Error-warning / error-passive this long while transmitting = frames are not
 # being acknowledged: stop TX instead of filling the 32.8k-frame driver queue
@@ -145,40 +163,8 @@ BUS_STATUS_COLORS = {
     "severe": "#E53935",
 }
 
-# Tx column definition
-TX_COL_0_del = 0
-TX_COL_1_enable = 1
-TX_COL_2_id = 2
-TX_COL_3_fd = 3
-TX_COL_4_name = 4
-TX_COL_5_period = 5
-TX_COL_6_payload = 6
-TX_COL_7_script = 7
-
-TX_COL_DATA = TX_COL_2_id
-TX_COL_DATA_ROLE_script = Qt.ItemDataRole.UserRole
-TX_COL_DATA_ROLE_dlc = Qt.ItemDataRole.UserRole + 1
-TX_COL_DATA_ROLE_is_fd = Qt.ItemDataRole.UserRole + 2
-TX_COL_DATA_ROLE_is_ext = Qt.ItemDataRole.UserRole + 3
-
-TX_COL_SCRIPTDATA = TX_COL_7_script
-TX_COL_SCRIPTDATA_path = Qt.ItemDataRole.UserRole
-
-CAN_MAX_STD_ID = 0x7FF
-CAN_MAX_EXT_ID = 0x1FFFFFFF
-# Payload lengths a CAN FD frame can carry (DLC codes 0-15)
-CAN_FD_LENGTHS = (1, 2, 3, 4, 5, 6, 7, 8, 12, 16, 20, 24, 32, 48, 64)
-
-
-def valid_dlc(dlc, is_fd: bool) -> int:
-    """Clamp a stored DLC to a length the frame type can carry."""
-    try:
-        dlc = int(dlc)
-    except (TypeError, ValueError):
-        return 8
-    if not is_fd:
-        return min(max(dlc, 1), 8)
-    return next((n for n in CAN_FD_LENGTHS if n >= dlc), 64)
+# The TX engine repaints the rows it changed this often (TODO 2.12)
+TX_REFRESH_MS = 100
 
 
 def json_flag(value) -> bool:
@@ -186,35 +172,6 @@ def json_flag(value) -> bool:
     if isinstance(value, str):
         return value.strip().upper() in ("Y", "YES", "TRUE", "1")
     return bool(value)
-
-
-class TxItem(QTreeWidgetItem):
-    """TX row that sorts IDs and periods by value, not by cell text.
-
-    Sorting moves the items with their widgets, so timers that hold an item
-    stay valid; the old Period sort rebuilt every row and orphaned them
-    (TODO 2.5).
-    """
-
-    def sort_key(self, column):
-        tree = self.treeWidget()
-        if column == TX_COL_2_id:
-            ext = bool(self.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext))
-            try:
-                return (ext, int(self.text(TX_COL_2_id), 16))
-            except ValueError:
-                return (ext, -1)
-        if column == TX_COL_5_period and tree is not None:
-            spin = tree.itemWidget(self, TX_COL_5_period)
-            return spin.value() if spin is not None else 0
-        return self.text(column).lower()
-
-    def __lt__(self, other):
-        tree = self.treeWidget()
-        column = tree.sortColumn() if tree is not None else TX_COL_2_id
-        if isinstance(other, TxItem):
-            return self.sort_key(column) < other.sort_key(column)
-        return super().__lt__(other)
 
 
 class AddIdDialog(QDialog):
@@ -304,26 +261,6 @@ class AddIdDialog(QDialog):
         super().accept()
 
 
-class PayloadEditDelegate(QStyledItemDelegate):
-    def createEditor(self, parent, option, index):
-        # Only allow editing for payload column (column 6)
-        if index.column() == 6:
-            return super().createEditor(parent, option, index)
-        return None
-
-    def initStyleOption(self, option, index):
-        # Monospace style for some columns
-        super().initStyleOption(option, index)
-        if (
-            index.column() == TX_COL_2_id
-            or index.column() == TX_COL_4_name
-            or index.column() == TX_COL_6_payload
-        ):
-            font = QFont("Courier New", 10)
-            font.setStyleHint(QFont.StyleHint.Monospace)
-            option.font = font
-
-
 class MainWindow(QMainWindow):
     CONFIG_FILE = "resources/workspace_config_files/default_config_file.json"
 
@@ -338,7 +275,6 @@ class MainWindow(QMainWindow):
         self.can_if = None
         self.timers = []
         self.tx_skipped_fd = []
-        self._tx_writing_payload = False
         # (frame_id, is_ext, error) already logged in this run: once each (TODO 3.3)
         self._tx_errors_logged = set()
         self.tx_running = False
@@ -618,33 +554,56 @@ class MainWindow(QMainWindow):
         tx_buttons_layout.addWidget(self.btn_link_global_script)
         tx_buttons_layout.addWidget(self.btn_remove_global_script)
 
-        # --- TX TABLE (signal tree) ---
-        self.signal_tree = QTreeWidget()
-        self.signal_tree.setHeaderLabels(
-            [
-                "",
-                "En",
-                "ID",
-                "FD",
-                "Name",
-                "Period (ms)",
-                "Payload",
-                "Script for Specific ID",
-            ]
+        # --- TX TABLE: TxEntry rows -> model -> sorting proxy -> view (TODO 2.13) ---
+        self.tx_model = TxTableModel(self)
+        self.tx_model.enabled_changed.connect(self._on_enabled_changed)
+        self.tx_model.period_changed.connect(self._on_period_changed)
+        self.tx_model.payload_rejected.connect(self._on_payload_rejected)
+        self.tx_proxy = QSortFilterProxyModel(self)
+        self.tx_proxy.setSourceModel(self.tx_model)
+        self.tx_proxy.setSortRole(TX_SORT_ROLE)
+        self.tx_proxy.setDynamicSortFilter(True)
+        self.tx_view = QTableView()
+        self.tx_view.setModel(self.tx_proxy)
+        self.tx_view.verticalHeader().hide()
+        self.tx_view.setWordWrap(False)
+        self.tx_view.setSelectionBehavior(
+            QAbstractItemView.SelectionBehavior.SelectRows
         )
-        self.signal_tree.setColumnWidth(TX_COL_0_del, 40)  # old: 50
-        self.signal_tree.setColumnWidth(TX_COL_1_enable, 30)  # old: 50
-        self.signal_tree.setColumnWidth(TX_COL_2_id, 50)
-        self.signal_tree.setColumnWidth(TX_COL_3_fd, 30)
-        self.signal_tree.setColumnWidth(TX_COL_4_name, 100)
-        self.signal_tree.setColumnWidth(TX_COL_5_period, 80)
-        self.signal_tree.setColumnWidth(TX_COL_6_payload, 200)  # old: 190
-        self.signal_tree.setColumnWidth(TX_COL_7_script, 70)
-        self.signal_tree.itemChanged.connect(self.on_signal_tree_item_changed)
-
-        self.signal_tree.setSortingEnabled(True)
-        self.signal_tree.setItemDelegate(PayloadEditDelegate(self.signal_tree))
-        self.signal_tree.header().setDefaultAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.tx_view.setEditTriggers(
+            QAbstractItemView.EditTrigger.DoubleClicked
+            | QAbstractItemView.EditTrigger.SelectedClicked
+            | QAbstractItemView.EditTrigger.EditKeyPressed
+        )
+        self.tx_buttons = TxButtonDelegate(self.tx_view)
+        self.tx_buttons.delete_clicked.connect(self.delete_signal_row)
+        self.tx_buttons.link_clicked.connect(self.modify_payload_script)
+        self.tx_buttons.unlink_clicked.connect(self.remove_local_payload_script)
+        self.tx_view.setItemDelegateForColumn(TX_COL_0_del, self.tx_buttons)
+        self.tx_view.setItemDelegateForColumn(TX_COL_7_script, self.tx_buttons)
+        self.tx_view.setItemDelegateForColumn(
+            TX_COL_5_period, PeriodDelegate(self.tx_view)
+        )
+        for col, width in (
+            (TX_COL_0_del, 40),
+            (TX_COL_1_enable, 30),
+            (TX_COL_2_id, 90),
+            (TX_COL_3_fd, 30),
+            (TX_COL_4_name, 100),
+            (TX_COL_5_period, 80),
+            (TX_COL_6_payload, 200),
+            (TX_COL_7_script, 150),
+        ):
+            self.tx_view.setColumnWidth(col, width)
+        self.tx_view.horizontalHeader().setSectionResizeMode(
+            TX_COL_7_script, QHeaderView.ResizeMode.Stretch
+        )
+        self.tx_view.setSortingEnabled(True)
+        self.tx_view.sortByColumn(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
+        # Payloads and errors written by the TX engine reach the screen at ~10 Hz
+        self.tx_refresh_timer = QTimer(self)
+        self.tx_refresh_timer.timeout.connect(self.tx_model.flush)
+        self.tx_refresh_timer.start(TX_REFRESH_MS)
 
         # Group box for the transmission controls
         tx_group = QGroupBox()
@@ -659,7 +618,7 @@ class MainWindow(QMainWindow):
         tx_title.setStyleSheet("font-weight: bold;")
         tx_layout.addWidget(tx_title)
         tx_layout.addLayout(tx_buttons_layout)
-        tx_layout.addWidget(self.signal_tree)
+        tx_layout.addWidget(self.tx_view)
 
         # RX controls
         self.rx_window = ReceivedFramesWindow(self.dbc)
@@ -811,7 +770,7 @@ class MainWindow(QMainWindow):
         """
         Delete every ID from the TX table, after confirmation.
         """
-        if self.signal_tree.topLevelItemCount() == 0:
+        if self.tx_model.rowCount() == 0:
             return  # Table already empty
 
         # Ask for confirmation
@@ -834,7 +793,7 @@ class MainWindow(QMainWindow):
                 self.timers.clear()
 
             # Clear the table
-            self.signal_tree.clear()
+            self.tx_model.clear()
 
             # Disable the buttons that need rows
             self.btn_disable_all_ids.setEnabled(False)
@@ -921,26 +880,18 @@ class MainWindow(QMainWindow):
                 }
             )
 
-        for item in self._tx_items():
-            spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
+        for entry in self._tx_entries():
             config["signals"].append(
                 {
-                    "enabled": item.checkState(TX_COL_1_enable)
-                    == Qt.CheckState.Checked,
-                    "id": item.text(TX_COL_2_id),
-                    "ext": (
-                        "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext) else "n"
-                    ),
-                    "fd": (
-                        "Y" if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) else "n"
-                    ),
-                    "name": item.text(TX_COL_4_name),
-                    "period": spin.value() if spin else 100,
-                    "payload": item.text(TX_COL_6_payload),
-                    "dlc": item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or 8,
-                    "script_path": self._to_workspace_path(
-                        item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path), base
-                    ),
+                    "enabled": entry.enabled,
+                    "id": entry.id_text,
+                    "ext": "Y" if entry.is_ext else "n",
+                    "fd": "Y" if entry.is_fd else "n",
+                    "name": entry.name,
+                    "period": entry.period,
+                    "payload": " ".join(f"{b:02X}" for b in entry.payload),
+                    "dlc": entry.dlc,
+                    "script_path": self._to_workspace_path(entry.script_path, base),
                 }
             )
         try:
@@ -962,7 +913,7 @@ class MainWindow(QMainWindow):
         """Empty TX table, sliders, global script and DBC: Load replaces (TODO 6.4)."""
         if self.tx_running:
             self.start_stop_transmission()  # = the user's Stop TX, drops the backlog
-        self.signal_tree.clear()
+        self.tx_model.clear()
         for widget in list(self.slider_widgets):
             self.remove_slider_widget(widget)
         self.added_sliders.clear()
@@ -1030,7 +981,7 @@ class MainWindow(QMainWindow):
                 # Files written before 1.5 carry no "ext": they could not send
                 # IDs above 0x7FF, so the number decides (TODO 1.6)
                 is_ext = json_flag(sig.get("ext")) or frame_id > CAN_MAX_STD_ID
-                if frame_id > CAN_MAX_EXT_ID or self._find_tx_item(frame_id, is_ext):
+                if frame_id > CAN_MAX_EXT_ID or self._find_entry(frame_id, is_ext):
                     continue  # invalid, or a duplicate row in the file
                 self._add_tx_row(
                     frame_id,
@@ -1043,7 +994,6 @@ class MainWindow(QMainWindow):
                     script_path=self._from_workspace_path(sig.get("script_path"), base),
                     enabled=bool(sig.get("enabled")),
                 )
-            self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
 
             # Load sliders
             sliders_cfg = config.get("sliders") or []
@@ -1074,7 +1024,7 @@ class MainWindow(QMainWindow):
                 self._add_slider_widget(msg, sig, value)
 
             # Row-dependent buttons follow the table, sliders or not (TODO 6.2)
-            has_rows = self.signal_tree.topLevelItemCount() > 0
+            has_rows = self.tx_model.rowCount() > 0
             self.btn_disable_all_ids.setEnabled(has_rows)
             self.btn_delete_all_ids.setEnabled(has_rows)
 
@@ -1127,11 +1077,7 @@ class MainWindow(QMainWindow):
             return
 
         # Only consider checked TX rows
-        checked = {
-            self._row_key(it)
-            for it in self._tx_items()
-            if it.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
-        }
+        checked = {e.key for e in self._tx_entries() if e.enabled}
         if not checked:
             QMessageBox.warning(self, "Slider", "No TX messages enabled.")
             return
@@ -1171,11 +1117,11 @@ class MainWindow(QMainWindow):
             return
 
         # Start from the value the row is sending now: no jump on the bus
-        row = self._find_tx_item(msg.frame_id, msg.is_extended_frame)
+        entry = self._find_entry(msg.frame_id, msg.is_extended_frame)
         value = None
-        if row is not None:
+        if entry is not None:
             try:
-                value = decode_signal(bytes.fromhex(row.text(TX_COL_6_payload)), sig)
+                value = decode_signal(entry.payload, sig)
             except ValueError:
                 value = None
         self._add_slider_widget(msg, sig, value)
@@ -1270,9 +1216,9 @@ class MainWindow(QMainWindow):
             lambda _=False, w=slider_widget: self.remove_slider_widget(w)
         )
 
-        row = self._find_tx_item(msg.frame_id, msg.is_extended_frame)
-        if row is not None:
-            slider.setEnabled(row.checkState(TX_COL_1_enable) == Qt.CheckState.Checked)
+        entry = self._find_entry(msg.frame_id, msg.is_extended_frame)
+        if entry is not None:
+            slider.setEnabled(entry.enabled)
         self.slider_container.addWidget(slider_widget)
         self.slider_widgets.append(slider_widget)
         return slider_widget
@@ -1403,7 +1349,7 @@ class MainWindow(QMainWindow):
         if not self.dbc:
             return
         for msg in self.dbc.messages:
-            if self._find_tx_item(msg.frame_id, msg.is_extended_frame) is not None:
+            if self._find_entry(msg.frame_id, msg.is_extended_frame) is not None:
                 continue
             self._add_tx_row(
                 msg.frame_id,
@@ -1413,7 +1359,6 @@ class MainWindow(QMainWindow):
                 is_fd=msg.is_fd,
                 is_ext=msg.is_extended_frame,
             )
-        self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
 
     def _add_tx_row(
         self,
@@ -1429,96 +1374,34 @@ class MainWindow(QMainWindow):
     ):
         """The one TX row builder, for DBC, workspace and manual rows (TODO 2.14).
 
-        Frame flags live in item roles (dlc, is_fd, is_ext): the TX callback
-        reads them from there, the cell texts are display only (TODO 2.4).
+        The TxEntry normalises the frame flags, DLC, period and payload
+        (an invalid payload becomes all zeros) and is the row's only state.
         """
-        is_fd = bool(is_fd)
-        is_ext = bool(is_ext) or frame_id > CAN_MAX_STD_ID
-        dlc = valid_dlc(dlc, is_fd)
-        parts = (payload or "").strip().split()
-        if len(parts) != dlc or not all(
-            re.fullmatch(r"[0-9a-fA-F]{2}", p) for p in parts
-        ):
-            parts = ["00"] * dlc
-
-        # No itemChanged while the row is half built: the payload check would
-        # run before the DLC role is set
-        blocked = self.signal_tree.blockSignals(True)
-        try:
-            item = TxItem(self.signal_tree)
-            item.setFlags(
-                item.flags()
-                | Qt.ItemFlag.ItemIsUserCheckable
-                | Qt.ItemFlag.ItemIsEditable
+        return self.tx_model.add(
+            TxEntry(
+                frame_id,
+                name,
+                is_ext=is_ext,
+                is_fd=is_fd,
+                dlc=dlc,
+                period=period,
+                payload=(payload or "").strip(),
+                enabled=enabled,
+                script_path=script_path or None,
             )
-            item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_dlc, dlc)
-            item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd, is_fd)
-            item.setData(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext, is_ext)
-            item.setCheckState(
-                TX_COL_1_enable,
-                Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked,
-            )
-            item.setText(TX_COL_2_id, format_can_id(frame_id, is_ext))
-            item.setToolTip(
-                TX_COL_2_id, "29-bit extended ID" if is_ext else "11-bit standard ID"
-            )
-            item.setText(TX_COL_3_fd, "Y" if is_fd else "n")
-            item.setText(TX_COL_4_name, name)
-            item.setText(TX_COL_6_payload, " ".join(p.upper() for p in parts))
+        )
 
-            period_spin = QSpinBox()
-            period_spin.setRange(1, 10000)
-            try:
-                period_spin.setValue(int(period))
-            except (TypeError, ValueError):
-                period_spin.setValue(100)
-            self.signal_tree.setItemWidget(item, TX_COL_5_period, period_spin)
-            period_spin.valueChanged.connect(
-                lambda v, it=item: self._on_period_changed(it, v)
-            )
+    def _tx_entries(self):
+        return self.tx_model.entries()
 
-            btn_delete_id = QPushButton()
-            btn_delete_id.setIcon(
-                self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
-            )
-            btn_delete_id.setToolTip("Delete")
-            btn_delete_id.clicked.connect(
-                lambda _=False, it=item: self.delete_signal_row(it)
-            )
-            self.signal_tree.setItemWidget(item, TX_COL_0_del, btn_delete_id)
-
-            self._setup_script_buttons_for_item(item)
-            if script_path:
-                self._set_script_link(item, script_path)
-        finally:
-            self.signal_tree.blockSignals(blocked)
-        return item
-
-    @staticmethod
-    def _row_key(item):
-        """(ID, is_ext) of a TX row: std 0x123 and ext 0x123 are distinct frames."""
-        try:
-            frame_id = int(item.text(TX_COL_2_id), 16)
-        except ValueError:
-            frame_id = -1
-        return frame_id, bool(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_ext))
-
-    def _tx_items(self):
-        return [
-            self.signal_tree.topLevelItem(i)
-            for i in range(self.signal_tree.topLevelItemCount())
-        ]
-
-    def _find_tx_item(self, frame_id, is_ext):
-        key = (frame_id, bool(is_ext))
-        return next((it for it in self._tx_items() if self._row_key(it) == key), None)
+    def _find_entry(self, frame_id, is_ext):
+        return self.tx_model.find(frame_id, is_ext)
 
     def add_manual_id(self):
-        dlg = AddIdDialog(self, {self._row_key(it) for it in self._tx_items()})
+        dlg = AddIdDialog(self, {e.key for e in self._tx_entries()})
         if dlg.exec() != QDialog.DialogCode.Accepted or dlg.result_values is None:
             return
         self._add_tx_row(**dlg.result_values)
-        self.signal_tree.sortItems(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
 
         skipped = self._sync_tx_timers()  # starts the new row if TX is running
         if skipped:
@@ -1531,58 +1414,44 @@ class MainWindow(QMainWindow):
         self.btn_disable_all_ids.setEnabled(True)
         self.btn_delete_all_ids.setEnabled(True)
 
-    def delete_signal_row(self, item):
-        idx = self.signal_tree.indexOfTopLevelItem(item)
-        if idx != -1:
-            # Stop this row's timer only: another row may share the ID number
-            for t in [t for t in self.timers if getattr(t, "tx_item", None) is item]:
-                t.stop()
-                self.timers.remove(t)
-            self.signal_tree.takeTopLevelItem(idx)
+    def delete_signal_row(self, entry):
+        # Stop this row's timer only: another row may share the ID number
+        timer = self._timer_of(entry)
+        if timer is not None:
+            timer.stop()
+            self.timers.remove(timer)
+        self.tx_model.remove(entry)
 
-        if self.signal_tree.topLevelItemCount() == 0:
+        if self.tx_model.rowCount() == 0:
             self.btn_disable_all_ids.setEnabled(False)
             self.btn_delete_all_ids.setEnabled(False)
 
-    def _update_slider_enabled(self, item):
+    def _update_slider_enabled(self, entry):
         """Sliders of a disabled row are greyed out."""
-        frame_id, is_ext = self._row_key(item)
-        checked = item.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
         for w in self.slider_widgets:
-            if w.frame_id == frame_id and bool(getattr(w, "is_ext", False)) == is_ext:
-                w.slider.setEnabled(checked)
+            if (w.frame_id, bool(getattr(w, "is_ext", False))) == entry.key:
+                w.slider.setEnabled(entry.enabled)
 
     def _set_all_enabled(self, enabled):
         """Enable/Disable All: one timer sync, not one TX restart per row."""
-        state = Qt.CheckState.Checked if enabled else Qt.CheckState.Unchecked
-        blocked = self.signal_tree.blockSignals(True)
-        try:
-            for item in self._tx_items():
-                item.setCheckState(TX_COL_1_enable, state)
-        finally:
-            self.signal_tree.blockSignals(blocked)
+        self.tx_model.set_all_enabled(enabled)
         self._sync_tx_timers()
-        for item in self._tx_items():
-            self._update_slider_enabled(item)
+        for entry in self._tx_entries():
+            self._update_slider_enabled(entry)
 
-    def on_signal_tree_item_changed(self, item, column):
-        if column == TX_COL_1_enable:  # Enable checkbox
-            self._sync_tx_timers()  # starts/stops this row only (TODO 2.6)
-            self._update_slider_enabled(item)
+    def _on_enabled_changed(self, entry):
+        """The user ticked/unticked En: start/stop this row only (TODO 2.6)."""
+        self._sync_tx_timers()
+        self._update_slider_enabled(entry)
 
-        elif column == TX_COL_6_payload and not self._tx_writing_payload:  # Payload
-            text = item.text(TX_COL_6_payload).strip()
-            parts = text.split()
-            dlc = item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc) or None
-
-            hex_pair_re = re.compile(r"^[0-9a-fA-F]{2}$")
-            if len(parts) != dlc or any(not hex_pair_re.match(p) for p in parts):
-                QMessageBox.warning(
-                    self,
-                    "Error Payload",
-                    f"Payload must contain exactly {dlc} bytes in hexadecimal (00-FF), e.g. {' '.join(['00'] * dlc)}",
-                )
-                item.setText(TX_COL_6_payload, " ".join(["00"] * dlc))
+    def _on_payload_rejected(self, entry, text):
+        """A typed payload that does not parse is refused; the row keeps its own."""
+        QMessageBox.warning(
+            self,
+            "Error Payload",
+            f"Payload must contain exactly {entry.dlc} bytes in hexadecimal (00-FF), "
+            f"e.g. {' '.join(['00'] * entry.dlc)}",
+        )
 
     def select_global_payload_script(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -1620,86 +1489,26 @@ class MainWindow(QMainWindow):
             self.btn_link_global_script.setText("Link Global Script")
         self.btn_remove_global_script.setEnabled(bool(self.global_script_path))
 
-    def remove_local_payload_script(self, item):
+    def remove_local_payload_script(self, entry):
         """Unlink the payload script of one row."""
-        self._set_script_link(item, None)
+        self._set_script_link(entry, None)
 
-    def _set_script_link(self, item, script_path):
-        """Store a row's script path and show it on the row's script buttons."""
-        item.setData(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path, script_path)
-        script_widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
-        if not script_widget:
-            return
-        btn_link_local = script_widget.findChild(QPushButton, "btn_link_local")
-        btn_unlink_local = script_widget.findChild(QPushButton, "btn_unlink_local")
-        if btn_link_local:
-            if script_path:
-                btn_link_local.setStyleSheet("background-color: #4CAF50; color: white;")
-                btn_link_local.setToolTip(f"Script: {script_path}")
-                btn_link_local.setText(os.path.basename(script_path))
-            else:
-                btn_link_local.setStyleSheet("")
-                btn_link_local.setToolTip(
-                    "Link a Payload Script to be used for THIS trasmitted CAN frame."
-                )
-                btn_link_local.setText("Link Script")
-        if btn_unlink_local:
-            btn_unlink_local.setEnabled(bool(script_path))
+    def _set_script_link(self, entry, script_path):
+        """Link (path) or unlink (None) a row's script."""
+        self.tx_model.set_script(entry, script_path)
 
-    def _setup_script_buttons_for_item(self, item):
-        """
-        Build the composite Link/Unlink widget of the TX table's script column.
-        """
-        # Container
-        script_widget = QWidget()
-        script_layout = QHBoxLayout()
-        script_layout.setContentsMargins(2, 0, 2, 0)  # Tight margins
-        script_layout.setSpacing(5)
-
-        # Link button
-        btn_link_local = QPushButton("Link Script")
-        btn_link_local.setObjectName("btn_link_local")  # Looked up by name later
-        btn_link_local.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
-        )
-        btn_link_local.setToolTip(
-            "Link a Payload Script to be used for THIS trasmitted CAN frame."
-        )
-        btn_link_local.clicked.connect(
-            lambda _, it=item: self.modify_payload_script(it)
-        )
-
-        # Unlink button
-        btn_unlink_local = QPushButton()
-        btn_unlink_local.setObjectName("btn_unlink_local")  # Looked up by name later
-        btn_unlink_local.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
-        )
-        btn_unlink_local.setToolTip("Remove the linked Payload Script.")
-        btn_unlink_local.setFixedSize(30, 25)  # Small
-        btn_unlink_local.setEnabled(False)  # Nothing linked yet
-        btn_unlink_local.clicked.connect(
-            lambda _, it=item: self.remove_local_payload_script(it)
-        )
-
-        script_layout.addWidget(btn_link_local)
-        script_layout.addWidget(btn_unlink_local)
-        script_widget.setLayout(script_layout)
-
-        self.signal_tree.setItemWidget(item, TX_COL_7_script, script_widget)
-
-    def modify_payload_script(self, item):
+    def modify_payload_script(self, entry):
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Select Python script", "", "Python Files (*.py)"
         )
         if file_path:
             # Absolute in memory: relpath() raised across drives (TODO 6.5)
             script_path = os.path.abspath(file_path)
-            self._set_script_link(item, script_path)
+            self._set_script_link(entry, script_path)
             QMessageBox.information(
                 self,
                 "Script selected",
-                f"Script associated with ID {item.text(TX_COL_2_id)}:\n{script_path}\n\n"
+                f"Script associated with ID {entry.id_text}:\n{script_path}\n\n"
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
 
@@ -1722,8 +1531,8 @@ class MainWindow(QMainWindow):
             self.script_instances.clear()
             self.global_script_cache.clear()
             self._tx_errors_logged.clear()
-            for item in self._tx_items():
-                self._show_row_error(item, None)
+            for entry in self._tx_entries():
+                self.tx_model.set_error(entry, None)
             self.start_tx()
             problems = []
             if self.tx_skipped_fd:
@@ -1808,8 +1617,8 @@ class MainWindow(QMainWindow):
         )
         return self.tx_skipped_fd
 
-    def _timer_of(self, item):
-        return next((t for t in self.timers if t.tx_item is item), None)
+    def _timer_of(self, entry):
+        return next((t for t in self.timers if t.tx_entry is entry), None)
 
     def _sync_tx_timers(self):
         """Make the running timers match the table (TODO 2.6).
@@ -1820,68 +1629,50 @@ class MainWindow(QMainWindow):
         """
         if not self.tx_running:
             return []
-        rows = {id(it): it for it in self._tx_items()}
+        entries = {id(e): e for e in self._tx_entries()}
         for t in list(self.timers):
-            item = t.tx_item
-            if (
-                id(item) not in rows
-                or item.checkState(TX_COL_1_enable) != Qt.CheckState.Checked
-            ):
+            if id(t.tx_entry) not in entries or not t.tx_entry.enabled:
                 t.stop()
                 self.timers.remove(t)
 
         # A classic-CAN channel rejects every FD frame: skip those rows
         bus_is_fd = bool(getattr(self.can_if, "is_fd", False))
-        running = {id(t.tx_item) for t in self.timers}
+        running = {id(t.tx_entry) for t in self.timers}
         skipped = []
         # Ascending ID order, so equal periods fire lowest ID first
-        for item in sorted(rows.values(), key=lambda it: self._row_key(it)[::-1]):
-            if (
-                id(item) in running
-                or item.checkState(TX_COL_1_enable) != Qt.CheckState.Checked
-                or self._row_key(item)[0] < 0
-            ):
+        for entry in sorted(entries.values(), key=lambda e: (e.is_ext, e.frame_id)):
+            if id(entry) in running or not entry.enabled:
                 continue
-            if item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd) and not bus_is_fd:
-                skipped.append(f"{item.text(TX_COL_2_id)} {item.text(TX_COL_4_name)}")
+            if entry.is_fd and not bus_is_fd:
+                skipped.append(f"{entry.id_text} {entry.name}")
                 continue
-            self._start_row_timer(item)
+            self._start_row_timer(entry)
         return skipped
 
-    def _start_row_timer(self, item):
-        frame_id, is_ext = self._row_key(item)
-        # The frame flags of a row never change after it is created
-        is_fd = bool(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_is_fd))
-        dlc = valid_dlc(item.data(TX_COL_DATA, TX_COL_DATA_ROLE_dlc), is_fd)
-        period_spin = self.signal_tree.itemWidget(item, TX_COL_5_period)
-        period = period_spin.value() if period_spin else 100
-
+    def _start_row_timer(self, entry):
         timer = QTimer(self)
         # CoarseTimer (Qt's default) rounds intervals above 20 ms up to the
         # 15.625 ms Windows tick: 50 ms ran at 62.5 ms on the bus (TODO 2.10)
         timer.setTimerType(Qt.TimerType.PreciseTimer)
-        timer.tx_item = item  # Custom attribute for lookup
-        timer.timeout.connect(
-            lambda it=item, f=frame_id, x=is_ext, fd=is_fd, n=dlc: self._send_row(
-                it, f, x, fd, n
-            )
-        )
-        timer.start(period)
+        timer.tx_entry = entry  # Custom attribute for lookup
+        timer.timeout.connect(lambda e=entry: self._send_row(e))
+        timer.start(entry.period)
         self.timers.append(timer)
 
-    def _on_period_changed(self, item, period):
-        """Spinbox edit: retime this row only, connected once per row (TODO 2.7)."""
-        timer = self._timer_of(item)
+    def _on_period_changed(self, entry):
+        """Period edit: retime this row only (TODO 2.7)."""
+        timer = self._timer_of(entry)
         if timer is not None:
-            timer.setInterval(period)
+            timer.setInterval(entry.period)
 
-    def _script_payload(self, item, frame_id, is_ext, dlc):
+    def _script_payload(self, entry):
         """Payload from the row's script or the global one; None = manual payload.
 
         A linked script that is missing or fails raises: the frame is not sent
         rather than silently sent with the manual payload (TODO 3.4).
         """
-        script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
+        frame_id, is_ext, dlc = entry.frame_id, entry.is_ext, entry.dlc
+        script_path = entry.script_path
         if script_path:  # 1. Per-ID script has priority
             if not os.path.exists(script_path):
                 raise FileNotFoundError(f"script not found: {script_path}")
@@ -1920,18 +1711,18 @@ class MainWindow(QMainWindow):
             raise ValueError(f"get_payload() returned {got}, the DLC is {dlc}")
         return bytes(payload)
 
-    def _send_row(self, item, frame_id, is_ext, is_fd, dlc):
+    def _send_row(self, entry):
         """One TX tick of a row: script > global script > manual payload, then sliders.
 
         Script link and sliders are read at every tick, so linking a script or
-        adding/removing a slider takes effect without restarting TX.
+        adding/removing a slider takes effect without restarting TX. The frame
+        flags of an entry never change after it is created.
         """
+        frame_id, is_ext, dlc = entry.frame_id, entry.is_ext, entry.dlc
         try:
-            payload = self._script_payload(item, frame_id, is_ext, dlc)
+            payload = self._script_payload(entry)
             if payload is None:  # 3. Manual payload
-                payload_parts = item.text(TX_COL_6_payload).split()
-                payload = bytes(int(b, 16) for b in payload_parts[:dlc])
-                payload = payload + bytes(dlc - len(payload))
+                payload = entry.payload
 
             # Apply slider overrides
             for w in self.slider_widgets:
@@ -1945,73 +1736,31 @@ class MainWindow(QMainWindow):
             # Apply padding
             final_payload = bytes(payload[:dlc]) + bytes(max(0, dlc - len(payload)))
         except Exception as e:
-            self._row_failed(item, frame_id, is_ext, e)
+            self._row_failed(entry, e)
             return
 
-        # Send the frame and show its payload in the TX table
-        self.send_can_message(frame_id, final_payload, dlc, is_fd, is_ext)
+        # Send the frame; the row shows it at the next refresh (TODO 2.12)
+        self.send_can_message(frame_id, final_payload, dlc, entry.is_fd, is_ext)
         if self.xmetro_windows:  # gauges follow transmitted frames too (TODO 7.2)
             self._feed_gauges(frame_id, is_ext, final_payload)
-        self._show_row_error(item, None)
-        text = " ".join(f"{b:02X}" for b in final_payload)
-        if item.text(TX_COL_6_payload) != text:
-            # Our own write: no user-edit validation on every frame (TODO 2.8)
-            self._tx_writing_payload = True
-            try:
-                item.setText(TX_COL_6_payload, text)
-            finally:
-                self._tx_writing_payload = False
+        self.tx_model.set_error(entry, None)
+        self.tx_model.set_payload(entry, final_payload)
 
-    def _row_failed(self, item, frame_id, is_ext, e):
+    def _row_failed(self, entry, e):
         """Frame not sent: show it on the row, log each distinct error once (TODO 3.3)."""
         message = f"{type(e).__name__}: {e}"
-        self._show_row_error(item, message)
-        key = (frame_id, is_ext, message)
+        self.tx_model.set_error(entry, message)
+        key = (entry.frame_id, entry.is_ext, message)
         if key not in self._tx_errors_logged:
             self._tx_errors_logged.add(key)
-            logging.error(
-                "TX %s not sent: %s",
-                format_can_id(frame_id, is_ext),
-                message,
-                exc_info=e,
-            )
-
-    def _show_row_error(self, item, message):
-        """Red payload cell + tooltip while a row cannot be sent; None clears it."""
-        if getattr(item, "tx_error", None) == message:
-            return
-        item.tx_error = message
-        self._tx_writing_payload = True  # not a user edit
-        try:
-            if message:
-                item.setForeground(TX_COL_6_payload, QColor(ROW_ERROR_COLOR))
-                item.setToolTip(TX_COL_6_payload, f"Not sent - {message}")
-            else:
-                item.setData(TX_COL_6_payload, Qt.ItemDataRole.ForegroundRole, None)
-                item.setToolTip(TX_COL_6_payload, "")
-        finally:
-            self._tx_writing_payload = False
-        script_path = item.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path)
-        script_widget = self.signal_tree.itemWidget(item, TX_COL_7_script)
-        btn = (
-            script_widget.findChild(QPushButton, "btn_link_local")
-            if script_widget
-            else None
-        )
-        if message and script_path and btn:
-            btn.setStyleSheet(f"background-color: {ROW_ERROR_COLOR}; color: white;")
-            btn.setToolTip(f"Script: {script_path}\nError: {message}")
-        elif not message and script_path:
-            self._set_script_link(item, script_path)
+            logging.error("TX %s not sent: %s", entry.id_text, message, exc_info=e)
 
     def _missing_scripts(self):
         """Enabled rows (and the global script) whose script file is not there."""
         missing = [
-            f"{it.text(TX_COL_2_id)} {it.text(TX_COL_4_name)}: {path}"
-            for it in self._tx_items()
-            if it.checkState(TX_COL_1_enable) == Qt.CheckState.Checked
-            and (path := it.data(TX_COL_SCRIPTDATA, TX_COL_SCRIPTDATA_path))
-            and not os.path.exists(path)
+            f"{e.id_text} {e.name}: {e.script_path}"
+            for e in self._tx_entries()
+            if e.enabled and e.script_path and not os.path.exists(e.script_path)
         ]
         if self.global_script_path and not os.path.exists(self.global_script_path):
             missing.append(f"Global script: {self.global_script_path}")
@@ -2029,14 +1778,6 @@ class MainWindow(QMainWindow):
         self.btn_start_tx.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton)
         )
-
-    def make_timer_callback(self, frame_id, data, dlc, is_fd, item=None):
-        def callback():
-            self.send_can_message(frame_id, data, dlc, is_fd)
-            if item:
-                item.setText(TX_COL_6_payload, " ".join(f"{b:02X}" for b in data))
-
-        return callback
 
     def send_can_message(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
         if not self.can_if:
