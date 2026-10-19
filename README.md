@@ -86,7 +86,9 @@ CANino App is a Windows desktop application (Python + Qt) to transmit, receive a
    pyinstaller CANinoApp_exe_setup.spec
    ```
 
-The spec bundles `VERSION`, the figures, `tools/arduino-cli.exe` and the payload-script templates tracked in git. Untracked files in `resources/script_templates/` are never shipped.
+The spec bundles `VERSION`, the figures, `tools/arduino-cli.exe` and the payload-script templates tracked in git. Untracked files in `resources/script_templates/` are never shipped. Qt parts CANino does not use (software OpenGL, QML/Quick, PDF, network, virtual keyboard) are left out, which takes the exe from about 70 MB to 47 MB.
+
+**Folder build.** With `CANINO_ONEDIR=1` (PowerShell: `$env:CANINO_ONEDIR = "1"`) the spec builds a folder, `dist/CANinoApp_vX.Y.Z_hHASH/`, holding the exe and its `_internal/` files. It starts in about 0.7 s instead of about 2 s and unpacks nothing to `%TEMP%`; distribute the whole folder (for example zipped).
 
 ## Package Naming
 
@@ -137,7 +139,9 @@ From the repository root:
 python -m unittest discover -s tests
 ```
 
-The tests run Qt offscreen with a simulated PCAN driver: no adapter is needed.
+The tests run Qt offscreen with a simulated PCAN driver: no adapter is needed. Lint and format checks: `ruff check .` and `black --check .` (settings in `pyproject.toml`).
+
+GitHub Actions (`.github/workflows/ci.yml`) runs the same checks and tests on Windows for every push and pull request, and builds the exe as a downloadable artifact. On CI the three tests that measure the machine's timer precision are skipped.
 
 # Quick Start
 
