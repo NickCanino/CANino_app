@@ -235,10 +235,14 @@ def get_payload(dlc: int, id: int) -> bytes | None:
 
 | Key | Content |
 |---|---|
+| `format`, `version` | `"canino-workspace"`, `2` |
+| `app_version` | the CANino version that saved the file (information only) |
 | `dbc_file` | DBC file |
 | `global_script` | global payload script |
-| `signals` | one entry per TX row: `enabled`, `id` (`"0x123"`), `ext` and `fd` (`"Y"`/`"n"`), `name`, `period` (ms), `payload` (`"00 11 …"`), `dlc`, `script_path` |
-| `sliders` | one entry per slider: `msg_name`, `signal_name`, `frame_id`, `is_ext`, `value` (physical value), … |
+| `signals` | one entry per TX row: `enabled`, `id` (`"0x123"`), `ext` and `fd` (`true`/`false`), `name`, `period` (ms), `payload` (`"00 11 …"`), `dlc`, `script_path` |
+| `sliders` | one entry per slider: `msg_name`, `signal_name`, `frame_id`, `is_ext`, `value` (physical value), `unit` |
+
+- **Older files load.** A file without `version` (CANino 1.5 and earlier) is converted when it is loaded: missing ID formats are taken from the ID (above `0x7FF` = extended), missing or `null` CAN FD flags mean classic CAN, `\` in paths becomes `/`, old slider positions become values, and scripts linked under the template names used before August 2025 are found under their new names. `File → Load` lists what was converted; `Save` writes the new format. Rows that cannot be read (bad or duplicate IDs) are skipped and listed. A file written by a newer CANino is refused and the current workspace is kept.
 
 - Paths are stored **relative to the JSON file**, so a project folder can be moved or shared as a whole (absolute when the file is on another drive). Files from older versions, with paths relative to the working directory, still load.
 - **Load replaces** the current workspace: TX rows, sliders, global script and DBC. A running transmission is stopped first. A file that cannot be read leaves the current workspace untouched.
