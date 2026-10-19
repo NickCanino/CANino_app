@@ -27,15 +27,17 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QStyle,
     QAbstractItemView,
+    QMessageBox,
 )
 from PySide6.QtCore import Qt, QTimer, Signal, QSortFilterProxyModel
+import os
 import time
 import csv
 from collections import deque
 from datetime import datetime
 
 from src.busload import frame_bits
-from src.exceptions_logger import log_throttled
+from src.exceptions_logger import log_exception, log_throttled
 from src.rx_model import (
     RxTableModel,
     SORT_ROLE,
@@ -50,9 +52,15 @@ from src.rx_model import (
     RX_COL_8_dev_std,
     RX_COL_9_last_received,
 )
+from src.trace_log import TRACE_FORMATS, TraceLog
 
 # The GUI thread drains the RX queue and refreshes the touched rows this often
 RX_DRAIN_MS = 100
+
+# File-dialog filters of Link Log: CANino's CSV first, then the traces (TODO 5.9)
+LOG_FILTERS = ["RX statistics CSV (*.csv)"] + [
+    f"{label} (*{ext})" for ext, label in TRACE_FORMATS.items()
+]
 
 
 class ReceivedFramesWindow(QWidget):
@@ -66,6 +74,8 @@ class ReceivedFramesWindow(QWidget):
         self.csv_path = None
         self.csv_file = None
         self.csv_writer = None
+        # Trace file (.trc/.asc/.blf/.log): RX and own TX frames (TODO 5.9)
+        self.trace = None
         self.log_active = False
         self.log_paused = False
 
@@ -78,9 +88,14 @@ class ReceivedFramesWindow(QWidget):
 
         # --- Log button bar ---
         log_btn_layout = QHBoxLayout()
-        # Link the CSV file
-        self.btn_link_csv = QPushButton("Link CSV")
-        self.btn_link_csv.setToolTip("Link a CSV file for logging")
+        # Link the log file: CSV statistics or a standard trace
+        self.btn_link_csv = QPushButton("Link Log")
+        self.btn_link_csv.setToolTip(
+            "Link a log file:\n"
+            ".csv - received frames with per-ID statistics\n"
+            ".trc / .asc / .blf / .log - trace of every frame on the wire,\n"
+            "received and transmitted, with hardware timestamps"
+        )
         self.btn_link_csv.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon)
         )
@@ -89,7 +104,7 @@ class ReceivedFramesWindow(QWidget):
 
         # Start logging
         self.btn_start_log = QPushButton("Start LOG")
-        self.btn_start_log.setToolTip("Start logging to CSV")
+        self.btn_start_log.setToolTip("Start logging")
         self.btn_start_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
@@ -97,7 +112,7 @@ class ReceivedFramesWindow(QWidget):
 
         # Pause logging
         self.btn_pause_log = QPushButton("Pause LOG")
-        self.btn_pause_log.setToolTip("Pause logging to CSV")
+        self.btn_pause_log.setToolTip("Pause logging")
         self.btn_pause_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause)
         )
@@ -105,7 +120,7 @@ class ReceivedFramesWindow(QWidget):
 
         # Stop logging
         self.btn_stop_log = QPushButton("Stop LOG")
-        self.btn_stop_log.setToolTip("Stop logging to CSV")
+        self.btn_stop_log.setToolTip("Stop logging")
         self.btn_stop_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
@@ -257,14 +272,20 @@ class ReceivedFramesWindow(QWidget):
             )
         )
 
+    @property
+    def log_open(self) -> bool:
+        return self.csv_file is not None or self.trace is not None
+
     def drain(self):
-        """GUI thread: statistics, busload, CSV and the touched rows of the table."""
+        """GUI thread: statistics, busload, log file and the touched rows."""
         queue = self._queue
         n = len(queue)  # frames arriving meanwhile wait for the next drain
         if not n:
             return
         model = self.model
-        writer = self.csv_writer if self.log_active and not self.log_paused else None
+        logging_on = self.log_active and not self.log_paused
+        writer = self.csv_writer if logging_on else None
+        trace = self.trace if logging_on else None
         latest = {}
         nominal_bits = data_bits = 0
         for _ in range(n):
@@ -275,6 +296,11 @@ class ReceivedFramesWindow(QWidget):
             nominal, data_rate = frame_bits(frame_id, data, is_fd, is_ext, brs)
             nominal_bits += nominal
             data_bits += data_rate
+            if trace is not None:
+                try:
+                    trace.write(frame_id, data, is_fd, timestamp, is_ext, brs, is_echo)
+                except Exception as e:
+                    log_throttled("Trace", e)
             if is_echo:  # own frame on the wire: busload only
                 continue
             dlc = max(0, min(int(len(data) if dlc is None else dlc), 64))
@@ -291,6 +317,11 @@ class ReceivedFramesWindow(QWidget):
                 self.csv_file.flush()
             except Exception as e:
                 log_throttled("CSV", e)
+        if trace is not None:
+            try:
+                trace.flush()
+            except Exception as e:
+                log_throttled("Trace", e)
         self.frames_received.emit(latest)
 
     @staticmethod
@@ -312,14 +343,21 @@ class ReceivedFramesWindow(QWidget):
         self.model.set_names(self._dbc_names)  # rows already listed too (TODO 5.7)
 
     def link_csv_file(self):
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Select CSV file", "", "CSV Files (*.csv)"
+        path, selected = QFileDialog.getSaveFileName(
+            self, "Select log file", "", ";;".join(LOG_FILTERS)
         )
         if path:
+            if os.path.splitext(path)[1].lower() not in (".csv", *TRACE_FORMATS):
+                # Typed without a known extension: take the selected filter's
+                ext = selected.rsplit("*", 1)[-1].rstrip(")") if selected else ""
+                path += ext if ext in (".csv", *TRACE_FORMATS) else ".csv"
+            if self.log_open:
+                self.stop_log()  # the previous file is finished first
             self.csv_path = path
+            self.btn_link_csv.setToolTip(f"Log file: {path}")
 
             self.btn_start_log.setText("Start LOG")
-            self.btn_start_log.setToolTip("Start logging to CSV")
+            self.btn_start_log.setToolTip("Start logging")
 
             self.btn_start_log.setEnabled(True)
             self.btn_pause_log.setEnabled(False)
@@ -374,13 +412,23 @@ class ReceivedFramesWindow(QWidget):
         except Exception as e:
             log_throttled("CSV", e)
 
-    def start_log(self):  # start logging, open the CSV file
+    def start_log(self):  # start logging, open the log file
         if not self.csv_path:
             return
         # Frames queued before the click are not part of the log
         self.drain()
         # After a Stop the file starts over
-        if not self.log_active or not self.csv_file:
+        if TraceLog.is_trace(self.csv_path):
+            if self.trace is None:
+                try:
+                    self.trace = TraceLog(self.csv_path)
+                except Exception as e:
+                    log_exception(e)
+                    QMessageBox.warning(
+                        self, "Log file", f"Cannot open {self.csv_path}:\n{e}"
+                    )
+                    return
+        elif not self.log_active or not self.csv_file:
             self.csv_file = open(self.csv_path, "w", newline="", encoding="utf-8")
             self.csv_writer = csv.writer(self.csv_file)
             self.csv_writer.writerow(
@@ -403,10 +451,10 @@ class ReceivedFramesWindow(QWidget):
         self.btn_start_log.setToolTip("Logging active")
 
         self.btn_pause_log.setText("Pause LOG")
-        self.btn_pause_log.setToolTip("Pause logging to CSV")
+        self.btn_pause_log.setToolTip("Pause logging")
 
         self.btn_stop_log.setText("Stop LOG")
-        self.btn_stop_log.setToolTip("Stop logging to CSV")
+        self.btn_stop_log.setToolTip("Stop logging")
 
         self.btn_start_log.setEnabled(False)
         self.btn_start_log.setStyleSheet(
@@ -447,13 +495,13 @@ class ReceivedFramesWindow(QWidget):
             self.log_paused = True
 
             self.btn_start_log.setText("Resume LOG")
-            self.btn_start_log.setToolTip("Resume logging to CSV")
+            self.btn_start_log.setToolTip("Resume logging")
 
             self.btn_pause_log.setText("Pause LOG")
             self.btn_pause_log.setToolTip("Logging paused")
 
             self.btn_stop_log.setText("Stop LOG")
-            self.btn_stop_log.setToolTip("Stop logging to CSV")
+            self.btn_stop_log.setToolTip("Stop logging")
 
             self.btn_start_log.setEnabled(True)
             self.btn_start_log.setStyleSheet(
@@ -495,13 +543,13 @@ class ReceivedFramesWindow(QWidget):
         self.log_paused = False
 
         self.btn_start_log.setText("Restart LOG")
-        self.btn_start_log.setToolTip("Restart logging to CSV")
+        self.btn_start_log.setToolTip("Restart logging (the file starts over)")
 
         self.btn_pause_log.setText("Pause LOG")
-        self.btn_pause_log.setToolTip("Pause logging to CSV")
+        self.btn_pause_log.setToolTip("Pause logging")
 
         self.btn_stop_log.setText("Stop LOG")
-        self.btn_stop_log.setToolTip("Stopped logging to CSV")
+        self.btn_stop_log.setToolTip("Logging stopped")
 
         self.btn_start_log.setEnabled(True)
         self.btn_start_log.setStyleSheet(
@@ -537,3 +585,9 @@ class ReceivedFramesWindow(QWidget):
             self.csv_file.close()
             self.csv_file = None
             self.csv_writer = None
+        if self.trace is not None:
+            trace, self.trace = self.trace, None
+            try:
+                trace.close()
+            except Exception as e:
+                log_exception(e)

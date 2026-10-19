@@ -563,13 +563,13 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         self.xmetro_windows[:] = [w for w in self.xmetro_windows if id(w) != window_id]
 
     def closeEvent(self, event):
-        """Release TX, the PCAN channel, the CSV and the XMetro windows (TODO 1.9)."""
+        """Release TX, the PCAN channel, the log file and XMetro windows (TODO 1.9)."""
         if self.tx_running:
             self.stop_tx()
         if self.can_if is not None:
             self.can_if.close()  # joins the RX thread, then shuts the bus down
             self.can_if = None
-        if self.rx_window.csv_file:
+        if self.rx_window.log_open:
             self.rx_window.stop_log()
         for window in self.xmetro_windows:
             if shiboken6.isValid(window):

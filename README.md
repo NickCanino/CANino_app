@@ -30,7 +30,7 @@
 CANino App is a Windows desktop application (Python + Qt) to transmit, receive and inspect CAN and CAN FD traffic through a PEAK PCAN-USB adapter. It is built for automotive developers, testers and researchers. With it you can:
 
 - Transmit periodic CAN frames with 11-bit or 29-bit IDs, classic CAN or CAN FD, with constant, scripted or slider-controlled payloads.
-- Receive CAN traffic and see, per ID, the payload, count and period statistics (average, min, max, standard deviation), and log it to CSV.
+- Receive CAN traffic and see, per ID, the payload, count and period statistics (average, min, max, standard deviation), and log it to CSV or record a standard trace (`.trc` PCAN-View, `.asc` / `.blf` Vector, `.log` candump) of every frame on the wire, received and transmitted.
 - Load DBC files for message names, signal sliders and live gauges (XMetro).
 - Watch the bus state (OK, error warning, error passive, bus-off) while connected, and connect in listen-only mode to sniff a network without ever driving it.
 - Save and load complete workspaces (TX table, scripts, sliders, DBC) as JSON files.
@@ -171,9 +171,20 @@ These workflows apply to both `python main.py` and the built `.exe`.
 
 1. Load a DBC file (or a workspace that links one) to see message names. A name is shown only for frames with the same ID format (standard or extended) as in the DBC.
 2. Tick `Listen only` before `Connect` to observe a network without ever driving it: no acknowledgements, no error frames, no transmission.
-3. Link a `.csv` file with `Link CSV` to log the received traffic, then:
+3. Link a log file with `Link Log`. The extension picks the format:
 
-   - a. `Start LOG`: start logging. Every received frame is written with its hardware timestamp.
+   | Extension | Content | Format |
+   |---|---|---|
+   | `.csv` | received frames, one line each, with the row's statistics (count, period, std-dev) | CANino's own |
+   | `.trc` | trace | PEAK TRC 2.1 (PCAN-View) |
+   | `.asc` / `.blf` | trace | Vector ASCII / binary logging format |
+   | `.log` | trace | candump log (Linux can-utils) |
+
+   Every trace format reads back with python-can (`can.LogReader`).
+
+   A trace holds **every frame on the wire**: received frames (`Rx`) and CANino's own (`Tx`), in bus order, CAN FD included. The `Tx` frames are the adapter's confirmations of what really reached the bus, not what was queued. All timestamps come from the adapter's hardware clock. Then:
+
+   - a. `Start LOG`: start logging. Every frame is written with its hardware timestamp.
    - b. `Pause LOG`: pause. Resuming appends to the same file.
    - c. `Stop LOG`: stop. Starting again overwrites the file.
 
