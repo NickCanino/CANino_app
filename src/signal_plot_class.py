@@ -37,6 +37,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QPushButton,
     QSpinBox,
+    QStyle,
     QVBoxLayout,
     QWidget,
 )
@@ -84,11 +85,21 @@ class SignalPlotWindow(QWidget):
         self.cb_signals = QComboBox()
         self.cb_signals.setToolTip("Signal to plot over time.")
         self.btn_add = QPushButton("Add")
+        self.btn_add.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogApplyButton)
+        )
         self.btn_add.setToolTip("Plot the selected signal.")
         self.btn_add.clicked.connect(self.add_selected)
         self.cb_active = QComboBox()
+        self.cb_active.setMinimumWidth(220)
+        self.cb_active.setSizeAdjustPolicy(
+            QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon
+        )
         self.cb_active.setToolTip("Plotted signals.")
         self.btn_remove = QPushButton("Remove")
+        self.btn_remove.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+        )
         self.btn_remove.setToolTip("Stop plotting the selected signal.")
         self.btn_remove.clicked.connect(self.remove_selected)
         self.sp_window = QSpinBox()
