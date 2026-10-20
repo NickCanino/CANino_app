@@ -83,6 +83,9 @@ class ReceivedFramesWindow(QWidget):
         # take_busload_bits(): at the nominal rate, at the CAN FD data rate
         self.busload_nominal_bits = 0
         self.busload_data_bits = 0
+        # Frames seen since the last take_frame_counts(): received, own echoes
+        self.frames_rx = 0
+        self.frames_tx = 0
 
         layout = QVBoxLayout()
 
@@ -237,6 +240,12 @@ class ReceivedFramesWindow(QWidget):
         self.busload_nominal_bits = self.busload_data_bits = 0
         return bits
 
+    def take_frame_counts(self):
+        """(received, own-echo) frame counts since the last call; resets them."""
+        counts = (self.frames_rx, self.frames_tx)
+        self.frames_rx = self.frames_tx = 0
+        return counts
+
     def clear_rx_table(self):
         self._queue.clear()
         self.model.clear()
@@ -301,6 +310,7 @@ class ReceivedFramesWindow(QWidget):
         trace = self.trace if logging_on else None
         latest = {}
         nominal_bits = data_bits = 0
+        frames_rx = frames_tx = 0
         for _ in range(n):
             frame_id, data, dlc, is_fd, timestamp, is_ext, brs, is_echo = (
                 queue.popleft()
@@ -315,7 +325,9 @@ class ReceivedFramesWindow(QWidget):
                 except Exception as e:
                     log_throttled("Trace", e)
             if is_echo:  # own frame on the wire: busload only
+                frames_tx += 1
                 continue
+            frames_rx += 1
             dlc = max(0, min(int(len(data) if dlc is None else dlc), 64))
             row = model.row_for(frame_id, is_ext)
             row.add(data, dlc, timestamp)
@@ -324,6 +336,8 @@ class ReceivedFramesWindow(QWidget):
                 self._log_row(writer, row, timestamp)
         self.busload_nominal_bits += nominal_bits
         self.busload_data_bits += data_bits
+        self.frames_rx += frames_rx
+        self.frames_tx += frames_tx
         model.commit()
         if writer is not None:
             try:

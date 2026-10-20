@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QSpinBox,
     QFileDialog,
+    QInputDialog,
     QMessageBox,
     QStyle,
     QDialog,
@@ -47,15 +48,17 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt, QTimer, QSortFilterProxyModel
 import importlib.util
+import glob
 import logging
 import os
+import shutil
 
 from src.dbc_loader import (
     load_dbc,
     encode_signal,
 )
 from src.exceptions_logger import log_exception
-from src.utils import format_can_id
+from src.utils import format_can_id, resource_path
 from src.tx_scheduler import TxScheduler
 from src.tx_model import (
     TxEntry,
@@ -80,6 +83,25 @@ from src.tx_model import (
 
 # The TX engine repaints the rows it changed this often (TODO 2.12)
 TX_REFRESH_MS = 100
+
+
+def templates_dir() -> str:
+    """The bundled payload-script templates (shipped in the exe, TODO 3.11)."""
+    return resource_path("resources/script_templates")
+
+
+def list_templates() -> list[tuple[str, str]]:
+    """[(name, absolute path)] of the bundled templates, sorted by name."""
+    found = glob.glob(os.path.join(templates_dir(), "*.py"))
+    return sorted((os.path.basename(p), p) for p in found)
+
+
+def copy_template(src: str, dest: str) -> str:
+    """Copy a template to `dest` (adding .py if missing); returns the path."""
+    if not dest.lower().endswith(".py"):
+        dest += ".py"
+    shutil.copyfile(src, dest)
+    return dest
 
 
 def load_payload_function(path: str, module_name: str):
@@ -200,6 +222,8 @@ class TxPanelMixin:
         # (frame_id, script_path) -> get_payload of that ID's own script instance;
         # emptied at Start TX only, so internal TX restarts keep script state
         self.script_instances = {}
+        # script path -> mtime at load: a changed file is hot-reloaded (TODO 3.10)
+        self._script_mtimes = {}
 
         # Button to ADD IDs in TX
         self.btn_add_id = QPushButton("Add ID")
@@ -562,6 +586,49 @@ class TxPanelMixin:
                 "This will be used for TX payload and overwrites the eventual global script for this ID.",
             )
 
+    def new_script_from_template(self):
+        """Copy a bundled template to a file the user picks (TODO 3.11).
+
+        The new file is linked to a TX row afterwards with the row's Link
+        button, like any other script.
+        """
+        templates = list_templates()
+        if not templates:
+            QMessageBox.warning(
+                self, "Templates", "No payload-script templates are bundled."
+            )
+            return
+        by_name = dict(templates)
+        name, ok = QInputDialog.getItem(
+            self,
+            "New script from template",
+            "Template (per-ID TPS_*, global GLO_TPS_*):",
+            list(by_name),
+            0,
+            False,
+        )
+        if not ok or not name:
+            return
+        dest, _ = QFileDialog.getSaveFileName(
+            self, "Save script as", name, "Python scripts (*.py)"
+        )
+        if not dest:
+            return
+        try:
+            path = copy_template(by_name[name], dest)
+        except OSError as e:
+            QMessageBox.critical(
+                self, "New script", f"Could not create the script:\n{e}"
+            )
+            return
+        QMessageBox.information(
+            self,
+            "New script",
+            f"Template '{name}' copied to:\n{path}\n\n"
+            "Link it to a TX row with the Link button in the "
+            "'Script for Specific ID' column, or as the global script.",
+        )
+
     def start_stop_transmission(self) -> None:
         if not self.tx_running:
             if not self.can_if:
@@ -580,6 +647,7 @@ class TxPanelMixin:
             # Every run starts every script from its initial state
             self.script_instances.clear()
             self.global_script_cache.clear()
+            self._script_mtimes.clear()
             self._tx_errors_logged.clear()
             for entry in self._tx_entries():
                 self.tx_model.set_error(entry, None)
@@ -676,6 +744,7 @@ class TxPanelMixin:
                     f"canino_tx_script_{frame_id:X}{'x' if is_ext else ''}",
                 )
                 self.script_instances[key] = get_payload_fn
+                self._remember_script_mtime(script_path)
         elif self.global_script_path:  # 2. Otherwise, the global script
             if not os.path.exists(self.global_script_path):
                 raise FileNotFoundError(
@@ -687,6 +756,7 @@ class TxPanelMixin:
                     self.global_script_path, "canino_global_script"
                 )
                 self.global_script_cache[self.global_script_path] = get_payload_fn
+                self._remember_script_mtime(self.global_script_path)
         else:
             return None
 
@@ -727,9 +797,46 @@ class TxPanelMixin:
         self.tx_model.set_error(entry, None)
         self.tx_model.set_payload(entry, final_payload)
 
+    def _remember_script_mtime(self, path):
+        try:
+            self._script_mtimes[path] = os.path.getmtime(path)
+        except OSError:
+            self._script_mtimes.pop(path, None)
+
+    def _check_script_reloads(self):
+        """Drop the cached instance of any linked script whose file changed, so
+        the next tick reloads it: editing a script takes effect without a
+        restart (TODO 3.10). Run in the GUI thread, not the TX hot path, so no
+        per-frame stat(); the reload itself then happens once, on next access."""
+        for path, old in list(self._script_mtimes.items()):
+            try:
+                now = os.path.getmtime(path)
+            except OSError:
+                continue  # missing file is handled as a send error per tick
+            if now == old:
+                continue
+            self._script_mtimes[path] = now
+            is_global = path == self.global_script_path
+            self.global_script_cache.pop(path, None)
+            for key in [k for k in self.script_instances if k[2] == path]:
+                del self.script_instances[key]
+            # Rows driven by this file: a per-ID link to it, or any row when it
+            # is the global script. Re-arm their error logging so a fix that
+            # still fails with the same message is reported once more.
+            affected = {
+                e.key
+                for e in self._tx_entries()
+                if e.script_path == path or (is_global and not e.script_path)
+            }
+            self._tx_errors_logged = {
+                e for e in self._tx_errors_logged if (e[0], e[1]) not in affected
+            }
+
     def _tx_refresh(self):
         """GUI thread, ~10 Hz: repaint the rows sent since the last refresh and
         feed their payloads to the XMetro gauges (TODO 7.2)."""
+        if self._script_mtimes:
+            self._check_script_reloads()
         sent = self.tx_model.flush()
         if self.xmetro_windows:
             for entry in sent:

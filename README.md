@@ -199,6 +199,8 @@ While connected, the top bar shows the controller state: `OK`, `error warning`, 
 
 The usual cause is that nothing acknowledges the frames: wrong baudrate, missing termination, or no other active node on the bus.
 
+The top bar also shows `BusLoad: x.x% | N fr/s`: the share of the last second the bus was busy, and the number of frames seen on the wire per second (received plus CANino's own, split in the tooltip). The error-frame count is in the bus-state tooltip.
+
 # Payloads
 
 ## Precedence
@@ -225,12 +227,13 @@ def get_payload(dlc: int, id: int) -> bytes | None:
 - Every row linked to a script gets **its own instance** of it, even when several rows link the same file. Module-level variables (counters, file positions) therefore advance only when that row transmits.
 - The global script is a single instance shared by all rows: keep its state keyed by `id`.
 - `Start TX` starts every script from scratch. Enabling, disabling, adding or deleting other rows does not reset it.
+- **Hot reload:** editing and saving a linked script while transmitting reloads it automatically at the next frame — no `Start TX` needed. The reload restarts that script's state (it is a fresh instance), which is the point: you see the edited version immediately.
 
 > **Scripts are ordinary Python code and run with your user's rights.** Opening someone else's workspace and pressing `Start TX` runs the scripts it links. Only open workspaces from sources you trust.
 
 ## Script Templates
 
-`resources/script_templates/` contains ready-to-use scripts: `TPS_*` for a single row, `GLO_TPS_*` for the global script.
+`resources/script_templates/` contains ready-to-use scripts: `TPS_*` for a single row, `GLO_TPS_*` for the global script. `Scripts → New script from template...` copies one to a file you choose; edit it and link it with the row's `Link` button (or as the global script).
 
 | Template | Payload |
 |---|---|

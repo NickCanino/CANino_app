@@ -93,6 +93,11 @@ def pcan_timing(pcan_baud) -> can.BitTiming:
 
 BUSLOAD_refresh_rate_ms = 1000
 BUS_STATUS_POLL_MS = 250
+BUSLOAD_TOOLTIP = (
+    "Share of the last second the bus was busy: every frame seen on the "
+    "wire (received, and transmitted from the adapter's echo), stuff "
+    "bits, ACK, EOF and intermission included. Error frames are not counted."
+)
 # Error-warning / error-passive this long while transmitting = frames are not
 # being acknowledged: stop TX instead of filling the 32.8k-frame driver queue
 TX_ERROR_GRACE_S = 2.0
@@ -160,6 +165,18 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         file_menu.addAction(action_save_as)
         file_menu.addAction(action_load)
         menubar.addMenu(file_menu)
+
+        scripts_menu = QMenu("&Scripts", self)
+        action_new_script = QAction("New script from template...", self)
+        action_new_script.setToolTip(
+            "Copy a bundled payload-script template to a file you can edit and link."
+        )
+        action_new_script.triggered.connect(self.new_script_from_template)
+        action_new_script.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogNewFolder)
+        )
+        scripts_menu.addAction(action_new_script)
+        menubar.addMenu(scripts_menu)
 
         help_menu = QMenu("&Help", self)
         action_logs = QAction("Open log folder", self)
@@ -229,11 +246,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
         self._busload_since = time.monotonic()
         self.lbl_busload = QLabel("BusLoad: -")
-        self.lbl_busload.setToolTip(
-            "Share of the last second the bus was busy: every frame seen on the "
-            "wire (received, and transmitted from the adapter's echo), stuff "
-            "bits, ACK, EOF and intermission included. Error frames are not counted."
-        )
+        self.lbl_busload.setToolTip(BUSLOAD_TOOLTIP)
         self.lbl_busload.setAlignment(Qt.AlignmentFlag.AlignRight)
         top_layout.addWidget(self.lbl_busload, alignment=Qt.AlignmentFlag.AlignVCenter)
 
@@ -488,6 +501,8 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
                 self.can_if = None
             self.lbl_bus_status.setText("Bus: -")
             self.lbl_bus_status.setStyleSheet("")
+            self.lbl_busload.setText("BusLoad: -")
+            self.lbl_busload.setToolTip(BUSLOAD_TOOLTIP)
             self.cb_listen_only.setEnabled(True)
             self.btn_connect.setText("Connect")
             self.btn_connect.setToolTip(
@@ -604,14 +619,23 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         can be changed after connecting (TODO 9.8).
         """
         nominal_bits, data_bits = self.rx_window.take_busload_bits()
+        rx, tx = self.rx_window.take_frame_counts()
         now = time.monotonic()
         elapsed, self._busload_since = now - self._busload_since, now
         timing = getattr(self.can_if, "timing", None)
         if timing is None or elapsed <= 0:
             self.lbl_busload.setText("BusLoad: -")
+            self.lbl_busload.setToolTip(BUSLOAD_TOOLTIP)
             return
         if isinstance(timing, can.BitTimingFd):
             busy_s = nominal_bits / timing.nom_bitrate + data_bits / timing.data_bitrate
         else:
             busy_s = (nominal_bits + data_bits) / timing.bitrate
-        self.lbl_busload.setText(f"BusLoad: {100 * busy_s / elapsed:3.1f}%")
+        fps = round((rx + tx) / elapsed)
+        self.lbl_busload.setText(
+            f"BusLoad: {100 * busy_s / elapsed:3.1f}% | {fps} fr/s"
+        )
+        self.lbl_busload.setToolTip(
+            f"{BUSLOAD_TOOLTIP}\nFrames on the wire since the last update: "
+            f"{rx} received, {tx} transmitted (own echoes), over {elapsed:.1f} s."
+        )
