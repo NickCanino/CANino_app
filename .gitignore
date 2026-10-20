@@ -36,6 +36,9 @@ Thumbs.db
 tmp/
 arduino_build/
 
+# Payload scripts
+ATTK*.py
+
 # Claude Code working files (local only)
 CLAUDE.md
 TODO.md
