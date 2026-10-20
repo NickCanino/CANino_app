@@ -393,18 +393,18 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         self.setDockOptions(QMainWindow.DockOption.AnimatedDocks)  # no tabs
         self._ordering_docks = False
         self.slider_dock = self._side_dock(
-            "Sliders for TX", "slider_dock", slider_group
+            "DBC Signal Sliders (TX)", "slider_dock", slider_group
         )
         self.decoded_dock = self._side_dock(
-            "Decoded RX signals", "decoded_dock", self.rx_window.decoded
+            "DBC Decoded Signals (RX)", "decoded_dock", self.rx_window.decoded
         )
         self.resizeDocks([self.slider_dock], [320], Qt.Orientation.Horizontal)
         self.resizeDocks(
             [self.slider_dock, self.decoded_dock], [500, 250], Qt.Orientation.Vertical
         )
         for dock, text in (
-            (self.slider_dock, "Sliders panel"),
-            (self.decoded_dock, "Decoded RX signals panel"),
+            (self.slider_dock, "DBC Signal Sliders panel (TX)"),
+            (self.decoded_dock, "DBC Decoded Signals panel (RX)"),
         ):
             action = dock.toggleViewAction()
             action.setText(text)

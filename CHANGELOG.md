@@ -11,7 +11,7 @@ Changed
   panels; Load DBC only in File (no top-bar button). Connection settings in
   one top bar; bus state, BusLoad, the linked **DBC** and the logos in a
   **status bar** (the footer is gone).
-- **Sliders** and **Decoded RX signals** are side docks: hide, float or move
+- **DBC Signal Sliders (TX)** and **DBC Decoded Signals (RX)** are side docks: hide, float or move
   them left/right; sharing a side, Sliders stay on top.
 - **TX toolbar** on one row, packed left: four groups (Add ID / Delete All,
   Enable All / Start TX, Burst + Send Now + Replay Trace, global script),
