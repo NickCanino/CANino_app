@@ -160,6 +160,7 @@ class TxTableModel(QAbstractTableModel):
 
     enabled_changed = Signal(object)  # the user ticked/unticked a row's En
     period_changed = Signal(object)  # the user changed a row's period
+    payload_changed = Signal(object)  # the user edited a row's payload cell
     payload_rejected = Signal(object, str)  # entry, the text that did not parse
 
     def __init__(self, parent=None):
@@ -387,6 +388,7 @@ class TxTableModel(QAbstractTableModel):
                 return False
             e.payload = payload
             self._changed_entry(e, col, col)
+            self.payload_changed.emit(e)
             return True
         return False
 

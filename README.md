@@ -163,7 +163,7 @@ Use the `Interface` selector to pick **PCAN-USB** (a PEAK adapter) or **Virtual*
 
    - a. Edit the hex bytes in the table (double-click the `Payload` cell; a payload that is not exactly DLC hex bytes is refused and the row keeps its own),
    - b. Link a Python script to a row (`Link Script`) or to every row (`Link Global Script`), or
-   - c. **With a DBC loaded**, drive one signal of a frame with a slider (`Add Slider`).
+   - c. **With a DBC loaded**, drive one signal of a frame with a slider (`Add Slider`); a signal with a value table (enum) gets a drop-down of its named values instead of a slider.
 5. Set each row's `Period (ms)` (double-click the cell, 1–10000 ms), then press `Start TX`. Extended IDs are shown with 8 hex digits (`0x18FF0001`, `0x00000123`), standard IDs with 3 (`0x123`).
 
 > Rows can be added, deleted, enabled or disabled, and periods changed, while transmitting: only the affected row changes, the others keep their timing. Linking a script or adding a slider also takes effect during transmission.
@@ -271,15 +271,15 @@ Both follow `Load` / `Load DBC`: changing the DBC updates their available signal
 
 # Workspace Files
 
-`File → Save / Save As / Load` store the whole workspace in a JSON file:
+`File → Save / Save As / Load` (shortcuts `Ctrl+S` / `Ctrl+O`) store the whole workspace in a JSON file. `File → Recent workspaces` reopens a recent one, and CANino asks before discarding unsaved changes (the title shows `*` while there are any). `Help → About` shows the version and library versions.
 
 | Key | Content |
 |---|---|
-| `format`, `version` | `"canino-workspace"`, `2` |
+| `format`, `version` | `"canino-workspace"`, `3` |
 | `app_version` | the CANino version that saved the file (information only) |
 | `dbc_file` | DBC file |
 | `global_script` | global payload script |
-| `signals` | one entry per TX row: `enabled`, `id` (`"0x123"`), `ext` and `fd` (`true`/`false`), `name`, `period` (ms), `payload` (`"00 11 …"`), `dlc`, `script_path` |
+| `signals` | one entry per TX row: `enabled`, `id` (`"0x123"`), `ext`, `fd` and `rtr` (`true`/`false`), `name`, `period` (ms), `payload` (`"00 11 …"`), `dlc`, `script_path` |
 | `sliders` | one entry per slider: `msg_name`, `signal_name`, `frame_id`, `is_ext`, `value` (physical value), `unit` |
 
 - **Older files load.** A file without `version` (CANino 1.5 and earlier) is converted when it is loaded: missing ID formats are taken from the ID (above `0x7FF` = extended), missing or `null` CAN FD flags mean classic CAN, `\` in paths becomes `/`, old slider positions become values, and scripts linked under the template names used before August 2025 are found under their new names. `File → Load` lists what was converted; `Save` writes the new format. Rows that cannot be read (bad or duplicate IDs) are skipped and listed. A file written by a newer CANino is refused and the current workspace is kept.

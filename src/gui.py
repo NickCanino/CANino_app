@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QCheckBox,
 )
-from PySide6.QtGui import QAction, QIcon, QPixmap, QDesktopServices
+from PySide6.QtGui import QAction, QIcon, QKeySequence, QPixmap, QDesktopServices
 from PySide6.QtCore import Qt, QTimer, QUrl
 import shiboken6
 import os
@@ -121,6 +121,8 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         self.dbc = None
         self.can_if = None
         self.workspace_path = None  # file of the last Load / Save (TODO 6.6)
+        self._dirty = False  # unsaved changes since the last Load/Save (TODO 6.8)
+        self._loading = False  # True while load_config rebuilds the workspace
 
         # --- MENU ---
         menubar = QMenuBar(self)
@@ -151,6 +153,8 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         action_save.triggered.connect(self.save_config)
         action_save_as.triggered.connect(self.save_config_as)
         action_load.triggered.connect(self.load_config)
+        action_save.setShortcut(QKeySequence.StandardKey.Save)  # Ctrl+S (TODO 6.8)
+        action_load.setShortcut(QKeySequence.StandardKey.Open)  # Ctrl+O
         # Set icons for actions
         action_save.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogSaveButton)
@@ -165,6 +169,9 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         file_menu.addAction(action_save)
         file_menu.addAction(action_save_as)
         file_menu.addAction(action_load)
+        self.menu_recent = QMenu("Recent workspaces", self)
+        file_menu.addMenu(self.menu_recent)
+        self._rebuild_recent_menu()
         menubar.addMenu(file_menu)
 
         scripts_menu = QMenu("&Scripts", self)
@@ -184,6 +191,9 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         action_logs.setToolTip(LOG_DIR)
         action_logs.triggered.connect(self.open_log_folder)
         help_menu.addAction(action_logs)
+        action_about = QAction("About CANino App", self)
+        action_about.triggered.connect(self.show_about)
+        help_menu.addAction(action_about)
         self.action_open_logs = action_logs
 
         # --- "VAGILETTA" action in the menu bar ---
@@ -425,6 +435,30 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         os.makedirs(LOG_DIR, exist_ok=True)
         QDesktopServices.openUrl(QUrl.fromLocalFile(LOG_DIR))
 
+    def show_about(self):
+        """Version, libraries and license (TODO 10.7)."""
+        import platform
+
+        import cantools
+
+        from PySide6 import __version__ as pyside_version
+
+        QMessageBox.about(
+            self,
+            "About CANino App",
+            f"<b>CANino App</b> v{__version__}<br><br>"
+            "Transmit, receive and inspect CAN / CAN FD traffic through a "
+            "PEAK PCAN-USB adapter.<br><br>"
+            "Nicasio Canino - Department of Information Engineering (DII), "
+            "University of Pisa<br>"
+            "Apache License 2.0<br>"
+            '<a href="https://github.com/NickCanino/CANino_app">'
+            "github.com/NickCanino/CANino_app</a><br><br>"
+            f"Python {platform.python_version()} &middot; PySide6 {pyside_version} "
+            f"&middot; python-can {can.__version__} &middot; cantools "
+            f"{cantools.__version__}",
+        )
+
     def open_vagiletta_window(self):
         dlg = VagilettaWindow(self)
         dlg.exec()
@@ -630,6 +664,9 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
     def closeEvent(self, event):
         """Release TX, the PCAN channel, the log file and XMetro windows (TODO 1.9)."""
+        if not self._confirm_discard():  # offer to save unsaved changes (TODO 6.8)
+            event.ignore()
+            return
         self.stop_replay()
         if self.tx_running:
             self.stop_tx()

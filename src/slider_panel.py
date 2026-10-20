@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QInputDialog,
     QStyle,
     QSlider,
+    QComboBox,
     QScrollArea,
 )
 from PySide6.QtCore import Qt
@@ -159,6 +160,9 @@ class SliderPanelMixin:
         key = (msg.name, sig.name)
         if key in self.added_sliders:
             return None
+
+        if getattr(sig, "choices", None):  # enum signal -> a combo box (TODO 4.10)
+            return self._add_enum_widget(msg, sig, key, value)
         self.added_sliders.add(key)
 
         min_val, max_val = signal_range(sig)
@@ -224,6 +228,7 @@ class SliderPanelMixin:
         slider_widget.step = step
         slider_widget.unit = unit
         slider_widget.value = lambda: min_val + slider.value() * step
+        slider_widget.set_enabled = slider.setEnabled
 
         # Connected before setValue, so the label shows the restored value (TODO 4.3)
         slider.valueChanged.connect(
@@ -245,8 +250,79 @@ class SliderPanelMixin:
         self.slider_container.addWidget(slider_widget)
         self.slider_widgets.append(slider_widget)
         slider.valueChanged.connect(self._refresh_slider_overrides)
+        slider.valueChanged.connect(self._mark_dirty)  # guarded during load
         self._refresh_slider_overrides()
+        self._mark_dirty()
         return slider_widget
+
+    def _add_enum_widget(self, msg, sig, key, value):
+        """An enum (value-table) signal: a combo box of named values (TODO 4.10).
+
+        Exposes the same interface as a slider widget (value() = the physical
+        value, set_enabled, key/signal/names), so save, overrides and enable
+        sync treat both the same.
+        """
+        self.added_sliders.add(key)
+        factor = sig.factor or 1.0
+        offset = sig.offset or 0.0
+        unit = sig.unit or ""
+
+        box = QGroupBox()
+        box.setFixedHeight(100)
+        box.setStyleSheet(
+            "QGroupBox { margin-top: 10px; border: 1px solid gray; border-radius: 5px; }"
+        )
+        inner = QVBoxLayout()
+        box.setLayout(inner)
+        inner.addWidget(
+            QLabel(
+                f"{msg.name} ({format_can_id(msg.frame_id, msg.is_extended_frame)})"
+                f" → {sig.name} [{dbc_bit_label(sig)}]"
+            )
+        )
+
+        combo = QComboBox()
+        for raw in sorted(sig.choices):  # raw value -> physical value as data
+            combo.addItem(f"{raw}: {sig.choices[raw]}", raw * factor + offset)
+        row = QHBoxLayout()
+        row.addWidget(combo, 1)
+        btn_remove = QPushButton()
+        btn_remove.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
+        )
+        btn_remove.setFixedWidth(30)
+        row.addWidget(btn_remove)
+        inner.addLayout(row)
+
+        box.key = key
+        box.msg_name = msg.name
+        box.frame_id = msg.frame_id
+        box.is_ext = msg.is_extended_frame
+        box.signal = sig
+        box.unit = unit
+        box.combo = combo
+        box.value = lambda: combo.currentData()
+        box.set_enabled = combo.setEnabled
+
+        if value is not None:  # restore: the choice whose physical value is closest
+            best = min(
+                range(combo.count()),
+                key=lambda i: abs(combo.itemData(i) - value),
+                default=0,
+            )
+            combo.setCurrentIndex(best)
+
+        entry = self._find_entry(msg.frame_id, msg.is_extended_frame)
+        if entry is not None:
+            combo.setEnabled(entry.enabled)
+        btn_remove.clicked.connect(lambda _=False, w=box: self.remove_slider_widget(w))
+        self.slider_container.addWidget(box)
+        self.slider_widgets.append(box)
+        combo.currentIndexChanged.connect(self._refresh_slider_overrides)
+        combo.currentIndexChanged.connect(self._mark_dirty)  # guarded during load
+        self._refresh_slider_overrides()
+        self._mark_dirty()
+        return box
 
     def remove_slider_widget(self, widget):
         # Remove the widget from the slider_container and update the slider list
@@ -256,14 +332,14 @@ class SliderPanelMixin:
 
         self.slider_widgets = [w for w in self.slider_widgets if w != widget]
         self._refresh_slider_overrides()
+        self._mark_dirty()  # guarded during load
 
     def _refresh_slider_overrides(self, *_):
         """Snapshot of the slider values for the TX thread, which never reads widgets."""
         overrides = {}
         for w in self.slider_widgets:
             key = (w.frame_id, bool(getattr(w, "is_ext", False)))
-            value = w.min_val + w.slider.value() * w.step
-            overrides.setdefault(key, []).append((w.signal, value))
+            overrides.setdefault(key, []).append((w.signal, w.value()))
         # One assignment: the TX thread sees the old or the new dict, never half
         self._slider_overrides = {k: tuple(v) for k, v in overrides.items()}
 
@@ -286,4 +362,4 @@ class SliderPanelMixin:
         """Sliders of a disabled row are greyed out."""
         for w in self.slider_widgets:
             if (w.frame_id, bool(getattr(w, "is_ext", False))) == entry.key:
-                w.slider.setEnabled(entry.enabled)
+                w.set_enabled(entry.enabled)

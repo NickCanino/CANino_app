@@ -134,6 +134,7 @@ class ToggleTests(Base):
         w.slider = QSlider()
         w.slider.setRange(0, 255)
         w.slider.setValue(42)
+        w.value = lambda: w.min_val + w.slider.value() * w.step
         self.mw.slider_widgets.append(w)
         self.mw._refresh_slider_overrides()
         self.tick()
@@ -157,7 +158,8 @@ class PeriodTests(Base):
             self.mw.start_stop_transmission()
             self.mw.start_stop_transmission()
         self.assertEqual(self.mw.tx_model.receivers(signal), before)
-        self.assertEqual(before, 1)
+        # _on_period_changed + the unsaved-changes hook (TODO 6.8); neither stacks
+        self.assertEqual(before, 2)
 
     def test_period_edit_retimes_only_that_row(self):
         """2.7: a period edit during TX changes that timer's interval in place."""

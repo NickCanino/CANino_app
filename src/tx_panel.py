@@ -352,6 +352,14 @@ class TxPanelMixin:
         self.tx_model.enabled_changed.connect(self._on_enabled_changed)
         self.tx_model.period_changed.connect(self._on_period_changed)
         self.tx_model.payload_rejected.connect(self._on_payload_rejected)
+        # Unsaved-changes tracking (TODO 6.8): user edits and row add/delete.
+        # Add/delete go through rowsInserted/rowsRemoved; the TX repaint uses
+        # dataChanged only, so it never marks the workspace dirty.
+        self.tx_model.enabled_changed.connect(self._mark_dirty)
+        self.tx_model.period_changed.connect(self._mark_dirty)
+        self.tx_model.payload_changed.connect(self._mark_dirty)
+        self.tx_model.rowsInserted.connect(self._mark_dirty)
+        self.tx_model.rowsRemoved.connect(self._mark_dirty)
         self.tx_proxy = QSortFilterProxyModel(self)
         self.tx_proxy.setSourceModel(self.tx_model)
         self.tx_proxy.setSortRole(TX_SORT_ROLE)
@@ -415,6 +423,7 @@ class TxPanelMixin:
         return tx_group
 
     def disable_all_ids_tx(self):
+        self._mark_dirty()
         if (
             self.btn_disable_all_ids.text() == "Enable All"
         ):  # Currently disabled: enable all
@@ -472,6 +481,7 @@ class TxPanelMixin:
             )  # RX names + decoded panel + XMetro (7.8)
             self.populate_signal_tree()
             self._sync_tx()
+            self._mark_dirty()
             self.btn_disable_all_ids.setEnabled(True)
             self.btn_delete_all_ids.setEnabled(True)
 
@@ -691,6 +701,7 @@ class TxPanelMixin:
         """Link (path) or unlink (None) the global script and update its buttons."""
         self.global_script_path = path or None
         self.global_script_cache.clear()
+        self._mark_dirty()  # guarded during load
         if self.global_script_path:
             self.btn_link_global_script.setStyleSheet(
                 "background-color: #4CAF50; color: white;"

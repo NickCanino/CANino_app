@@ -34,11 +34,13 @@ Version 3 (1.7): each signal gains "rtr" (remote frame). Missing in v1/v2 files
 means a normal data frame.
 """
 
+from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QStyle,
 )
+from PySide6.QtCore import QSettings
 import json
 import os
 
@@ -46,6 +48,7 @@ from src.dbc_loader import load_dbc
 from src.exceptions_logger import log_exception, __version__
 from src.tx_model import CAN_MAX_STD_ID, CAN_MAX_EXT_ID
 
+RECENT_MAX = 8
 WORKSPACE_FORMAT = "canino-workspace"
 WORKSPACE_VERSION = 3
 # Templates renamed in c971828 (2025-08-01): a workspace that links the old
@@ -263,8 +266,72 @@ class WorkspaceMixin:
 
     def _set_workspace_path(self, path):
         self.workspace_path = os.path.abspath(path) if path else None
+        self._update_title()
+
+    def _update_title(self):
+        path = self.workspace_path
         name = f" - {os.path.basename(path)}" if path else ""
-        self.setWindowTitle(f"CANino App - v{__version__}{name}")
+        star = " *" if getattr(self, "_dirty", False) else ""
+        self.setWindowTitle(f"CANino App - v{__version__}{name}{star}")
+
+    def _mark_dirty(self, *_):
+        """A user change since the last Load/Save (TODO 6.8). Ignored while a
+        workspace is being loaded (those changes are the file, not the user's)."""
+        if getattr(self, "_loading", False) or self._dirty:
+            return
+        self._dirty = True
+        self._update_title()
+
+    def _mark_clean(self):
+        self._dirty = False
+        self._update_title()
+
+    def _confirm_discard(self) -> bool:
+        """Ask before dropping unsaved changes; True to proceed, False to cancel."""
+        if not self._dirty:
+            return True
+        choice = QMessageBox.question(
+            self,
+            "Unsaved changes",
+            "The workspace has unsaved changes. Save them first?",
+            QMessageBox.StandardButton.Save
+            | QMessageBox.StandardButton.Discard
+            | QMessageBox.StandardButton.Cancel,
+        )
+        if choice == QMessageBox.StandardButton.Cancel:
+            return False
+        if choice == QMessageBox.StandardButton.Save:
+            self.save_config()
+            return not self._dirty  # a cancelled Save As leaves it dirty
+        return True  # Discard
+
+    # --- recent workspaces (TODO 6.8) ---
+
+    @staticmethod
+    def _recent_files():
+        value = QSettings("CANinoApp", "CANinoApp").value("recent_files", [])
+        if isinstance(value, str):  # a single entry comes back as a bare string
+            value = [value]
+        return [p for p in (value or []) if p]
+
+    def _add_recent(self, path):
+        path = os.path.abspath(path)
+        files = [p for p in self._recent_files() if p != path]
+        files.insert(0, path)
+        QSettings("CANinoApp", "CANinoApp").setValue("recent_files", files[:RECENT_MAX])
+        self._rebuild_recent_menu()
+
+    def _rebuild_recent_menu(self):
+        menu = getattr(self, "menu_recent", None)
+        if menu is None:
+            return
+        menu.clear()
+        files = self._recent_files()
+        menu.setEnabled(bool(files))
+        for path in files:
+            action = QAction(path, self)
+            action.triggered.connect(lambda _=False, p=path: self.load_config(path=p))
+            menu.addAction(action)
 
     def _save_config_to_file(self, filename):
         base = os.path.dirname(os.path.abspath(filename))
@@ -311,6 +378,8 @@ class WorkspaceMixin:
             log_exception(e)
             return False
         self._set_workspace_path(filename)
+        self._mark_clean()
+        self._add_recent(filename)
         QMessageBox.information(
             self,
             "Configuration saved",
@@ -349,17 +418,26 @@ class WorkspaceMixin:
                     return renamed
         return resolved
 
-    def load_config(self, auto=False):
-        """Replace the workspace with a JSON file (TODO 6.4); the table stays editable."""
+    def load_config(self, auto=False, path=None):
+        """Replace the workspace with a JSON file (TODO 6.4); the table stays editable.
+
+        `path` loads a specific file (a Recent entry); `auto` loads the default
+        file at start-up without prompting.
+        """
         if auto:  # Load the default workspace file
             filename = self.CONFIG_FILE
             if not os.path.exists(filename):
                 return
-        else:  # Ask for the file
-            filename, _ = QFileDialog.getOpenFileName(
-                self, "Load configuration", "", "File JSON (*.json)"
-            )
-            if not filename:
+        else:
+            if path:  # a Recent-workspaces entry
+                filename = path
+            else:  # Ask for the file
+                filename, _ = QFileDialog.getOpenFileName(
+                    self, "Load configuration", "", "File JSON (*.json)"
+                )
+                if not filename:
+                    return
+            if not self._confirm_discard():  # offer to keep unsaved changes
                 return
 
         # Parse and migrate first: a broken or too new file must not wipe the
@@ -374,6 +452,7 @@ class WorkspaceMixin:
 
         try:
             was_running = self.tx_running
+            self._loading = True  # user changes during the rebuild are the file's
             self._clear_workspace()
             self._set_workspace_path(filename)
             base = os.path.dirname(os.path.abspath(filename))
@@ -456,6 +535,11 @@ class WorkspaceMixin:
                 )
             elif dropped:  # at start-up only what was lost is worth a dialog
                 QMessageBox.warning(self, "Configuration", "\n\n".join(dropped))
+            if not auto:
+                self._add_recent(filename)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error loading configuration: {e}")
             log_exception(e)
+        finally:
+            self._loading = False
+            self._mark_clean()  # a freshly loaded workspace matches its file

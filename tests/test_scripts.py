@@ -7,6 +7,7 @@ import glob
 import logging
 import os
 import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -33,10 +34,29 @@ REPLAY = ("TPS_read_from_file.py", "GLO_TPS_read_from_file.py")
 
 
 def template_names():
+    """The templates that ship: the tracked ones, exactly as the exe spec picks
+    them (`git ls-files`). Untracked local research templates — spaced or not —
+    are never shipped (3.9) and so are not held to the template contract."""
+    repo = os.path.dirname(os.path.dirname(TEMPLATES))
+    try:
+        out = subprocess.run(
+            ["git", "-C", repo, "ls-files", "resources/script_templates/*.py"],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+        names = sorted(
+            os.path.basename(line) for line in out.split("\n") if line.strip()
+        )
+        if names:
+            return names
+    except Exception:
+        pass
+    # No git: fall back to the glob, skipping the known untracked local copies
     return sorted(
         os.path.basename(p)
         for p in glob.glob(os.path.join(TEMPLATES, "*.py"))
-        if " " not in os.path.basename(p)  # the untracked local copy (3.9)
+        if " " not in os.path.basename(p) and "sine" not in os.path.basename(p).lower()
     )
 
 
