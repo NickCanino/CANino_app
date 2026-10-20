@@ -190,6 +190,10 @@ These workflows apply to both `python main.py` and the built `.exe`.
 
 Standard and extended frames with the same number are separate rows. Error frames reported by the adapter are counted (see the bus status tooltip), not shown as data.
 
+**Filter.** The `Filter` box above the table hides rows that do not match: a substring of the ID, DBC name or payload, or an `id/mask` in hex (e.g. `100/700` keeps IDs whose masked value is `0x100`). Filtering only changes the view — the trace, the CSV and the statistics still see every frame.
+
+**Decoded signals.** When a DBC is loaded, selecting a row shows its DBC signals (name, value, unit, enum text) in the panel below the table, decoded from the row's latest payload and updated live while frames arrive.
+
 ## Bus Status
 
 While connected, the top bar shows the controller state: `OK`, `error warning`, `error passive`, `BUS-OFF` or `TX queue full`. CANino stops the transmission (as if `Stop TX` were pressed) and shows a message when:

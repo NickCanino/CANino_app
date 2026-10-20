@@ -119,6 +119,18 @@ class XMetroWindow(QWidget):
         self.gauges.append(gauge_widget)
         self.grid[row][col] = 1  # Mark the cell as taken
 
+    def set_dbc(self, dbc_loader):
+        """Follow a DBC change after the window was opened (TODO 7.8).
+
+        Each gauge rebuilds its message list, keeping its message and signal
+        selection if they still exist; a selection that is gone is cleared.
+        """
+        self.dbc = dbc_loader
+        name = os.path.basename(getattr(dbc_loader, "dbc_filename", "") or "")
+        self.setWindowTitle(f"XMetro Gauges - {name}" if name else "XMetro Gauges")
+        for gauge in self.gauges:
+            gauge.reload_dbc(dbc_loader)
+
     def remove_gauge(self, gauge):
         """Free the gauge's grid cell and delete it (TODO 7.4)."""
         if gauge in self.gauges:
@@ -202,6 +214,25 @@ class DraggableGaugeBox(QFrame):
         self.cb_signals.currentIndexChanged.connect(self.update_signal_range)
 
         self.populate_signals()
+
+    def reload_dbc(self, dbc_loader):
+        """Repopulate the message/signal combos from a new DBC (TODO 7.8)."""
+        want_msg = self.cb_messages.currentText()
+        want_sig = self.cb_signals.currentText()
+        self.dbc = dbc_loader
+        self.messages = [m for m in getattr(dbc_loader, "messages", []) if m.signals]
+        self.cb_messages.blockSignals(True)
+        self.cb_messages.clear()
+        for msg in self.messages:
+            label = f"{msg.name} ({format_can_id(msg.frame_id, msg.is_extended_frame)})"
+            self.cb_messages.addItem(label, msg.frame_id)
+        restored = self.cb_messages.findText(want_msg)
+        self.cb_messages.setCurrentIndex(max(0, restored))
+        self.cb_messages.blockSignals(False)
+        self.populate_signals()
+        sig_idx = self.cb_signals.findText(want_sig)
+        if sig_idx >= 0:
+            self.cb_signals.setCurrentIndex(sig_idx)
 
     def current_message(self):
         idx = self.cb_messages.currentIndex()

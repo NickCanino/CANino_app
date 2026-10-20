@@ -24,13 +24,26 @@ the queue, so there is no lock, and a refresh only signals the rows it touched
 instead of rebuilding every cell (TODO 5.1, 5.2, 5.6).
 """
 
+import re
 import time
 from collections import deque
 
-from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
+from PySide6.QtCore import QAbstractTableModel, QModelIndex, QSortFilterProxyModel, Qt
 from PySide6.QtGui import QFont
 
 from src.utils import format_can_id
+
+# "id/mask" filter, hex with or without 0x, e.g. "100/700" or "0x18DAF1/0x1FFFFF"
+_ID_MASK = re.compile(r"^\s*(0x)?([0-9a-fA-F]+)\s*/\s*(0x)?([0-9a-fA-F]+)\s*$")
+
+
+def parse_id_mask(text):
+    """(value, mask) if `text` is an `id/mask` hex filter, else None."""
+    m = _ID_MASK.match(text or "")
+    if not m:
+        return None
+    return int(m.group(2), 16), int(m.group(4), 16)
+
 
 COLUMNS = (
     "ID",
@@ -193,6 +206,10 @@ class RxTableModel(QAbstractTableModel):
     def rows(self):
         return list(self._rows)
 
+    def row_at(self, i):
+        """The RxRow at source position `i` (used by the filter proxy)."""
+        return self._rows[i]
+
     # --- Qt model interface ---
 
     def rowCount(self, parent=QModelIndex()):
@@ -264,3 +281,35 @@ class RxTableModel(QAbstractTableModel):
             RX_COL_9_last_received: row.last_time,
         }.get(col)
         return -1.0 if value is None else float(value)
+
+
+class RxFilterProxy(QSortFilterProxyModel):
+    """Sorts (numeric SORT_ROLE) and filters the RX rows by a user query.
+
+    An `id/mask` query (e.g. "100/700") keeps the rows whose ID matches the
+    masked value; any other text is a case-insensitive substring match against
+    the ID, the DBC name and the payload. Capture is untouched: filtering only
+    hides rows in the view (TODO 5.12).
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setSortRole(SORT_ROLE)
+        self.setDynamicSortFilter(True)
+        self._query = ""
+        self._id_mask = None
+
+    def set_query(self, text):
+        self._query = (text or "").strip().lower()
+        self._id_mask = parse_id_mask(text)
+        self.invalidateFilter()
+
+    def filterAcceptsRow(self, source_row, parent):
+        if not self._query:
+            return True
+        row = self.sourceModel().row_at(source_row)
+        if self._id_mask is not None:
+            value, mask = self._id_mask
+            return (row.frame_id & mask) == (value & mask)
+        hay = f"{row.id_text} {row.name} {row.payload_text()}".lower()
+        return self._query in hay

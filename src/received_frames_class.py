@@ -22,14 +22,20 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QTableView,
+    QTableWidget,
+    QTableWidgetItem,
     QHBoxLayout,
     QPushButton,
     QFileDialog,
     QStyle,
     QAbstractItemView,
     QMessageBox,
+    QLabel,
+    QLineEdit,
+    QSplitter,
+    QHeaderView,
 )
-from PySide6.QtCore import Qt, QTimer, Signal, QSortFilterProxyModel
+from PySide6.QtCore import Qt, QTimer, Signal
 import os
 import time
 import csv
@@ -37,10 +43,11 @@ from collections import deque
 from datetime import datetime
 
 from src.busload import frame_bits
+from src.dbc_loader import decode_signal
 from src.exceptions_logger import log_exception, log_throttled
 from src.rx_model import (
     RxTableModel,
-    SORT_ROLE,
+    RxFilterProxy,
     RX_COL_0_id,
     RX_COL_1_name,
     RX_COL_2_dlc,
@@ -71,6 +78,7 @@ class ReceivedFramesWindow(QWidget):
         super().__init__()
         self.dbc = dbc
         self._dbc_names = self._names_of(dbc)
+        self._dbc_messages = self._messages_of(dbc)
         self.csv_path = None
         self.csv_file = None
         self.csv_writer = None
@@ -197,13 +205,26 @@ class ReceivedFramesWindow(QWidget):
         self.btn_pause_log.clicked.connect(self.pause_log)
         self.btn_stop_log.clicked.connect(self.stop_log)
 
-        # --- RX table: model in arrival order, the proxy sorts (TODO 5.8) ---
+        # --- Filter box: hides non-matching rows in the view only (TODO 5.12) ---
+        filter_layout = QHBoxLayout()
+        filter_layout.addWidget(QLabel("Filter:"))
+        self.filter_edit = QLineEdit()
+        self.filter_edit.setPlaceholderText(
+            "ID, name or payload substring - or id/mask in hex, e.g. 100/700"
+        )
+        self.filter_edit.setToolTip(
+            "Show only matching rows. Capture is not affected: the trace, the CSV "
+            "and the statistics still see every frame."
+        )
+        self.filter_edit.textChanged.connect(self._apply_filter)
+        filter_layout.addWidget(self.filter_edit)
+        layout.addLayout(filter_layout)
+
+        # --- RX table: model in arrival order, the proxy sorts + filters ---
         self.model = RxTableModel(self)
         self.model.set_names(self._dbc_names)
-        self.proxy = QSortFilterProxyModel(self)
+        self.proxy = RxFilterProxy(self)
         self.proxy.setSourceModel(self.model)
-        self.proxy.setSortRole(SORT_ROLE)
-        self.proxy.setDynamicSortFilter(True)
         self.table = QTableView()
         self.table.setModel(self.proxy)
         # Column widths
@@ -219,10 +240,30 @@ class ReceivedFramesWindow(QWidget):
         self.table.setColumnWidth(RX_COL_9_last_received, 140)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setSortingEnabled(True)
         self.table.sortByColumn(RX_COL_0_id, Qt.SortOrder.AscendingOrder)
 
-        layout.addWidget(self.table)
+        # --- Decoded-signal panel: the selected row's DBC signals (TODO 5.11) ---
+        self.decoded = QTableWidget(0, 3)
+        self.decoded.setHorizontalHeaderLabels(["Signal", "Value", "Unit"])
+        self.decoded.verticalHeader().setVisible(False)
+        self.decoded.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.decoded.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.ResizeMode.Stretch
+        )
+        self.decoded.setToolTip(
+            "DBC signals of the selected RX row, decoded from its latest payload. "
+            "Load a DBC to populate it."
+        )
+        self.table.selectionModel().selectionChanged.connect(self._update_decoded)
+
+        splitter = QSplitter(Qt.Orientation.Vertical)
+        splitter.addWidget(self.table)
+        splitter.addWidget(self.decoded)
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 1)
+        layout.addWidget(splitter)
         self.setLayout(layout)
 
         # Filled by the RX thread, emptied by the GUI thread: deque append and
@@ -249,6 +290,7 @@ class ReceivedFramesWindow(QWidget):
     def clear_rx_table(self):
         self._queue.clear()
         self.model.clear()
+        self.decoded.setRowCount(0)
 
     def write_label(self, timestamp, action, mode, label):
         """Tag an attack boundary in the active trace (TODO 13.2). A no-op
@@ -350,6 +392,11 @@ class ReceivedFramesWindow(QWidget):
             except Exception as e:
                 log_throttled("Trace", e)
         self.frames_received.emit(latest)
+        # Refresh the decoded panel if the selected row just got a new payload
+        if self._dbc_messages and self.decoded.rowCount():
+            row = self._selected_row()
+            if row is not None and (row.frame_id, row.is_ext) in latest:
+                self._update_decoded()
 
     @staticmethod
     def _names_of(dbc):
@@ -364,10 +411,51 @@ class ReceivedFramesWindow(QWidget):
             for m in getattr(db, "messages", [])
         }
 
+    @staticmethod
+    def _messages_of(dbc):
+        """(frame_id, is_ext) -> DBCMessage, for decoding the signal panel."""
+        return {
+            (m.frame_id, bool(m.is_extended_frame)): m
+            for m in getattr(dbc, "messages", [])
+        }
+
     def set_dbc(self, dbc):
         self.dbc = dbc
         self._dbc_names = self._names_of(dbc)
+        self._dbc_messages = self._messages_of(dbc)
         self.model.set_names(self._dbc_names)  # rows already listed too (TODO 5.7)
+        self._update_decoded()
+
+    def _apply_filter(self, text):
+        self.proxy.set_query(text)
+
+    def _selected_row(self):
+        """The source RxRow of the selected view row, or None."""
+        indexes = self.table.selectionModel().selectedRows()
+        if not indexes:
+            return None
+        src = self.proxy.mapToSource(indexes[0])
+        return self.model.row_at(src.row())
+
+    def _update_decoded(self, *args):
+        """Fill the decoded panel from the selected row's latest payload (TODO 5.11)."""
+        row = self._selected_row()
+        msg = self._dbc_messages.get((row.frame_id, row.is_ext)) if row else None
+        signals = msg.signals if msg else []
+        self.decoded.setRowCount(len(signals))
+        for i, sig in enumerate(signals):
+            try:
+                value = decode_signal(row.data, sig)
+            except Exception:
+                value = None
+            label = (getattr(sig, "choices", None) or {}).get(
+                int(value) if value is not None else None
+            )
+            shown = (
+                label if label is not None else ("-" if value is None else f"{value:g}")
+            )
+            for col, text in enumerate((sig.name, shown, sig.unit or "")):
+                self.decoded.setItem(i, col, QTableWidgetItem(text))
 
     def link_csv_file(self):
         path, selected = QFileDialog.getSaveFileName(

@@ -573,6 +573,15 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             if shiboken6.isValid(window):
                 window.feed(frame_id, is_ext, data)
 
+    def _apply_dbc(self, dbc):
+        """Set the DBC everywhere it is used: RX names + decoded panel, and any
+        open XMetro window (TODO 7.8). Callers stop setting self.dbc themselves."""
+        self.dbc = dbc
+        self.rx_window.set_dbc(dbc)
+        for window in self.xmetro_windows:
+            if shiboken6.isValid(window):
+                window.set_dbc(dbc)
+
     def _forget_xmetro(self, window_id):
         """A closed XMetro window leaves the list, so RX stops feeding it (TODO 7.5)."""
         self.xmetro_windows[:] = [w for w in self.xmetro_windows if id(w) != window_id]

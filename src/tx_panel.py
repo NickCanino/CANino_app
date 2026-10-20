@@ -420,10 +420,11 @@ class TxPanelMixin:
             self, "Open DBC file", "", "DBC Files (*.dbc)"
         )
         if filename:
-            self.dbc = load_dbc(filename)
+            self._apply_dbc(
+                load_dbc(filename)
+            )  # RX names + decoded panel + XMetro (7.8)
             self.populate_signal_tree()
             self._sync_tx()
-            self.rx_window.set_dbc(self.dbc)
             self.btn_disable_all_ids.setEnabled(True)
             self.btn_delete_all_ids.setEnabled(True)
 

@@ -322,8 +322,7 @@ class WorkspaceMixin:
         self.added_sliders.clear()
         self._set_global_script(None)
         self.script_instances.clear()
-        self.dbc = None
-        self.rx_window.set_dbc(None)
+        self._apply_dbc(None)
         self.btn_disable_all_ids.setText("Disable All")
         self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
         self.btn_disable_all_ids.setIcon(
@@ -377,8 +376,9 @@ class WorkspaceMixin:
             dbc_path = self._from_workspace_path(config["dbc_file"], base)
             if dbc_path is not None:
                 if os.path.exists(dbc_path):
-                    self.dbc = load_dbc(dbc_path)
-                    self.rx_window.set_dbc(self.dbc)  # RX names (TODO 6.1)
+                    self._apply_dbc(
+                        load_dbc(dbc_path)
+                    )  # RX names (TODO 6.1), XMetro (7.8)
                 else:
                     QMessageBox.warning(
                         self, "DBC", f"Cannot find DBC file:\n{dbc_path}"
