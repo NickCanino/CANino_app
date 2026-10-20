@@ -494,6 +494,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
         else:  # Disconnect
             self.timer_bus_status.stop()
+            self.stop_replay()  # a running replay sends to this channel
             if self.tx_running:  # the TX thread must be gone before the bus
                 self.stop_tx()
             if self.can_if:
@@ -588,6 +589,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
     def closeEvent(self, event):
         """Release TX, the PCAN channel, the log file and XMetro windows (TODO 1.9)."""
+        self.stop_replay()
         if self.tx_running:
             self.stop_tx()
         if self.can_if is not None:

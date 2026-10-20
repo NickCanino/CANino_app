@@ -29,6 +29,9 @@ Version 2 (1.6): flags are JSON booleans, paths use "/", sliders store their
 physical value only. Version 1 files may hold "Y"/"n"/null flags, no "ext"
 (IDs above 0x7FF were extended), no "fd", backslashes in paths, and sliders
 with only an index into a recomputed range (value_index).
+
+Version 3 (1.7): each signal gains "rtr" (remote frame). Missing in v1/v2 files
+means a normal data frame.
 """
 
 from PySide6.QtWidgets import (
@@ -44,7 +47,7 @@ from src.exceptions_logger import log_exception, __version__
 from src.tx_model import CAN_MAX_STD_ID, CAN_MAX_EXT_ID
 
 WORKSPACE_FORMAT = "canino-workspace"
-WORKSPACE_VERSION = 2
+WORKSPACE_VERSION = 3
 # Templates renamed in c971828 (2025-08-01): a workspace that links the old
 # name finds the new file in the same folder
 TEMPLATE_RENAMES = {
@@ -156,6 +159,8 @@ def migrate(config):
                 "payload": str(sig.get("payload") or ""),
                 "dlc": _int(sig.get("dlc"), 8),
                 "script_path": path(sig.get("script_path")),
+                # v3 (1.7): remote frame. Missing in v1/v2 -> a normal data frame.
+                "rtr": json_flag(sig.get("rtr")) and not json_flag(sig.get("fd")),
             }
         )
 
@@ -183,7 +188,7 @@ def migrate(config):
 
     if version < WORKSPACE_VERSION:
         notes.append(
-            f"Converted from workspace version {version} (CANino 1.5 or older); "
+            f"Converted from workspace version {version} to {WORKSPACE_VERSION}; "
             "Save writes the new format."
         )
     if counts["ext"]:
@@ -282,6 +287,7 @@ class WorkspaceMixin:
                     "payload": " ".join(f"{b:02X}" for b in entry.payload),
                     "dlc": entry.dlc,
                     "script_path": self._to_workspace_path(entry.script_path, base),
+                    "rtr": entry.is_rtr,
                 }
                 for entry in self._tx_entries()
             ],
@@ -400,6 +406,7 @@ class WorkspaceMixin:
                     payload=sig["payload"],
                     script_path=self._script_from_workspace(sig["script_path"], base),
                     enabled=sig["enabled"],
+                    is_rtr=sig["rtr"],
                 )
 
             # Load sliders

@@ -4,6 +4,7 @@ Run from the repo root:  python -m unittest discover -s tests -v
 """
 
 import json
+import threading
 import unittest
 
 import qt_harness as h  # noqa: F401  (must come before src imports)
@@ -127,6 +128,7 @@ class ExtendedIdTests(Base):
         sent = []
         iface = ci.CANInterface.__new__(ci.CANInterface)
         iface.bus = type("Bus", (), {"send": lambda self, m: sent.append(m)})()
+        iface._send_lock = threading.Lock()
         iface.send_frame(0x18FF0001, b"\x01\x02", 2, is_ext=True)
         iface.send_frame(0x123, b"\x01", 1)
         self.assertTrue(sent[0].is_extended_id)

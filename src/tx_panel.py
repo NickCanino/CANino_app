@@ -59,6 +59,8 @@ from src.dbc_loader import (
 )
 from src.exceptions_logger import log_exception
 from src.utils import format_can_id, resource_path
+from src.trace_log import TRACE_FORMATS
+from src.trace_replay import TraceReplayer, load_trace
 from src.tx_scheduler import TxScheduler
 from src.tx_model import (
     TxEntry,
@@ -66,6 +68,7 @@ from src.tx_model import (
     TxButtonDelegate,
     PeriodDelegate,
     SORT_ROLE as TX_SORT_ROLE,
+    ENTRY_ROLE,
     TX_COL_0_del,
     TX_COL_1_enable,
     TX_COL_2_id,
@@ -134,6 +137,10 @@ class AddIdDialog(QDialog):
         self.ed_id.setPlaceholderText("hex, e.g. 123 or 18FF0001")
         self.cb_ext = QCheckBox("29-bit extended ID")
         self.cb_fd = QCheckBox("CAN FD frame")
+        self.cb_rtr = QCheckBox("Remote frame (RTR)")
+        self.cb_rtr.setToolTip(
+            "A remote request: no data, only the DLC. Classic CAN only."
+        )
         self.cb_dlc = QComboBox()
         self.sp_period = QSpinBox()
         self.sp_period.setRange(1, 10000)
@@ -147,6 +154,7 @@ class AddIdDialog(QDialog):
         form.addRow("ID:", self.ed_id)
         form.addRow("", self.cb_ext)
         form.addRow("", self.cb_fd)
+        form.addRow("", self.cb_rtr)
         form.addRow("DLC (bytes):", self.cb_dlc)
         form.addRow("Period (ms):", self.sp_period)
         form.addRow("Name:", self.ed_name)
@@ -159,6 +167,9 @@ class AddIdDialog(QDialog):
         form.addRow(buttons)
 
         self.cb_fd.toggled.connect(self._fill_dlc)
+        # FD and RTR exclude each other (CAN FD has no remote frames)
+        self.cb_fd.toggled.connect(lambda on: on and self.cb_rtr.setChecked(False))
+        self.cb_rtr.toggled.connect(lambda on: on and self.cb_fd.setChecked(False))
         self._fill_dlc(False)
 
     def _fill_dlc(self, is_fd):
@@ -197,6 +208,7 @@ class AddIdDialog(QDialog):
             "dlc": self.cb_dlc.currentData(),
             "is_fd": self.cb_fd.isChecked(),
             "is_ext": is_ext,
+            "is_rtr": self.cb_rtr.isChecked() and not self.cb_fd.isChecked(),
         }, None
 
     def accept(self):
@@ -245,6 +257,37 @@ class TxPanelMixin:
         self.btn_start_tx.setFixedSize(100, 30)
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
         self.btn_start_tx.setEnabled(False)  # Disabled until connected
+
+        # Send the selected row once, or N times back-to-back (TODO 2.15)
+        self.sp_burst = QSpinBox()
+        self.sp_burst.setRange(1, 100000)
+        self.sp_burst.setValue(1)
+        self.sp_burst.setFixedSize(70, 30)
+        self.sp_burst.setToolTip(
+            "How many frames one 'Send Now' sends (1 = send once)."
+        )
+        self.btn_send_now = QPushButton("Send Now")
+        self.btn_send_now.setToolTip(
+            "Send the selected row's frame now, outside the periodic schedule:\n"
+            "once, or the spin-box count back-to-back (a burst)."
+        )
+        self.btn_send_now.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
+        )
+        self.btn_send_now.setFixedSize(110, 30)
+        self.btn_send_now.clicked.connect(self.send_selected_now)
+
+        # Replay a recorded trace onto the bus, in recorded time (TODO 5.10)
+        self._replayer = None
+        self.btn_replay = QPushButton("Replay Trace")
+        self.btn_replay.setToolTip(
+            "Replay a .trc/.asc/.blf/.log trace onto the bus, in recorded time."
+        )
+        self.btn_replay.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSeekForward)
+        )
+        self.btn_replay.setFixedSize(130, 30)
+        self.btn_replay.clicked.connect(self.replay_trace)
 
         # Button to disable all ID in TX
         self.btn_disable_all_ids = QPushButton("Disable All")
@@ -296,6 +339,10 @@ class TxPanelMixin:
         tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_disable_all_ids)
         tx_buttons_layout.addWidget(self.btn_start_tx)
+        tx_buttons_layout.addWidget(QLabel("Burst:"))
+        tx_buttons_layout.addWidget(self.sp_burst)
+        tx_buttons_layout.addWidget(self.btn_send_now)
+        tx_buttons_layout.addWidget(self.btn_replay)
         tx_buttons_layout.addStretch(0)
         tx_buttons_layout.addWidget(self.btn_link_global_script)
         tx_buttons_layout.addWidget(self.btn_remove_global_script)
@@ -455,6 +502,7 @@ class TxPanelMixin:
         payload="",
         script_path=None,
         enabled=True,
+        is_rtr=False,
     ):
         """The one TX row builder, for DBC, workspace and manual rows (TODO 2.14).
 
@@ -472,8 +520,101 @@ class TxPanelMixin:
                 payload=(payload or "").strip(),
                 enabled=enabled,
                 script_path=script_path or None,
+                is_rtr=is_rtr,
             )
         )
+
+    def _selected_tx_entry(self):
+        """The TxEntry of the selected view row, or None."""
+        indexes = self.tx_view.selectionModel().selectedRows()
+        if not indexes:
+            return None
+        return self.tx_proxy.mapToSource(indexes[0]).data(ENTRY_ROLE)
+
+    def send_selected_now(self):
+        """Send the selected row once or as a burst, off the schedule (TODO 2.15)."""
+        if not self.can_if:
+            QMessageBox.warning(
+                self, "Send Now", "Connect to the CAN bus before sending."
+            )
+            return
+        if getattr(self.can_if, "listen_only", False):
+            QMessageBox.warning(
+                self, "Send Now", "The channel is connected in listen-only mode."
+            )
+            return
+        entry = self._selected_tx_entry()
+        if entry is None:
+            QMessageBox.warning(self, "Send Now", "Select a row in the TX table first.")
+            return
+        if entry.is_fd and not getattr(self.can_if, "is_fd", False):
+            QMessageBox.warning(
+                self, "Send Now", "This is a CAN FD row on a classic-CAN channel."
+            )
+            return
+        for _ in range(self.sp_burst.value()):
+            self._send_row(entry)  # same payload path as the scheduler, RTR included
+        self._tx_refresh()
+
+    def replay_trace(self):
+        """Start/stop replaying a recorded trace onto the bus (TODO 5.10)."""
+        if self._replayer is not None and self._replayer.running:
+            self.stop_replay()
+            return
+        if not self.can_if:
+            QMessageBox.warning(self, "Replay", "Connect to the CAN bus first.")
+            return
+        if getattr(self.can_if, "listen_only", False):
+            QMessageBox.warning(
+                self, "Replay", "The channel is connected in listen-only mode."
+            )
+            return
+        filters = ";;".join(f"{label} (*{ext})" for ext, label in TRACE_FORMATS.items())
+        path, _ = QFileDialog.getOpenFileName(self, "Replay trace", "", filters)
+        if not path:
+            return
+        try:
+            messages = load_trace(path)
+        except Exception as e:
+            QMessageBox.critical(self, "Replay", f"Cannot read the trace:\n{e}")
+            return
+        if not messages:
+            QMessageBox.warning(self, "Replay", "The trace holds no frames.")
+            return
+        self._replayer = TraceReplayer(messages, self._replay_send)
+        self._replayer.start()
+        self.btn_replay.setText("Stop Replay")
+
+    def _replay_send(self, msg):
+        """Replay thread: send one recorded frame (bus.send is lock-guarded)."""
+        can_if = self.can_if
+        if can_if is None:
+            return
+        can_if.send_frame(
+            msg.arbitration_id,
+            bytes(msg.data),
+            msg.dlc,
+            msg.is_fd,
+            is_ext=msg.is_extended_id,
+            is_rtr=msg.is_remote_frame,
+        )
+
+    def stop_replay(self):
+        if self._replayer is not None:
+            self._replayer.stop()
+        self._replayer = None
+        self.btn_replay.setText("Replay Trace")
+
+    def _poll_replay(self):
+        """GUI refresh: detect a finished replay, reset the button, report errors."""
+        r = self._replayer
+        if r is None or r.running:
+            return
+        error = r.error
+        self._replayer = None
+        self.btn_replay.setText("Replay Trace")
+        if error:
+            QMessageBox.critical(self, "Replay", f"Replay failed:\n{error}")
 
     def _tx_entries(self):
         return self.tx_model.entries()
@@ -782,6 +923,10 @@ class TxPanelMixin:
         flags of an entry never change after it is created.
         """
         frame_id, is_ext, dlc = entry.frame_id, entry.is_ext, entry.dlc
+        if entry.is_rtr:  # a remote frame carries no payload, only the DLC
+            self.send_can_message(frame_id, b"", dlc, False, is_ext, is_rtr=True)
+            self.tx_model.set_error(entry, None)
+            return
         try:
             payload = self._script_payload(entry)
             if payload is None:  # 3. Manual payload
@@ -838,6 +983,8 @@ class TxPanelMixin:
         feed their payloads to the XMetro gauges (TODO 7.2)."""
         if self._script_mtimes:
             self._check_script_reloads()
+        if self._replayer is not None:
+            self._poll_replay()
         sent = self.tx_model.flush()
         if self.xmetro_windows:
             for entry in sent:
@@ -876,7 +1023,9 @@ class TxPanelMixin:
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton)
         )
 
-    def send_can_message(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
+    def send_can_message(
+        self, frame_id, data, dlc=None, is_fd=False, is_ext=False, is_rtr=False
+    ):
         can_if = self.can_if  # TX thread: read once
         if not can_if:
             return
@@ -885,6 +1034,6 @@ class TxPanelMixin:
                 dlc = len(data) if data else 0
             dlc = max(0, min(int(dlc), 64))
             # Not counted for the busload here: the adapter's echo is (TODO 9.8)
-            can_if.send_frame(frame_id, data, dlc, is_fd, is_ext=is_ext)
+            can_if.send_frame(frame_id, data, dlc, is_fd, is_ext=is_ext, is_rtr=is_rtr)
         except Exception as e:
             log_exception(e)

@@ -132,7 +132,9 @@ class FakeIf:
     def __init__(self):
         self.sent = []
 
-    def send_frame(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
+    def send_frame(
+        self, frame_id, data, dlc=None, is_fd=False, is_ext=False, is_rtr=False
+    ):
         self.sent.append((time.perf_counter(), frame_id))
         return True
 

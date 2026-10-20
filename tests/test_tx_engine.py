@@ -25,7 +25,9 @@ class FakeIf:
         self.flags = []
         self.flushes = 0
 
-    def send_frame(self, frame_id, data, dlc=None, is_fd=False, is_ext=False):
+    def send_frame(
+        self, frame_id, data, dlc=None, is_fd=False, is_ext=False, is_rtr=False
+    ):
         self.sent.append((frame_id, bytes(data)))
         self.flags.append((frame_id, is_ext, is_fd, dlc))
 

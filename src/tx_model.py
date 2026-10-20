@@ -121,10 +121,13 @@ class TxEntry:
     payload: bytes = b""
     enabled: bool = True
     script_path: Optional[str] = None
+    is_rtr: bool = False  # remote frame: no data, requests the DLC (TODO 2.15)
     error: Optional[str] = None  # why the last frame was not sent; None = sent
 
     def __post_init__(self):
         self.is_fd = bool(self.is_fd)
+        # CAN FD has no remote frames; a remote frame is always classic CAN
+        self.is_rtr = bool(self.is_rtr) and not self.is_fd
         # An ID above 0x7FF only exists as a 29-bit ID (TODO 1.6)
         self.is_ext = bool(self.is_ext) or self.frame_id > CAN_MAX_STD_ID
         self.dlc = valid_dlc(self.dlc, self.is_fd)
@@ -276,8 +279,10 @@ class TxTableModel(QAbstractTableModel):
         col = index.column()
         if col == TX_COL_1_enable:
             flags |= Qt.ItemFlag.ItemIsUserCheckable
-        elif col in (TX_COL_5_period, TX_COL_6_payload):
+        elif col == TX_COL_5_period:
             flags |= Qt.ItemFlag.ItemIsEditable
+        elif col == TX_COL_6_payload and not self._entries[index.row()].is_rtr:
+            flags |= Qt.ItemFlag.ItemIsEditable  # a remote frame has no payload
         return flags
 
     def data(self, index, role=Qt.ItemDataRole.DisplayRole):
@@ -291,13 +296,14 @@ class TxTableModel(QAbstractTableModel):
             if col == TX_COL_2_id:
                 return e.id_text
             if col == TX_COL_3_fd:
-                return "Y" if e.is_fd else "n"
+                return "RTR" if e.is_rtr else ("Y" if e.is_fd else "n")
             if col == TX_COL_4_name:
                 return e.name
             if col == TX_COL_5_period:
                 return e.period if role == Qt.ItemDataRole.EditRole else str(e.period)
             if col == TX_COL_6_payload:
-                return payload_text(e.payload)
+                # A remote frame carries no data, only the requested DLC
+                return f"(RTR, DLC {e.dlc})" if e.is_rtr else payload_text(e.payload)
             if col == TX_COL_7_script:
                 return os.path.basename(e.script_path) if e.script_path else ""
             return None

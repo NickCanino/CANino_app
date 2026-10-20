@@ -43,7 +43,9 @@ V1_5 = fixture("workspace_v1_5.json")
 class MigrateTests(unittest.TestCase):
     def test_v1_0_2(self):
         out, notes = migrate(V1_0_2)
-        self.assertEqual((out["format"], out["version"]), ("canino-workspace", 2))
+        self.assertEqual(
+            (out["format"], out["version"]), ("canino-workspace", WORKSPACE_VERSION)
+        )
         self.assertEqual(out["dbc_file"], "resources/dbc_files/a.dbc")
         a, b = out["signals"]
         self.assertEqual((a["id"], a["ext"], a["fd"]), ("0x123", False, False))
@@ -104,7 +106,7 @@ class MigrateTests(unittest.TestCase):
             [(s["id"], s["ext"]) for s in out["signals"]],
             [("0x100", False), ("0x00000100", True)],
         )
-        (note,) = notes
+        note = " ".join(notes)  # a v2->v3 conversion note joins the skipped-rows note
         for expected in ("row 2", "row 4", "row 5", "row 6"):
             self.assertIn(expected, note)
 
@@ -160,7 +162,9 @@ class LoadSaveTests(unittest.TestCase):
         self.mw._save_config_to_file(path)
         with open(path, encoding="utf-8") as f:
             saved = json.load(f)
-        self.assertEqual((saved["format"], saved["version"]), ("canino-workspace", 2))
+        self.assertEqual(
+            (saved["format"], saved["version"]), ("canino-workspace", WORKSPACE_VERSION)
+        )
         self.assertEqual(saved["signals"][0]["ext"], True)
         self.load(path)
         rows = [

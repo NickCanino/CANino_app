@@ -4,6 +4,7 @@ Run from the repo root:  python -m unittest discover -s tests -v
 """
 
 import logging
+import threading
 import unittest
 
 import qt_harness as h  # noqa: F401  (must come before src imports)
@@ -80,6 +81,7 @@ class SendErrorTests(unittest.TestCase):
 
             iface = ci.CANInterface.__new__(ci.CANInterface)
             iface.bus = Bus()
+            iface._send_lock = threading.Lock()
             results = {iface.send_frame(0x100, bytes(8), 8) for _ in range(1000)}
         finally:
             el.bus_logger.removeHandler(cap)

@@ -94,6 +94,9 @@ class CANInterface:
         self.bus = None
         self.receive_thread = None
         self.running = False
+        # Serialises bus.send(): the TX scheduler and a trace replay (TODO 5.10)
+        # may both send at once
+        self._send_lock = threading.Lock()
         self.error_frames = 0
         # (id, data, dlc, is_fd, timestamp, is_ext, bitrate_switch, is_echo)
         self.receive_callback: Optional[Callable[..., None]] = None
@@ -117,8 +120,14 @@ class CANInterface:
         self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
         self.receive_thread.start()
 
-    def send_frame(self, frame_id, data, dlc=None, is_fd=False, is_ext=False) -> bool:
-        """Queue one frame; False if the driver refused it (logged, throttled)."""
+    def send_frame(
+        self, frame_id, data, dlc=None, is_fd=False, is_ext=False, is_rtr=False
+    ) -> bool:
+        """Queue one frame; False if the driver refused it (logged, throttled).
+
+        A remote frame (`is_rtr`) carries no data, only the requested DLC; it
+        cannot be a CAN FD frame (python-can rejects that).
+        """
         try:
             if self.bus is None:
                 raise can.CanOperationError("CAN bus not initialized")
@@ -128,7 +137,9 @@ class CANInterface:
                 dlc = len(data)
             if not isinstance(data, (bytes, bytearray)):
                 data = bytes(data)
-            if len(data) < dlc:
+            if is_rtr:
+                data = b""  # a remote frame requests data, it carries none
+            elif len(data) < dlc:
                 data = data + bytes([0x00] * (dlc - len(data)))
             elif len(data) > dlc:
                 data = data[:dlc]
@@ -140,9 +151,11 @@ class CANInterface:
                 dlc=dlc,
                 is_fd=is_fd,
                 bitrate_switch=is_fd,
+                is_remote_frame=is_rtr,
                 check=True,
             )
-            self.bus.send(msg)
+            with self._send_lock:
+                self.bus.send(msg)
             return True
 
         except Exception as e:

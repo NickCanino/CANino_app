@@ -167,6 +167,12 @@ These workflows apply to both `python main.py` and the built `.exe`.
 >
 > `Stop TX` also drops the frames the adapter could not send yet, so no stale backlog reaches the bus later.
 
+**Send Now / burst.** Select a row and press `Send Now` to transmit its frame once, outside the periodic schedule. Set the `Burst` count above 1 to send that many frames back-to-back (useful for flooding or triggering). It works whether or not periodic TX is running.
+
+**Remote frames (RTR).** Tick `Remote frame (RTR)` in `Add ID` for a row that carries no data, only the requested DLC — a request for the owning node to transmit. RTR is classic CAN only (mutually exclusive with CAN FD); the payload cell shows `(RTR, DLC n)` and is not editable.
+
+**Replay a trace.** `Replay Trace` reads a `.trc`/`.asc`/`.blf`/`.log` file and transmits its frames onto the bus in their recorded timing (received and transmitted frames alike). Press it again to stop. The bus must be connected and not in listen-only mode.
+
 ## Receiving CAN Traffic
 
 1. Load a DBC file (or a workspace that links one) to see message names. A name is shown only for frames with the same ID format (standard or extended) as in the DBC.
