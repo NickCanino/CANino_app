@@ -159,9 +159,12 @@ class BusloadLabelTests(unittest.TestCase):
     def tearDown(self):
         self.mw.can_if = None
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def load_after(self, seconds):
+        # Drain first: draining 1,000 queued frames inside the measured window
+        # added its own duration to `seconds` (10.6 % read as 10.4 % under load)
+        self.rx.drain()
         self.mw._busload_since = time.monotonic() - seconds
         self.mw.timer_busload_elapsed()
         return float(self.mw.lbl_busload.text().split()[1].rstrip("%"))

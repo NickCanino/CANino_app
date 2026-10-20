@@ -105,6 +105,21 @@ class FakePCAN:
         return PCAN_ERROR_OK
 
 
+def dispose(widget):
+    """Close and destroy a top-level widget now, at a known point.
+
+    close() alone leaves the window alive with its timers running. The Python
+    cyclic GC then destroys it at an arbitrary later moment, possibly in the
+    middle of another test's Qt event dispatch: the full suite crashed with an
+    access violation inside test_vagiletta that way (TODO 11.4).
+    """
+    from PySide6.QtCore import QCoreApplication, QEvent
+
+    widget.close()
+    widget.deleteLater()
+    QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+
+
 def init_calls():
     """FakePCAN calls without the SetValue ones (mode, events, ...)."""
     return [c for c in FakePCAN.calls if c[0] != "SetValue"]

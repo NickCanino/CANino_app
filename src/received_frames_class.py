@@ -241,6 +241,19 @@ class ReceivedFramesWindow(QWidget):
         self._queue.clear()
         self.model.clear()
 
+    def write_label(self, timestamp, action, mode, label):
+        """Tag an attack boundary in the active trace (TODO 13.2). A no-op
+        unless a trace is open and logging (the CSV stats log is not tagged).
+        Called from the GUI thread; drains first so the marker sits after the
+        frames already captured."""
+        if self.trace is None or not self.log_active or self.log_paused:
+            return
+        self.drain()
+        try:
+            self.trace.log_label(timestamp, action, mode, label)
+        except Exception as e:
+            log_throttled("Label", e)
+
     def push_frame(
         self,
         frame_id: int,

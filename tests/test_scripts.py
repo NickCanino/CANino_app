@@ -175,7 +175,7 @@ class GuiScriptTests(unittest.TestCase):
         self.mw.stop_tx()
         self.mw.can_if = None
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def script(self, name, body):
         with open(name, "w", encoding="utf-8") as f:

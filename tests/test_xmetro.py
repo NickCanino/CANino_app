@@ -43,7 +43,7 @@ class Base(unittest.TestCase):
         self.mw.stop_tx()
         self.mw.can_if = None
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def gauge(self, msg_name, sig_name):
         if not self.mw.xmetro_windows:

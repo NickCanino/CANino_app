@@ -157,7 +157,7 @@ class GuiStarvationTests(unittest.TestCase):
         self.mw.stop_tx()
         self.mw.can_if = None
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     @unittest.skipIf(
         os.environ.get("CI"), "measures the machine's timing, not the code"

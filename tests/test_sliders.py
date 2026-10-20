@@ -58,7 +58,7 @@ class Base(unittest.TestCase):
         self.mw.stop_tx()
         self.mw.can_if = None
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def msg(self, name):
         return next(m for m in self.mw.dbc.messages if m.name == name)
@@ -148,7 +148,7 @@ class WorkspaceTests(Base):
         mw2 = gui.MainWindow()
         mw2.CONFIG_FILE = "ws_sliders.json"
         mw2.load_config(auto=True)
-        self.addCleanup(mw2.close)
+        self.addCleanup(h.dispose, mw2)
         return cfg, mw2
 
     def test_saved_slider_names_its_message(self):

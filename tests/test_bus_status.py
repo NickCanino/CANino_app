@@ -143,7 +143,7 @@ class AutoStopTests(unittest.TestCase):
         self.mw.stop_tx()
         self.mw.can_if = None
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def warnings(self):
         return [d for d in h.DIALOGS if d[0] == "warning"]
@@ -205,7 +205,7 @@ class ListenOnlyTests(unittest.TestCase):
         if self.mw.can_if:
             self.mw.can_if.close()
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def connect(self, listen_only):
         h.FakePCAN.calls.clear()

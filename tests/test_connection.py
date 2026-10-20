@@ -31,7 +31,7 @@ class ConnectionTests(unittest.TestCase):
             self.mw.can_if.close()
         ci.CANInterface.get_available_channels = self._orig_scan
         ci.CANInterface.is_fd_capable = self._orig_fd
-        self.mw.close()
+        h.dispose(self.mw)
 
     def connect(self, label):
         h.FakePCAN.calls.clear()
@@ -119,7 +119,7 @@ class MissingDriverTests(unittest.TestCase):
             mw = gui.MainWindow()
             self.assertEqual(mw.cb_bus_tx.count(), 1)
             self.assertIsNone(mw.cb_bus_tx.currentData())
-            mw.close()
+            h.dispose(mw)
         finally:
             vendor.windll = orig
 

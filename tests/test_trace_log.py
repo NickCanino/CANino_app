@@ -102,7 +102,7 @@ class RxWindowTraceTests(unittest.TestCase):
 
     def tearDown(self):
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def push(self, fid, ts, echo=False, data=b"\x01" * 8):
         self.rx.push_frame(fid, data, len(data), False, ts, False, False, echo)

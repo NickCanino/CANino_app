@@ -144,7 +144,7 @@ class MenuTests(unittest.TestCase):
         try:
             mw = gui.MainWindow()
             mw.action_open_logs.trigger()
-            mw.close()
+            h.dispose(mw)
         finally:
             gui.QDesktopServices.openUrl = orig_open
             ci.CANInterface.get_available_channels = orig_scan

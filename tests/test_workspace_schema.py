@@ -132,7 +132,7 @@ class LoadSaveTests(unittest.TestCase):
 
     def tearDown(self):
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def write(self, cfg, name="ws.json"):
         path = os.path.join(self.dir, name)

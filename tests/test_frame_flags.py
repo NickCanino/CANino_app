@@ -64,7 +64,7 @@ class Base(unittest.TestCase):
         self.mw.stop_tx()
         self.mw.can_if = None
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
     def load(self, signals, **cfg):
         with open("ws_flags.json", "w", encoding="utf-8") as f:

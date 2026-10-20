@@ -39,7 +39,7 @@ class Base(unittest.TestCase):
 
     def tearDown(self):
         ci.CANInterface.get_available_channels = self._orig_scan
-        self.mw.close()
+        h.dispose(self.mw)
 
 
 class RxTableTests(Base):

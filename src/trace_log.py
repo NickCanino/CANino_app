@@ -24,6 +24,7 @@ trace holds what really reached the bus, with the PCAN hardware timestamps —
 not what was queued.
 """
 
+import csv
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -106,6 +107,13 @@ class TrcWriter:
         )
         self.file.write(line.rstrip() + "\n")
 
+    def log_comment(self, marker_ts: float, text: str):
+        """A `;` comment line, positioned in the frame stream (TODO 13.2).
+        TRC readers skip it; the sidecar holds the machine-readable label."""
+        if self.start is None:
+            self._header(marker_ts)
+        self.file.write(f";LABEL {(marker_ts - self.start) * 1000:.3f} {text}\n")
+
     def stop(self):
         self.file.close()
 
@@ -123,13 +131,30 @@ def _open_writer(path):
     raise ValueError(f"Unsupported trace format: {ext or path}")
 
 
+def label_path(trace_path: str) -> str:
+    """Sidecar next to the trace: trace.trc -> trace.labels.csv."""
+    root, _ = os.path.splitext(trace_path)
+    return root + ".labels.csv"
+
+
 class TraceLog:
-    """One open trace file; written from the GUI thread (RX drain)."""
+    """One open trace file; written from the GUI thread (RX drain).
+
+    Attack windows are tagged two ways (TODO 13.2): an in-trace marker where
+    the format carries events (`.trc` comment, `.asc`/`.blf` log event), and an
+    authoritative sidecar `<name>.labels.csv` with the wall-clock start/stop of
+    each attack. The sidecar is the format-independent artifact IDS training
+    joins against the frames; the in-trace marker keeps the trace self-describing.
+    """
 
     def __init__(self, path):
         self.path = path
         self.writer = _open_writer(path)
         self.frames = 0
+        self.labels = 0
+        self._last_ts = None  # last frame's hardware time: positions markers
+        self._label_file = None
+        self._label_writer = None
 
     def write(self, frame_id, data, is_fd, timestamp, is_ext, brs, is_echo):
         self.writer.on_message_received(
@@ -144,7 +169,41 @@ class TraceLog:
                 check=False,
             )
         )
+        self._last_ts = timestamp
         self.frames += 1
+
+    def log_label(self, timestamp, action, mode, label):
+        """Tag an attack boundary. `timestamp` is the wall clock (time.time);
+        the sidecar keeps it, the in-trace marker is placed just after the last
+        frame so it stays monotonic with the hardware-clock frame stream (the
+        two clocks differ by a documented constant offset on PCAN)."""
+        text = f"{action} {mode} {label}"
+        marker_ts = self._last_ts if self._last_ts is not None else timestamp
+        w = self.writer
+        if isinstance(w, TrcWriter):
+            w.log_comment(marker_ts, text)
+        elif hasattr(w, "log_event"):  # ASC, BLF
+            w.log_event(f"CANino LABEL {text}", marker_ts)
+        # CanutilsLogWriter has no event line: the sidecar is the only record
+        if self._label_writer is None:
+            self._label_file = open(
+                label_path(self.path), "w", newline="", encoding="utf-8"
+            )
+            self._label_writer = csv.writer(self._label_file)
+            self._label_writer.writerow(
+                ["Timestamp", "Epoch", "Action", "Mode", "Label"]
+            )
+        self._label_writer.writerow(
+            [
+                datetime.fromtimestamp(timestamp).strftime("%Y-%m-%dT%H:%M:%S.%f"),
+                f"{timestamp:.6f}",
+                action,
+                mode,
+                label,
+            ]
+        )
+        self._label_file.flush()
+        self.labels += 1
 
     def flush(self):
         """Text traces: to disk after every drain, like the CSV. A BLF file
@@ -154,6 +213,10 @@ class TraceLog:
 
     def close(self):
         self.writer.stop()
+        if self._label_file is not None:
+            self._label_file.close()
+            self._label_file = None
+            self._label_writer = None
 
     @staticmethod
     def is_trace(path) -> bool:
