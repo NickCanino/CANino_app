@@ -3,6 +3,14 @@
 All notable changes to CANino App. Versions from 1.4.0 on are PySide6 builds;
 1.3.x and earlier were PyQt6.
 
+## 1.7.1 — UI polish
+
+Changed
+- **TX toolbar** regrouped into four stacked groups (Add ID / Delete All,
+  Enable All / Start TX, Burst + Send Now / Replay Trace, global script),
+  spaced with the window width.
+- **Signal Plot**: wider plotted-signals box; icons on Add and Remove.
+
 ## 1.7.0 — Phase 3 (add-ons)
 
 Added

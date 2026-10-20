@@ -27,6 +27,7 @@ MainWindow calls _build_tx_panel() while it lays the window out.
 
 from PySide6.QtWidgets import (
     QVBoxLayout,
+    QGridLayout,
     QHBoxLayout,
     QPushButton,
     QComboBox,
@@ -333,19 +334,28 @@ class TxPanelMixin:
         self.btn_remove_global_script.clicked.connect(self.remove_global_payload_script)
 
         # Horizontal layout for the TX buttons
+        # Four groups of stacked controls; the stretches between them share the
+        # spare width, so the gaps follow the window size
+        group_rows = QGridLayout()
+        group_rows.addWidget(self.btn_add_id, 0, 0)
+        group_rows.addWidget(self.btn_delete_all_ids, 1, 0)
+        group_tx = QGridLayout()
+        group_tx.addWidget(self.btn_disable_all_ids, 0, 0)
+        group_tx.addWidget(self.btn_start_tx, 1, 0)
+        group_send = QGridLayout()
+        group_send.addWidget(QLabel("Burst:"), 0, 0)
+        group_send.addWidget(self.sp_burst, 0, 1)
+        group_send.addWidget(self.btn_send_now, 0, 2)
+        group_send.addWidget(self.btn_replay, 1, 0, 1, 3)
+        group_script = QHBoxLayout()
+        group_script.addWidget(self.btn_link_global_script)
+        group_script.addWidget(self.btn_remove_global_script)
+
         tx_buttons_layout = QHBoxLayout()
-        tx_buttons_layout.addWidget(self.btn_add_id)
-        tx_buttons_layout.addWidget(self.btn_delete_all_ids)
-        tx_buttons_layout.addStretch(0)
-        tx_buttons_layout.addWidget(self.btn_disable_all_ids)
-        tx_buttons_layout.addWidget(self.btn_start_tx)
-        tx_buttons_layout.addWidget(QLabel("Burst:"))
-        tx_buttons_layout.addWidget(self.sp_burst)
-        tx_buttons_layout.addWidget(self.btn_send_now)
-        tx_buttons_layout.addWidget(self.btn_replay)
-        tx_buttons_layout.addStretch(0)
-        tx_buttons_layout.addWidget(self.btn_link_global_script)
-        tx_buttons_layout.addWidget(self.btn_remove_global_script)
+        for i, group in enumerate((group_rows, group_tx, group_send, group_script)):
+            if i:
+                tx_buttons_layout.addStretch(1)
+            tx_buttons_layout.addLayout(group)
 
         # --- TX TABLE: TxEntry rows -> model -> sorting proxy -> view (TODO 2.13) ---
         self.tx_model = TxTableModel(self)
