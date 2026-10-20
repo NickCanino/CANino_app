@@ -64,8 +64,8 @@ from src.trace_log import TRACE_FORMATS, TraceLog
 
 # The GUI thread drains the RX queue and refreshes the touched rows this often
 RX_DRAIN_MS = 100
-# The filter box grows with the window up to this width (px)
-FILTER_MAX_WIDTH = 1000
+# Width of the filter box (px)
+FILTER_WIDTH = 200
 
 # File-dialog filters of Link Log: CANino's CSV first, then the traces (TODO 5.9)
 LOG_FILTERS = ["RX statistics CSV (*.csv)"] + [
@@ -211,9 +211,9 @@ class ReceivedFramesWindow(QWidget):
             "and the statistics still see every frame."
         )
         self.filter_edit.textChanged.connect(self._apply_filter)
-        self.filter_edit.setMaximumWidth(FILTER_MAX_WIDTH)
+        self.filter_edit.setFixedWidth(FILTER_WIDTH)
 
-        # One control row: Clear RX | filter | log file and its controls
+        # One control row, packed to the left: Clear RX | filter | log controls
         def separator():
             line = QFrame()
             line.setFrameShape(QFrame.Shape.VLine)
@@ -223,13 +223,13 @@ class ReceivedFramesWindow(QWidget):
         log_btn_layout.addWidget(self.btn_clear_table)
         log_btn_layout.addWidget(separator())
         log_btn_layout.addWidget(QLabel("Filter:"))
-        log_btn_layout.addWidget(self.filter_edit, 1)
-        log_btn_layout.addStretch(0)
+        log_btn_layout.addWidget(self.filter_edit)
         log_btn_layout.addWidget(separator())
         log_btn_layout.addWidget(self.btn_link_csv)
         log_btn_layout.addWidget(self.btn_start_log)
         log_btn_layout.addWidget(self.btn_pause_log)
         log_btn_layout.addWidget(self.btn_stop_log)
+        log_btn_layout.addStretch(1)
         layout.addLayout(log_btn_layout)
 
         # --- RX table: model in arrival order, the proxy sorts + filters ---

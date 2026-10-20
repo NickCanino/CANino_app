@@ -237,15 +237,6 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         top_layout.setContentsMargins(6, 4, 6, 4)
 
         # --- TOP BUTTONS AND COMBO BOXES ---
-        # Connection settings on the left, the DBC on the right
-        self.btn_load_dbc = QPushButton()
-        self.btn_load_dbc.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
-        )
-        self.btn_load_dbc.setFixedSize(220, 30)
-        self.btn_load_dbc.clicked.connect(self.load_dbc_file)
-        self._show_dbc_name(None)
-
         # Combo box to select the CAN channel
         self.lbl_interface = QLabel("Interface:")
         self.lbl_interface.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -353,7 +344,6 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         )
         top_layout.addWidget(self.btn_connect)
         top_layout.addStretch(1)
-        top_layout.addWidget(self.btn_load_dbc)
 
         top_bar = QToolBar("Connection", self)
         top_bar.setMovable(False)
@@ -416,10 +406,13 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         action_decoded.toggled.connect(self.rx_window.decoded.setVisible)
         self.view_menu.addAction(action_decoded)
 
-        # --- STATUS BAR: bus state, busload, logos ---
+        # --- STATUS BAR: bus state, busload, linked DBC, logos ---
         status = QStatusBar(self)
         status.addWidget(self.lbl_bus_status)
         status.addWidget(self.lbl_busload)
+        self.lbl_dbc = QLabel()
+        status.addWidget(self.lbl_dbc)
+        self._show_dbc_name(None)
         for figure in ("CANinoApp_banner_background.png", "dii_logo.png"):
             logo = QLabel()
             logo.setPixmap(
@@ -665,25 +658,14 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
                 window.set_dbc(dbc)
 
     def _show_dbc_name(self, dbc):
-        """Load DBC button: the loaded file's name (green), like a linked script."""
+        """Status bar: the linked DBC's file name, the full path in the tooltip."""
         path = getattr(dbc, "dbc_filename", None) if dbc is not None else None
-        btn = self.btn_load_dbc
         if path:
-            btn.setStyleSheet("background-color: #4CAF50; color: white;")
-            btn.setToolTip(f"DBC: {path}\nClick to load another DBC file.")
-            text = os.path.basename(path)
+            self.lbl_dbc.setText(f"DBC: {os.path.basename(path)}")
+            self.lbl_dbc.setToolTip(path)
         else:
-            btn.setStyleSheet("")
-            btn.setToolTip(
-                "Load a DBC file to be used for TX list, RX decoding, Sliders, "
-                "XMetro gauges and Signal Plot."
-            )
-            text = "Load DBC"
-        btn.setText(
-            btn.fontMetrics().elidedText(
-                text, Qt.TextElideMode.ElideMiddle, btn.width() - 40
-            )
-        )
+            self.lbl_dbc.setText("DBC: -")
+            self.lbl_dbc.setToolTip("No DBC linked: File → Load DBC...")
 
     def _forget_xmetro(self, window_id):
         """A closed XMetro window leaves the list, so RX stops feeding it (TODO 7.5)."""

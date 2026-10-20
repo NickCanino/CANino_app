@@ -51,13 +51,14 @@ class LayoutTests(unittest.TestCase):
         logos = [w for w in status.findChildren(QLabel) if w.pixmap() is not None]
         self.assertGreaterEqual(len([p for p in logos if not p.pixmap().isNull()]), 2)
 
-    def test_load_dbc_button_shows_the_file(self):
-        self.assertEqual(self.mw.btn_load_dbc.text(), "Load DBC")
+    def test_status_bar_shows_the_dbc(self):
+        self.assertIs(self.mw.lbl_dbc.parent(), self.mw.statusBar())
+        self.assertEqual(self.mw.lbl_dbc.text(), "DBC: -")
         self.mw._apply_dbc(make_dbc("layout.dbc"))
-        self.assertEqual(self.mw.btn_load_dbc.text(), "layout.dbc")
-        self.assertIn("layout.dbc", self.mw.btn_load_dbc.toolTip())
+        self.assertEqual(self.mw.lbl_dbc.text(), "DBC: layout.dbc")
+        self.assertIn("layout.dbc", self.mw.lbl_dbc.toolTip())
         self.mw._apply_dbc(None)  # cleared workspace
-        self.assertEqual(self.mw.btn_load_dbc.text(), "Load DBC")
+        self.assertEqual(self.mw.lbl_dbc.text(), "DBC: -")
 
     def test_link_log_button_shows_the_file(self):
         rx = self.mw.rx_window

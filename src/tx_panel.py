@@ -333,8 +333,8 @@ class TxPanelMixin:
         self.btn_remove_global_script.setEnabled(False)  # Nothing linked yet
         self.btn_remove_global_script.clicked.connect(self.remove_global_payload_script)
 
-        # One row, four groups in order (rows, TX, send, global script); the
-        # stretches around the separators share the spare width
+        # One row, four groups in order (rows, TX, send, global script), packed
+        # to the left: the spare width stays at the end of the row
         groups = (
             (self.btn_add_id, self.btn_delete_all_ids),
             (self.btn_disable_all_ids, self.btn_start_tx),
@@ -344,14 +344,13 @@ class TxPanelMixin:
         tx_buttons_layout = QHBoxLayout()
         for i, group in enumerate(groups):
             if i:
-                tx_buttons_layout.addStretch(1)
                 separator = QFrame()
                 separator.setFrameShape(QFrame.Shape.VLine)
                 separator.setFrameShadow(QFrame.Shadow.Sunken)
                 tx_buttons_layout.addWidget(separator)
-                tx_buttons_layout.addStretch(1)
             for widget in group:
                 tx_buttons_layout.addWidget(widget)
+        tx_buttons_layout.addStretch(1)
 
         # --- TX TABLE: TxEntry rows -> model -> sorting proxy -> view (TODO 2.13) ---
         self.tx_model = TxTableModel(self)
