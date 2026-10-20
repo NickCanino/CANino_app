@@ -74,20 +74,14 @@ TEMPLATES = "resources/script_templates/TPS_sawtooth.py\nresources/script_templa
 
 class SpecTests(unittest.TestCase):
     def test_clean_tree_name_and_bundle(self):
-        """10.3: no src/*.py data copies; tracked templates shipped."""
+        """10.3: no src/*.py data copies; no payload scripts shipped."""
         calls = run_spec({"rev-parse": "abc1234", "status": "", "ls-files": TEMPLATES})
         with open(os.path.join(REPO, "VERSION"), encoding="utf-8") as f:
             version = f.read().strip()
         self.assertEqual(calls["EXE"][1]["name"], f"CANinoApp_v{version}_habc1234")
         datas = calls["Analysis"][1]["datas"]
         self.assertFalse([d for d in datas if d[0].startswith("src/")], datas)
-        self.assertIn(
-            (
-                "resources/script_templates/TPS_sawtooth.py",
-                "resources/script_templates",
-            ),
-            datas,
-        )
+        self.assertFalse([d for d in datas if "script_templates" in d[0]], datas)
         for src, _ in datas:
             self.assertTrue(os.path.exists(os.path.join(REPO, src)), src)
 
@@ -98,8 +92,8 @@ class SpecTests(unittest.TestCase):
         )
         self.assertTrue(calls["EXE"][1]["name"].endswith("_habc1234-dirty"))
 
-    def test_untracked_template_never_shipped(self):
-        """10.3: without git, the fallback glob still skips the local 'TPS_sawtooth - 130.py'."""
+    def test_no_template_shipped_without_git(self):
+        """Payload scripts stay out of the exe, with or without git (2026-10-20)."""
         calls = run_spec(
             {
                 "rev-parse": OSError("no git"),
@@ -111,8 +105,7 @@ class SpecTests(unittest.TestCase):
         shipped = [
             d[0] for d in calls["Analysis"][1]["datas"] if "script_templates" in d[0]
         ]
-        self.assertTrue(shipped)
-        self.assertFalse([s for s in shipped if " " in s], shipped)
+        self.assertEqual(shipped, [])
 
 
 class QtTrimTests(unittest.TestCase):

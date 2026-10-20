@@ -1,6 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-import glob
 import os
 import subprocess
 import tempfile
@@ -80,16 +79,8 @@ _version_file = os.path.join(tempfile.gettempdir(), "canino_version_info.txt")
 with open(_version_file, "w", encoding="utf-8") as _vf:
     _vf.write(_version_text)
 
-# Payload-script templates: tracked files only - a local, untracked copy is
-# never shipped (TODO 10.3)
-try:
-    templates = _git("ls-files", "resources/script_templates/*.py").splitlines()
-except Exception:
-    templates = [
-        t.replace(os.sep, "/")
-        for t in glob.glob("resources/script_templates/*.py")
-        if " " not in os.path.basename(t)
-    ]
+# Payload scripts (resources/script_templates) are never shipped (decided
+# 2026-10-20): they stay in the repo; the exe links the user's own files.
 
 a = Analysis(
     ['main.py'],
@@ -107,8 +98,7 @@ a = Analysis(
         ('resources/figures/app_logo.ico', 'resources/figures'),
         ('resources/figures/CANinoApp_banner_background.png', 'resources/figures'),
         ('resources/figures/arduino_uno.png', 'resources/figures'),
-    ]
-    + [(t, 'resources/script_templates') for t in templates],
+    ],
     hiddenimports=['can.interfaces.pcan'],
     hookspath=[],
     hooksconfig={},
