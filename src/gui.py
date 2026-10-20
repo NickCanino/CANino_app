@@ -388,23 +388,30 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         main_layout.addWidget(left_splitter)
         self.setCentralWidget(container)
 
-        # --- SLIDERS: a dock the user can hide, float or put back (View menu) ---
-        self.slider_dock = QDockWidget("Sliders for TX", self)
-        self.slider_dock.setObjectName("slider_dock")
-        self.slider_dock.setWidget(slider_group)
-        self.slider_dock.setAllowedAreas(
-            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        # --- SIDE PANELS: docks on the left/right edge only, shown, hidden or
+        # floated from the View menu; on the same side Sliders stay on top ---
+        self.setDockOptions(QMainWindow.DockOption.AnimatedDocks)  # no tabs
+        self._ordering_docks = False
+        self.slider_dock = self._side_dock(
+            "Sliders for TX", "slider_dock", slider_group
         )
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.slider_dock)
+        self.decoded_dock = self._side_dock(
+            "Decoded RX signals", "decoded_dock", self.rx_window.decoded
+        )
         self.resizeDocks([self.slider_dock], [320], Qt.Orientation.Horizontal)
-        action_sliders = self.slider_dock.toggleViewAction()
-        action_sliders.setText("Sliders panel")
-        self.view_menu.addAction(action_sliders)
-        action_decoded = QAction("Decoded signals panel (RX)", self)
-        action_decoded.setCheckable(True)
-        action_decoded.setChecked(True)
-        action_decoded.toggled.connect(self.rx_window.decoded.setVisible)
-        self.view_menu.addAction(action_decoded)
+        self.resizeDocks(
+            [self.slider_dock, self.decoded_dock], [500, 250], Qt.Orientation.Vertical
+        )
+        for dock, text in (
+            (self.slider_dock, "Sliders panel"),
+            (self.decoded_dock, "Decoded RX signals panel"),
+        ):
+            action = dock.toggleViewAction()
+            action.setText(text)
+            self.view_menu.addAction(action)
+            dock.dockLocationChanged.connect(self._schedule_dock_order)
+            dock.topLevelChanged.connect(self._schedule_dock_order)
+            dock.visibilityChanged.connect(self._schedule_dock_order)
 
         # --- STATUS BAR: bus state, busload, linked DBC, logos ---
         status = QStatusBar(self)
@@ -656,6 +663,39 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         for window in self.xmetro_windows + self.signal_plot_windows:
             if shiboken6.isValid(window):
                 window.set_dbc(dbc)
+
+    def _side_dock(self, title, name, widget):
+        """A dock for `widget` on the right edge, movable to the left one only."""
+        dock = QDockWidget(title, self)
+        dock.setObjectName(name)
+        dock.setWidget(widget)
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        return dock
+
+    def _schedule_dock_order(self, *_):
+        """After a dock moves, shows or docks back: fix the order once the
+        layout has settled (geometries are stale inside the signal)."""
+        QTimer.singleShot(0, self, self._order_side_docks)  # dropped if self dies
+
+    def _order_side_docks(self):
+        """Sliders above Decoded when both are docked on the same side."""
+        top, bottom = self.slider_dock, self.decoded_dock
+        if self._ordering_docks:
+            return
+        if any(d.isFloating() or d.isHidden() for d in (top, bottom)):
+            return
+        if self.dockWidgetArea(top) != self.dockWidgetArea(bottom):
+            return
+        if top.geometry().bottom() < bottom.geometry().top():
+            return  # already stacked in the right order
+        self._ordering_docks = True
+        try:
+            self.splitDockWidget(top, bottom, Qt.Orientation.Vertical)
+        finally:
+            self._ordering_docks = False
 
     def _show_dbc_name(self, dbc):
         """Status bar: the linked DBC's file name, the full path in the tooltip."""

@@ -33,7 +33,6 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QFrame,
-    QSplitter,
     QHeaderView,
 )
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -269,15 +268,9 @@ class ReceivedFramesWindow(QWidget):
             "Load a DBC to populate it."
         )
         self.table.selectionModel().selectionChanged.connect(self._update_decoded)
+        # Not in this layout: the main window shows it in a side dock
 
-        # Beside the table: its last columns leave room, its height does not
-        splitter = QSplitter(Qt.Orientation.Horizontal)
-        splitter.addWidget(self.table)
-        splitter.addWidget(self.decoded)
-        splitter.setStretchFactor(0, 4)
-        splitter.setStretchFactor(1, 1)
-        splitter.setSizes([900, 280])
-        layout.addWidget(splitter)
+        layout.addWidget(self.table)
         self.setLayout(layout)
 
         # Filled by the RX thread, emptied by the GUI thread: deque append and

@@ -9,7 +9,13 @@ import unittest
 
 import qt_harness as h  # noqa: F401  (must come before src imports)
 
-from PySide6.QtWidgets import QDockWidget, QFileDialog, QLabel  # noqa: E402
+from PySide6.QtCore import Qt  # noqa: E402
+from PySide6.QtWidgets import (  # noqa: E402
+    QApplication,
+    QDockWidget,
+    QFileDialog,
+    QLabel,
+)
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
@@ -72,14 +78,51 @@ class LayoutTests(unittest.TestCase):
         self.assertEqual(rx.btn_link_csv.text(), "capture.trc")
         self.assertIn(path, rx.btn_link_csv.toolTip())
 
-    def test_decoded_panel_toggle(self):
-        action = next(
-            a for a in self.mw.view_menu.actions() if a.text().startswith("Decoded")
+    def settle(self):
+        for _ in range(5):
+            QApplication.processEvents()
+
+    def assert_sliders_on_top(self):
+        top, bottom = self.mw.slider_dock, self.mw.decoded_dock
+        self.assertEqual(self.mw.dockWidgetArea(top), self.mw.dockWidgetArea(bottom))
+        self.assertLess(top.geometry().bottom(), bottom.geometry().top())
+
+    def test_decoded_panel_is_a_side_dock(self):
+        dock = self.mw.findChild(QDockWidget, "decoded_dock")
+        self.assertIs(dock.widget(), self.mw.rx_window.decoded)
+        sides = (
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
-        action.setChecked(False)
-        self.assertTrue(self.mw.rx_window.decoded.isHidden())
-        action.setChecked(True)
-        self.assertFalse(self.mw.rx_window.decoded.isHidden())
+        for d in (self.mw.slider_dock, dock):
+            self.assertEqual(d.allowedAreas(), sides)
+        action = dock.toggleViewAction()
+        self.assertIn(action, self.mw.view_menu.actions())
+        self.mw.show()
+        action.trigger()
+        self.assertTrue(dock.isHidden())
+        action.trigger()
+        self.assertFalse(dock.isHidden())
+
+    def test_both_docks_on_one_side_keep_sliders_on_top(self):
+        self.mw.show()
+        self.settle()
+        self.assert_sliders_on_top()  # default: both on the right
+        # Decoded moved first, then Sliders dropped below it: order restored
+        left = Qt.DockWidgetArea.LeftDockWidgetArea
+        self.mw.addDockWidget(left, self.mw.decoded_dock)
+        self.mw.addDockWidget(left, self.mw.slider_dock)
+        self.settle()
+        self.assertEqual(self.mw.dockWidgetArea(self.mw.slider_dock), left)
+        self.assert_sliders_on_top()
+
+    def test_sliders_hidden_then_shown_go_back_on_top(self):
+        self.mw.show()
+        self.settle()
+        self.mw.slider_dock.hide()
+        self.settle()
+        self.mw.slider_dock.show()
+        self.settle()
+        self.assert_sliders_on_top()
 
 
 if __name__ == "__main__":

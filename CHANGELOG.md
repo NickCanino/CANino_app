@@ -11,13 +11,14 @@ Changed
   panels; Load DBC only in File (no top-bar button). Connection settings in
   one top bar; bus state, BusLoad, the linked **DBC** and the logos in a
   **status bar** (the footer is gone).
-- **Sliders** are a dock: hide it, float it or move it left/right.
+- **Sliders** and **Decoded RX signals** are side docks: hide, float or move
+  them left/right; sharing a side, Sliders stay on top.
 - **TX toolbar** on one row, packed left: four groups (Add ID / Delete All,
   Enable All / Start TX, Burst + Send Now + Replay Trace, global script),
   separated.
 - **RX**: Clear RX, filter and the log controls on one row, packed left and
   separated; Start/Pause/Stop are icon buttons (the tooltip says what a
-  click does); the decoded-signal panel sits right of the table.
+  click does).
 - **Link Log** shows the linked file's name (green), like the script
   buttons. Help → About shows the logos.
 - **Signal Plot**: wider plotted-signals box; icons on Add and Remove.
