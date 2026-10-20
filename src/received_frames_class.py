@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QLabel,
     QLineEdit,
+    QFrame,
     QSplitter,
     QHeaderView,
 )
@@ -63,6 +64,8 @@ from src.trace_log import TRACE_FORMATS, TraceLog
 
 # The GUI thread drains the RX queue and refreshes the touched rows this often
 RX_DRAIN_MS = 100
+# The filter box grows with the window up to this width (px)
+FILTER_MAX_WIDTH = 1000
 
 # File-dialog filters of Link Log: CANino's CSV first, then the traces (TODO 5.9)
 LOG_FILTERS = ["RX statistics CSV (*.csv)"] + [
@@ -110,40 +113,41 @@ class ReceivedFramesWindow(QWidget):
         self.btn_link_csv.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DriveFDIcon)
         )
-        self.btn_link_csv.setFixedSize(120, 30)
+        self.btn_link_csv.setFixedSize(200, 30)
         self.btn_link_csv.setCheckable(True)
 
         # Start logging
-        self.btn_start_log = QPushButton("Start LOG")
+        # Icon-only Start/Pause/Stop: the tooltip names what a click does now
+        self.btn_start_log = QPushButton()
         self.btn_start_log.setToolTip("Start logging")
         self.btn_start_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
-        self.btn_start_log.setFixedSize(100, 30)
+        self.btn_start_log.setFixedSize(36, 30)
 
         # Pause logging
-        self.btn_pause_log = QPushButton("Pause LOG")
+        self.btn_pause_log = QPushButton()
         self.btn_pause_log.setToolTip("Pause logging")
         self.btn_pause_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPause)
         )
-        self.btn_pause_log.setFixedSize(100, 30)
+        self.btn_pause_log.setFixedSize(36, 30)
 
         # Stop logging
-        self.btn_stop_log = QPushButton("Stop LOG")
+        self.btn_stop_log = QPushButton()
         self.btn_stop_log.setToolTip("Stop logging")
         self.btn_stop_log.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
-        self.btn_stop_log.setFixedSize(100, 30)
+        self.btn_stop_log.setFixedSize(36, 30)
 
         # Clear the RX table
-        self.btn_clear_table = QPushButton("Clear")
+        self.btn_clear_table = QPushButton("Clear RX")
         self.btn_clear_table.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
         )
         self.btn_clear_table.setToolTip("Clear RX table")
-        self.btn_clear_table.setFixedSize(80, 30)
+        self.btn_clear_table.setFixedSize(95, 30)
 
         # Styles for buttons
         self.btn_start_log.setStyleSheet(
@@ -190,14 +194,6 @@ class ReceivedFramesWindow(QWidget):
         self.btn_pause_log.setEnabled(False)
         self.btn_stop_log.setEnabled(False)
 
-        log_btn_layout.addWidget(self.btn_clear_table)
-        log_btn_layout.addStretch(0)
-        log_btn_layout.addWidget(self.btn_link_csv)
-        log_btn_layout.addWidget(self.btn_start_log)
-        log_btn_layout.addWidget(self.btn_pause_log)
-        log_btn_layout.addWidget(self.btn_stop_log)
-        layout.addLayout(log_btn_layout)
-
         # Connect buttons
         self.btn_clear_table.clicked.connect(self.clear_rx_table)
         self.btn_link_csv.clicked.connect(self.link_csv_file)
@@ -206,8 +202,6 @@ class ReceivedFramesWindow(QWidget):
         self.btn_stop_log.clicked.connect(self.stop_log)
 
         # --- Filter box: hides non-matching rows in the view only (TODO 5.12) ---
-        filter_layout = QHBoxLayout()
-        filter_layout.addWidget(QLabel("Filter:"))
         self.filter_edit = QLineEdit()
         self.filter_edit.setPlaceholderText(
             "ID, name or payload substring - or id/mask in hex, e.g. 100/700"
@@ -217,8 +211,26 @@ class ReceivedFramesWindow(QWidget):
             "and the statistics still see every frame."
         )
         self.filter_edit.textChanged.connect(self._apply_filter)
-        filter_layout.addWidget(self.filter_edit)
-        layout.addLayout(filter_layout)
+        self.filter_edit.setMaximumWidth(FILTER_MAX_WIDTH)
+
+        # One control row: Clear RX | filter | log file and its controls
+        def separator():
+            line = QFrame()
+            line.setFrameShape(QFrame.Shape.VLine)
+            line.setFrameShadow(QFrame.Shadow.Sunken)
+            return line
+
+        log_btn_layout.addWidget(self.btn_clear_table)
+        log_btn_layout.addWidget(separator())
+        log_btn_layout.addWidget(QLabel("Filter:"))
+        log_btn_layout.addWidget(self.filter_edit, 1)
+        log_btn_layout.addStretch(0)
+        log_btn_layout.addWidget(separator())
+        log_btn_layout.addWidget(self.btn_link_csv)
+        log_btn_layout.addWidget(self.btn_start_log)
+        log_btn_layout.addWidget(self.btn_pause_log)
+        log_btn_layout.addWidget(self.btn_stop_log)
+        layout.addLayout(log_btn_layout)
 
         # --- RX table: model in arrival order, the proxy sorts + filters ---
         self.model = RxTableModel(self)
@@ -258,11 +270,13 @@ class ReceivedFramesWindow(QWidget):
         )
         self.table.selectionModel().selectionChanged.connect(self._update_decoded)
 
-        splitter = QSplitter(Qt.Orientation.Vertical)
+        # Beside the table: its last columns leave room, its height does not
+        splitter = QSplitter(Qt.Orientation.Horizontal)
         splitter.addWidget(self.table)
         splitter.addWidget(self.decoded)
-        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(0, 4)
         splitter.setStretchFactor(1, 1)
+        splitter.setSizes([900, 280])
         layout.addWidget(splitter)
         self.setLayout(layout)
 
@@ -457,6 +471,17 @@ class ReceivedFramesWindow(QWidget):
             for col, text in enumerate((sig.name, shown, sig.unit or "")):
                 self.decoded.setItem(i, col, QTableWidgetItem(text))
 
+    def _show_log_name(self, path):
+        """Link Log button: the linked file's name (green), like a linked script."""
+        btn = self.btn_link_csv
+        btn.setStyleSheet("background-color: #4CAF50; color: white;")
+        btn.setToolTip(f"Log file: {path}\nClick to link another file.")
+        btn.setText(
+            btn.fontMetrics().elidedText(
+                os.path.basename(path), Qt.TextElideMode.ElideMiddle, btn.width() - 40
+            )
+        )
+
     def link_csv_file(self):
         path, selected = QFileDialog.getSaveFileName(
             self, "Select log file", "", ";;".join(LOG_FILTERS)
@@ -469,9 +494,8 @@ class ReceivedFramesWindow(QWidget):
             if self.log_open:
                 self.stop_log()  # the previous file is finished first
             self.csv_path = path
-            self.btn_link_csv.setToolTip(f"Log file: {path}")
+            self._show_log_name(path)
 
-            self.btn_start_log.setText("Start LOG")
             self.btn_start_log.setToolTip("Start logging")
 
             self.btn_start_log.setEnabled(True)
@@ -562,13 +586,8 @@ class ReceivedFramesWindow(QWidget):
         self.log_active = True
         self.log_paused = False
 
-        self.btn_start_log.setText("Start LOG")
         self.btn_start_log.setToolTip("Logging active")
-
-        self.btn_pause_log.setText("Pause LOG")
         self.btn_pause_log.setToolTip("Pause logging")
-
-        self.btn_stop_log.setText("Stop LOG")
         self.btn_stop_log.setToolTip("Stop logging")
 
         self.btn_start_log.setEnabled(False)
@@ -609,13 +628,8 @@ class ReceivedFramesWindow(QWidget):
             self.drain()  # frames received before the click are logged
             self.log_paused = True
 
-            self.btn_start_log.setText("Resume LOG")
             self.btn_start_log.setToolTip("Resume logging")
-
-            self.btn_pause_log.setText("Pause LOG")
             self.btn_pause_log.setToolTip("Logging paused")
-
-            self.btn_stop_log.setText("Stop LOG")
             self.btn_stop_log.setToolTip("Stop logging")
 
             self.btn_start_log.setEnabled(True)
@@ -657,13 +671,8 @@ class ReceivedFramesWindow(QWidget):
         self.log_active = False
         self.log_paused = False
 
-        self.btn_start_log.setText("Restart LOG")
         self.btn_start_log.setToolTip("Restart logging (the file starts over)")
-
-        self.btn_pause_log.setText("Pause LOG")
         self.btn_pause_log.setToolTip("Pause logging")
-
-        self.btn_stop_log.setText("Stop LOG")
         self.btn_stop_log.setToolTip("Logging stopped")
 
         self.btn_start_log.setEnabled(True)

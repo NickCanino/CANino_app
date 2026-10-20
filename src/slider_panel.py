@@ -59,15 +59,10 @@ class SliderPanelMixin:
         slider_group.setStyleSheet(
             "QGroupBox { border: 2px solid #FF9800; border-radius: 5px; }"
         )
-        slider_group.setMinimumWidth(300)
+        slider_group.setMinimumWidth(260)
 
         slider_layout = QVBoxLayout()
         slider_group.setLayout(slider_layout)
-
-        slider_title = QLabel("Sliders for TX")
-        slider_title.setAlignment(Qt.AlignmentFlag.AlignTop)
-        slider_title.setStyleSheet("font-weight: bold;")
-        slider_layout.addWidget(slider_title)
 
         self.btn_add_slider = QPushButton("Add Slider")
         self.btn_add_slider.setToolTip(

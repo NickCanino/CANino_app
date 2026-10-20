@@ -33,6 +33,9 @@ from PySide6.QtWidgets import (
     QMenuBar,
     QMenu,
     QCheckBox,
+    QDockWidget,
+    QStatusBar,
+    QToolBar,
 )
 from PySide6.QtGui import QAction, QIcon, QKeySequence, QPixmap, QDesktopServices
 from PySide6.QtCore import Qt, QTimer, QUrl
@@ -102,6 +105,8 @@ BUSLOAD_TOOLTIP = (
 # Error-warning / error-passive this long while transmitting = frames are not
 # being acknowledged: stop TX instead of filling the 32.8k-frame driver queue
 TX_ERROR_GRACE_S = 2.0
+# Height of the logos at the right of the status bar
+STATUS_LOGO_PX = 22
 BUS_STATUS_COLORS = {
     "ok": "#4CAF50",
     "info": "#2196F3",
@@ -115,7 +120,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         super().__init__()
         self.setWindowTitle(f"CANino App - v{__version__}")
         self.setWindowIcon(QIcon(resource_path("resources/figures/app_logo.ico")))
-        self.setGeometry(100, 100, 1100, 700)
+        self.setGeometry(100, 100, 1450, 850)
 
         # Class Attributes
         self.dbc = None
@@ -169,8 +174,15 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         file_menu.addAction(action_save)
         file_menu.addAction(action_save_as)
         file_menu.addAction(action_load)
+        file_menu.addSeparator()
+        action_load_dbc = QAction("Load DBC...", self)
+        action_load_dbc.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
+        )
+        action_load_dbc.triggered.connect(self.load_dbc_file)
+        file_menu.addAction(action_load_dbc)
         self.menu_recent = QMenu("Recent workspaces", self)
-        file_menu.addMenu(self.menu_recent)
+        file_menu.insertMenu(action_load_dbc, self.menu_recent)
         self._rebuild_recent_menu()
         menubar.addMenu(file_menu)
 
@@ -196,19 +208,23 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         help_menu.addAction(action_about)
         self.action_open_logs = action_logs
 
-        # --- "VAGILETTA" action in the menu bar ---
-        action_vagiletta = QAction("VAGILETTA", self)
-        action_vagiletta.triggered.connect(self.open_vagiletta_window)
-        menubar.addAction(action_vagiletta)
-
-        # --- "XMetro" action in the menu bar ---
+        # Tools: the separate windows
+        tools_menu = QMenu("&Tools", self)
         action_xmetro = QAction("XMetro", self)
         action_xmetro.triggered.connect(self.open_xmetro_window)
-        menubar.addAction(action_xmetro)
-
+        tools_menu.addAction(action_xmetro)
         action_plot = QAction("Signal Plot", self)
         action_plot.triggered.connect(self.open_signal_plot_window)
-        menubar.addAction(action_plot)
+        tools_menu.addAction(action_plot)
+        tools_menu.addSeparator()
+        action_vagiletta = QAction("VAGILETTA", self)
+        action_vagiletta.triggered.connect(self.open_vagiletta_window)
+        tools_menu.addAction(action_vagiletta)
+        menubar.addMenu(tools_menu)
+
+        # View: show/hide panels; filled once the panels exist
+        self.view_menu = QMenu("&View", self)
+        menubar.addMenu(self.view_menu)
 
         menubar.addMenu(help_menu)
         self.setMenuBar(menubar)
@@ -217,19 +233,18 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         top_controls = QWidget()
         top_layout = QHBoxLayout()
         top_controls.setLayout(top_layout)
-        top_controls.setFixedHeight(50)  # Fixed height of the top bar
+        top_controls.setFixedHeight(44)  # Fixed height of the top bar
+        top_layout.setContentsMargins(6, 4, 6, 4)
 
         # --- TOP BUTTONS AND COMBO BOXES ---
-        self.btn_load_dbc = QPushButton("  Load DBC")
-        self.btn_load_dbc.setToolTip(
-            "Load a DBC file to be used for TX list, RX decoding, Sliders, and XMetro Gauges."
-        )
+        # Connection settings on the left, the DBC on the right
+        self.btn_load_dbc = QPushButton()
         self.btn_load_dbc.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogContentsView)
         )
-        self.btn_load_dbc.setFixedSize(120, 30)
+        self.btn_load_dbc.setFixedSize(220, 30)
         self.btn_load_dbc.clicked.connect(self.load_dbc_file)
-        top_layout.addWidget(self.btn_load_dbc)
+        self._show_dbc_name(None)
 
         # Combo box to select the CAN channel
         self.lbl_interface = QLabel("Interface:")
@@ -278,15 +293,12 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         self._busload_since = time.monotonic()
         self.lbl_busload = QLabel("BusLoad: -")
         self.lbl_busload.setToolTip(BUSLOAD_TOOLTIP)
-        self.lbl_busload.setAlignment(Qt.AlignmentFlag.AlignRight)
-        top_layout.addWidget(self.lbl_busload, alignment=Qt.AlignmentFlag.AlignVCenter)
+        self.lbl_busload.setMinimumWidth(220)
 
         # Controller state, polled while connected (TODO 1.5)
         self.lbl_bus_status = QLabel("Bus: -")
         self.lbl_bus_status.setToolTip("CAN controller state of the connected channel.")
-        top_layout.addWidget(
-            self.lbl_bus_status, alignment=Qt.AlignmentFlag.AlignVCenter
-        )
+        self.lbl_bus_status.setMinimumWidth(160)
         self.timer_bus_status = QTimer(self)
         self.timer_bus_status.timeout.connect(self.poll_bus_status)
         self._bus_bad_since = None
@@ -340,6 +352,15 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             self.style().standardIcon(QStyle.StandardPixmap.SP_DriveNetIcon)
         )
         top_layout.addWidget(self.btn_connect)
+        top_layout.addStretch(1)
+        top_layout.addWidget(self.btn_load_dbc)
+
+        top_bar = QToolBar("Connection", self)
+        top_bar.setMovable(False)
+        top_bar.setFloatable(False)
+        top_bar.toggleViewAction().setVisible(False)  # always shown
+        top_bar.addWidget(top_controls)
+        self.addToolBar(Qt.ToolBarArea.TopToolBarArea, top_bar)
 
         tx_group = self._build_tx_panel()
 
@@ -361,70 +382,54 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         rx_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rx_title.setStyleSheet("font-weight: bold;")
         rx_layout.addWidget(rx_title)
-        rx_layout.addWidget(self.rx_window)
+        rx_layout.addWidget(self.rx_window, 1)
 
         slider_group = self._build_slider_panel()
 
-        # --- MAIN SPLITTER ---
-        main_splitter = QSplitter(Qt.Orientation.Horizontal)
-        # Left side: vertical splitter with TX and RX
+        # --- CENTRAL AREA: TX over RX ---
         left_splitter = QSplitter(Qt.Orientation.Vertical)
         left_splitter.addWidget(tx_group)
         left_splitter.addWidget(rx_group)
         left_splitter.setStretchFactor(0, 3)
         left_splitter.setStretchFactor(1, 2)
-        main_splitter.addWidget(left_splitter)
-        main_splitter.addWidget(slider_group)
-        main_splitter.setStretchFactor(0, 5)
-        main_splitter.setStretchFactor(1, 2)
-
-        # --- FOOTER WITH LOGOS ---
-        footer_widget = QWidget()
-        footer_widget.setFixedHeight(40)  # Fixed height
-
-        footer_bar = QHBoxLayout(footer_widget)
-        footer_bar.setContentsMargins(0, 0, 0, 0)
-        footer_bar.setSpacing(0)
-
-        footer_label_banner = QLabel()
-        footer_label_banner.setAlignment(
-            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom
-        )
-
-        footer_label_dii = QLabel()
-        footer_label_dii.setAlignment(
-            Qt.AlignmentFlag.AlignCenter | Qt.AlignmentFlag.AlignBottom
-        )
-
-        # Scale the images to the footer height
-        footer_height = footer_widget.height()
-
-        pixmap_banner_app = QPixmap(
-            resource_path("resources/figures/CANinoApp_banner_background.png")
-        )
-        scaled_pixmap_banner_app = pixmap_banner_app.scaledToHeight(
-            footer_height, Qt.TransformationMode.SmoothTransformation
-        )
-        footer_label_banner.setPixmap(scaled_pixmap_banner_app)
-
-        pixmap_dii = QPixmap(resource_path("resources/figures/dii_logo.png"))
-        scaled_pixmap_dii = pixmap_dii.scaledToHeight(
-            footer_height, Qt.TransformationMode.SmoothTransformation
-        )
-        footer_label_dii.setPixmap(scaled_pixmap_dii)
-
-        footer_bar.addWidget(footer_label_banner)
-        footer_bar.addWidget(footer_label_dii)
-
-        # Main layout
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(top_controls)
-        main_layout.addWidget(main_splitter)
-        main_layout.addWidget(footer_widget)
-
         container = QWidget()
-        container.setLayout(main_layout)
+        main_layout = QVBoxLayout(container)
+        main_layout.setContentsMargins(6, 0, 0, 0)
+        main_layout.addWidget(left_splitter)
         self.setCentralWidget(container)
+
+        # --- SLIDERS: a dock the user can hide, float or put back (View menu) ---
+        self.slider_dock = QDockWidget("Sliders for TX", self)
+        self.slider_dock.setObjectName("slider_dock")
+        self.slider_dock.setWidget(slider_group)
+        self.slider_dock.setAllowedAreas(
+            Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
+        )
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.slider_dock)
+        self.resizeDocks([self.slider_dock], [320], Qt.Orientation.Horizontal)
+        action_sliders = self.slider_dock.toggleViewAction()
+        action_sliders.setText("Sliders panel")
+        self.view_menu.addAction(action_sliders)
+        action_decoded = QAction("Decoded signals panel (RX)", self)
+        action_decoded.setCheckable(True)
+        action_decoded.setChecked(True)
+        action_decoded.toggled.connect(self.rx_window.decoded.setVisible)
+        self.view_menu.addAction(action_decoded)
+
+        # --- STATUS BAR: bus state, busload, logos ---
+        status = QStatusBar(self)
+        status.addWidget(self.lbl_bus_status)
+        status.addWidget(self.lbl_busload)
+        for figure in ("CANinoApp_banner_background.png", "dii_logo.png"):
+            logo = QLabel()
+            logo.setPixmap(
+                QPixmap(resource_path(f"resources/figures/{figure}")).scaledToHeight(
+                    STATUS_LOGO_PX, Qt.TransformationMode.SmoothTransformation
+                )
+            )
+            logo.setContentsMargins(8, 0, 8, 0)
+            status.addPermanentWidget(logo)
+        self.setStatusBar(status)
 
         self.refresh_bus_list()
         # Load the default workspace at start-up, if it exists
@@ -443,9 +448,14 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
         from PySide6 import __version__ as pyside_version
 
+        def img(name, height):
+            path = resource_path(f"resources/figures/{name}").replace(os.sep, "/")
+            return f'<img src="{path}" height="{height}">'
+
         QMessageBox.about(
             self,
             "About CANino App",
+            f"{img('CANinoApp_banner_background.png', 48)}<br>"
             f"<b>CANino App</b> v{__version__}<br><br>"
             "Transmit, receive and inspect CAN / CAN FD traffic through a "
             "PEAK PCAN-USB adapter.<br><br>"
@@ -456,7 +466,8 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             "github.com/NickCanino/CANino_app</a><br><br>"
             f"Python {platform.python_version()} &middot; PySide6 {pyside_version} "
             f"&middot; python-can {can.__version__} &middot; cantools "
-            f"{cantools.__version__}",
+            f"{cantools.__version__}<br><br>"
+            f"{img('dii_logo.png', 40)}",
         )
 
     def open_vagiletta_window(self):
@@ -647,10 +658,32 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         """Set the DBC everywhere it is used: RX names + decoded panel, and any
         open XMetro window (TODO 7.8). Callers stop setting self.dbc themselves."""
         self.dbc = dbc
+        self._show_dbc_name(dbc)
         self.rx_window.set_dbc(dbc)
         for window in self.xmetro_windows + self.signal_plot_windows:
             if shiboken6.isValid(window):
                 window.set_dbc(dbc)
+
+    def _show_dbc_name(self, dbc):
+        """Load DBC button: the loaded file's name (green), like a linked script."""
+        path = getattr(dbc, "dbc_filename", None) if dbc is not None else None
+        btn = self.btn_load_dbc
+        if path:
+            btn.setStyleSheet("background-color: #4CAF50; color: white;")
+            btn.setToolTip(f"DBC: {path}\nClick to load another DBC file.")
+            text = os.path.basename(path)
+        else:
+            btn.setStyleSheet("")
+            btn.setToolTip(
+                "Load a DBC file to be used for TX list, RX decoding, Sliders, "
+                "XMetro gauges and Signal Plot."
+            )
+            text = "Load DBC"
+        btn.setText(
+            btn.fontMetrics().elidedText(
+                text, Qt.TextElideMode.ElideMiddle, btn.width() - 40
+            )
+        )
 
     def _forget_xmetro(self, window_id):
         """A closed XMetro window leaves the list, so RX stops feeding it (TODO 7.5)."""

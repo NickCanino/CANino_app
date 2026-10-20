@@ -6,9 +6,20 @@ All notable changes to CANino App. Versions from 1.4.0 on are PySide6 builds;
 ## 1.7.1 — UI polish
 
 Changed
-- **TX toolbar** regrouped into four stacked groups (Add ID / Delete All,
-  Enable All / Start TX, Burst + Send Now / Replay Trace, global script),
+- **Main window reorganised**: XMetro, Signal Plot and VAGILETTA under a
+  **Tools** menu; a **View** menu shows/hides the Sliders and decoded-signal
+  panels; Load DBC also in File. Connection settings in one top bar; bus
+  state, BusLoad and the logos in a **status bar** (the footer is gone).
+- **Sliders** are a dock: hide it, float it or move it left/right.
+- **TX toolbar** on one row: four groups (Add ID / Delete All, Enable All /
+  Start TX, Burst + Send Now + Replay Trace, global script), separated and
   spaced with the window width.
+- **RX**: Clear RX, filter (grows with the window up to 1000 px) and the log
+  controls on one row, separated; Start/Pause/Stop are icon buttons (the
+  tooltip says what a click does); the decoded-signal panel sits right of
+  the table.
+- **Load DBC** and **Link Log** show the linked file's name (green), like the
+  script buttons. Help → About shows the logos.
 - **Signal Plot**: wider plotted-signals box; icons on Add and Remove.
 
 ## 1.7.0 — Phase 3 (add-ons)

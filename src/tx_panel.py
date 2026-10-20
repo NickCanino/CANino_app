@@ -27,7 +27,7 @@ MainWindow calls _build_tx_panel() while it lays the window out.
 
 from PySide6.QtWidgets import (
     QVBoxLayout,
-    QGridLayout,
+    QFrame,
     QHBoxLayout,
     QPushButton,
     QComboBox,
@@ -333,29 +333,25 @@ class TxPanelMixin:
         self.btn_remove_global_script.setEnabled(False)  # Nothing linked yet
         self.btn_remove_global_script.clicked.connect(self.remove_global_payload_script)
 
-        # Horizontal layout for the TX buttons
-        # Four groups of stacked controls; the stretches between them share the
-        # spare width, so the gaps follow the window size
-        group_rows = QGridLayout()
-        group_rows.addWidget(self.btn_add_id, 0, 0)
-        group_rows.addWidget(self.btn_delete_all_ids, 1, 0)
-        group_tx = QGridLayout()
-        group_tx.addWidget(self.btn_disable_all_ids, 0, 0)
-        group_tx.addWidget(self.btn_start_tx, 1, 0)
-        group_send = QGridLayout()
-        group_send.addWidget(QLabel("Burst:"), 0, 0)
-        group_send.addWidget(self.sp_burst, 0, 1)
-        group_send.addWidget(self.btn_send_now, 0, 2)
-        group_send.addWidget(self.btn_replay, 1, 0, 1, 3, Qt.AlignmentFlag.AlignHCenter)
-        group_script = QHBoxLayout()
-        group_script.addWidget(self.btn_link_global_script)
-        group_script.addWidget(self.btn_remove_global_script)
-
+        # One row, four groups in order (rows, TX, send, global script); the
+        # stretches around the separators share the spare width
+        groups = (
+            (self.btn_add_id, self.btn_delete_all_ids),
+            (self.btn_disable_all_ids, self.btn_start_tx),
+            (QLabel("Burst:"), self.sp_burst, self.btn_send_now, self.btn_replay),
+            (self.btn_link_global_script, self.btn_remove_global_script),
+        )
         tx_buttons_layout = QHBoxLayout()
-        for i, group in enumerate((group_rows, group_tx, group_send, group_script)):
+        for i, group in enumerate(groups):
             if i:
                 tx_buttons_layout.addStretch(1)
-            tx_buttons_layout.addLayout(group)
+                separator = QFrame()
+                separator.setFrameShape(QFrame.Shape.VLine)
+                separator.setFrameShadow(QFrame.Shadow.Sunken)
+                tx_buttons_layout.addWidget(separator)
+                tx_buttons_layout.addStretch(1)
+            for widget in group:
+                tx_buttons_layout.addWidget(widget)
 
         # --- TX TABLE: TxEntry rows -> model -> sorting proxy -> view (TODO 2.13) ---
         self.tx_model = TxTableModel(self)
