@@ -3,6 +3,7 @@
 import glob
 import os
 import subprocess
+import tempfile
 
 
 def _git(*args):
@@ -55,6 +56,29 @@ try:
         git_hash += "-dirty"
 except Exception:
     git_hash = "nogit"
+
+# Windows version resource, so the exe's Properties show the version (TODO 10.7).
+_vparts = (__version__.split(".") + ["0", "0", "0"])[:4]
+_vtuple = tuple(int(p) if p.isdigit() else 0 for p in _vparts)
+_version_text = f"""VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers={_vtuple}, prodvers={_vtuple},
+    mask=0x3f, flags=0x0, OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+  kids=[
+    StringFileInfo([StringTable('040904B0', [
+      StringStruct('CompanyName', 'University of Pisa - DII'),
+      StringStruct('FileDescription', 'CANino App - CAN / CAN FD tool'),
+      StringStruct('FileVersion', '{__version__}'),
+      StringStruct('InternalName', 'CANinoApp'),
+      StringStruct('LegalCopyright', 'Copyright 2025 Nicasio Canino - Apache-2.0'),
+      StringStruct('OriginalFilename', 'CANinoApp.exe'),
+      StringStruct('ProductName', 'CANino App'),
+      StringStruct('ProductVersion', '{__version__}')])]),
+    VarFileInfo([VarStruct('Translation', [1033, 1200])])])
+"""
+_version_file = os.path.join(tempfile.gettempdir(), "canino_version_info.txt")
+with open(_version_file, "w", encoding="utf-8") as _vf:
+    _vf.write(_version_text)
 
 # Payload-script templates: tracked files only - a local, untracked copy is
 # never shipped (TODO 10.3)
@@ -117,7 +141,8 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon='resources/figures/app_logo.ico'
+    icon='resources/figures/app_logo.ico',
+    version=_version_file,
 )
 if ONEDIR:
     coll = COLLECT(exe, a.binaries, a.datas, strip=False, upx=True, name=name)
