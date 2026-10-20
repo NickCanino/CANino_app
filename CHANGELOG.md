@@ -12,7 +12,8 @@ Changed
   one top bar; bus state, BusLoad, the linked **DBC** and the logos in a
   **status bar** (the footer is gone).
 - **DBC Signal Sliders (TX)** and **DBC Decoded Signals (RX)** are side docks: hide, float or move
-  them left/right; sharing a side, Sliders stay on top.
+  them left/right; sharing a side, Sliders stay on top. Sliders have an orange
+  border, Decoded a purple one.
 - **TX toolbar** on one row, packed left: four groups (Add ID / Delete All,
   Enable All / Start TX, Burst + Send Now + Replay Trace, global script),
   separated.

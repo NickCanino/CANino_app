@@ -89,7 +89,7 @@ class LayoutTests(unittest.TestCase):
 
     def test_decoded_panel_is_a_side_dock(self):
         dock = self.mw.findChild(QDockWidget, "decoded_dock")
-        self.assertIs(dock.widget(), self.mw.rx_window.decoded)
+        self.assertTrue(dock.widget().isAncestorOf(self.mw.rx_window.decoded))
         sides = (
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )

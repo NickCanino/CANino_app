@@ -396,7 +396,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             "DBC Signal Sliders (TX)", "slider_dock", slider_group
         )
         self.decoded_dock = self._side_dock(
-            "DBC Decoded Signals (RX)", "decoded_dock", self.rx_window.decoded
+            "DBC Decoded Signals (RX)", "decoded_dock", self._decoded_group()
         )
         self.resizeDocks([self.slider_dock], [320], Qt.Orientation.Horizontal)
         self.resizeDocks(
@@ -663,6 +663,17 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         for window in self.xmetro_windows + self.signal_plot_windows:
             if shiboken6.isValid(window):
                 window.set_dbc(dbc)
+
+    def _decoded_group(self):
+        """The RX decoded-signal table in a bordered box, like the Sliders one:
+        purple, apart from TX green, RX blue and Sliders orange."""
+        group = QGroupBox()
+        group.setStyleSheet(
+            "QGroupBox { border: 2px solid #9C27B0; border-radius: 5px; }"
+        )
+        layout = QVBoxLayout(group)
+        layout.addWidget(self.rx_window.decoded)
+        return group
 
     def _side_dock(self, title, name, widget):
         """A dock for `widget` on the right edge, movable to the left one only."""
