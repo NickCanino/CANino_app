@@ -78,8 +78,13 @@ class CANInterface:
         channel: int,
         timing: can.BitTiming | can.BitTimingFd,
         listen_only: bool = False,
+        interface: str = "pcan",
     ):
         self.channel = channel
+        # "pcan" = a PEAK adapter; "virtual" = an in-process loopback for demos
+        # and tests, no hardware (TODO 1.11). Non-PCAN backends have no PEAK
+        # controller status or TX queue, so those code paths are PCAN-only.
+        self.interface = interface
         # Listen-only: the controller never ACKs, never sends error flags and
         # cannot transmit - safe for sniffing a vehicle (TODO 1.12)
         self.listen_only = listen_only
@@ -104,10 +109,14 @@ class CANInterface:
         self.open_bus()
 
     def open_bus(self):
-        """Open the PCAN channel. Raises on failure so the caller can report it."""
+        """Open the channel. Raises on failure so the caller can report it.
+
+        The virtual backend ignores the PCAN-specific keywords (timing, state,
+        auto_reset) via its **kwargs, so one call serves both.
+        """
         self.bus = can.Bus(
             channel=self.channel,
-            interface="pcan",
+            interface=self.interface,
             timing=self.timing,
             state=can.BusState.PASSIVE if self.listen_only else can.BusState.ACTIVE,
             auto_reset=True,
@@ -166,6 +175,9 @@ class CANInterface:
         """Controller status, polled by the GUI (TODO 1.5)."""
         if self.bus is None:
             return BusStatus(-1, "closed", "severe")
+        if self.interface != "pcan":
+            # Only the PCAN controller reports an error state; a loopback is OK
+            return BusStatus(0, "OK", "ok")
         try:
             return classify_status(int(self.bus.status()))
         except Exception as e:
@@ -184,6 +196,8 @@ class CANInterface:
         """
         if self.bus is None:
             return True
+        if self.interface != "pcan":
+            return True  # a loopback has no hardware TX queue to drop
         try:
             if self.bus.status() == PCAN_ERROR_OK:
                 return True

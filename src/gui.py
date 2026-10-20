@@ -222,6 +222,22 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         top_layout.addWidget(self.btn_load_dbc)
 
         # Combo box to select the CAN channel
+        self.lbl_interface = QLabel("Interface:")
+        self.lbl_interface.setAlignment(Qt.AlignmentFlag.AlignRight)
+        top_layout.addWidget(
+            self.lbl_interface, alignment=Qt.AlignmentFlag.AlignVCenter
+        )
+        self.cb_interface = QComboBox()
+        self.cb_interface.addItem("PCAN-USB", "pcan")
+        self.cb_interface.addItem("Virtual (no hardware)", "virtual")
+        self.cb_interface.setFixedSize(170, 30)
+        self.cb_interface.setToolTip(
+            "PCAN-USB: a PEAK adapter. Virtual: an in-process loopback bus for "
+            "demos and tests, no hardware (only this app is on it)."
+        )
+        self.cb_interface.currentIndexChanged.connect(self.refresh_bus_list)
+        top_layout.addWidget(self.cb_interface)
+
         self.lbl_bus_tx = QLabel("Channel:")
         self.lbl_bus_tx.setToolTip(
             "Select the USB-to-CAN bus channel to be used for TX and RX."
@@ -415,6 +431,10 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
     def refresh_bus_list(self):
         self.cb_bus_tx.clear()
+        if self.cb_interface.currentData() == "virtual":
+            # No hardware to enumerate: one in-process loopback channel
+            self.cb_bus_tx.addItem("virtual0", "virtual0")
+            return
         for display, handle in CANInterface.get_available_channels():
             self.cb_bus_tx.addItem(display, handle)
         if self.cb_bus_tx.count() == 0 and CANInterface.scan_error:
@@ -422,6 +442,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
     def toggle_connection(self):
         if self.btn_connect.isChecked():  # Connect button is checked
+            interface = self.cb_interface.currentData()
             channel = self.cb_bus_tx.currentData()  # Get the selected channel
             if channel is None:
                 QMessageBox.warning(
@@ -432,25 +453,28 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
                 self.btn_connect.setChecked(False)
                 return
 
-            # --- Check if the selected channel is still available ---
-            available_channels = [
-                handle for _, handle in CANInterface.get_available_channels()
-            ]
-            if channel not in available_channels:
-                QMessageBox.critical(
-                    self,
-                    "Error",
-                    "The selected CAN channel is no longer available (it may be in use or disconnected). Refresh the channel list and try again.",
-                )
-                self.btn_connect.setChecked(False)
-                self.btn_start_tx.setEnabled(False)
-                return
+            # Hardware-only checks: the virtual loopback has no HW to scan
+            if interface == "pcan":
+                available_channels = [
+                    handle for _, handle in CANInterface.get_available_channels()
+                ]
+                if channel not in available_channels:
+                    QMessageBox.critical(
+                        self,
+                        "Error",
+                        "The selected CAN channel is no longer available (it may be in use or disconnected). Refresh the channel list and try again.",
+                    )
+                    self.btn_connect.setChecked(False)
+                    self.btn_start_tx.setEnabled(False)
+                    return
 
             bitrate_lbl, timing, _, _ = self.baudrate_values[
                 self.cb_baudrate.currentIndex()
             ]
-            if isinstance(timing, can.BitTimingFd) and not CANInterface.is_fd_capable(
-                channel
+            if (
+                interface == "pcan"
+                and isinstance(timing, can.BitTimingFd)
+                and not CANInterface.is_fd_capable(channel)
             ):
                 QMessageBox.warning(
                     self,
@@ -463,7 +487,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             try:  # Try to connect to the CAN interface
                 listen_only = self.cb_listen_only.isChecked()
                 self.can_if = CANInterface(
-                    channel, timing=timing, listen_only=listen_only
+                    channel, timing=timing, listen_only=listen_only, interface=interface
                 )
                 self.can_if.set_receive_callback(self.rx_window.push_frame)
                 mode = "listen only (no TX)" if listen_only else "normal"
@@ -483,6 +507,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
                 self.cb_baudrate.setEnabled(False)
                 self.cb_bus_tx.setEnabled(False)
+                self.cb_interface.setEnabled(False)
                 self.btn_refresh_bus.setEnabled(False)
                 self.btn_add_id.setEnabled(True)
                 self.cb_listen_only.setEnabled(False)
@@ -521,6 +546,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
             self.cb_baudrate.setEnabled(True)
             self.cb_bus_tx.setEnabled(True)
+            self.cb_interface.setEnabled(True)
             self.btn_refresh_bus.setEnabled(True)
             self.btn_add_id.setEnabled(True)
             self.btn_start_tx.setEnabled(False)  # No TX without a channel

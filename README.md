@@ -149,6 +149,9 @@ These workflows apply to both `python main.py` and the built `.exe`.
 
 ## Transmitting CAN Traffic
 
+Use the `Interface` selector to pick **PCAN-USB** (a PEAK adapter) or **Virtual** (an in-process loopback bus for demos and tests, no hardware — only this app is on it). The rest works the same for both.
+
+
 1. Add the CAN frames to transmit to the **Transmitted CAN Frames (TX)** table:
 
    - a. Load a DBC file with `Load DBC` (many can be found in [opendbc](https://github.com/commaai/opendbc)). Messages already in the table are not added twice, and ID format, CAN FD flag, length and cycle time come from the DBC.
