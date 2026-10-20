@@ -986,7 +986,7 @@ class TxPanelMixin:
         if self._replayer is not None:
             self._poll_replay()
         sent = self.tx_model.flush()
-        if self.xmetro_windows:
+        if self.xmetro_windows or self.signal_plot_windows:
             for entry in sent:
                 if entry.error is None:
                     self._feed_gauges(entry.frame_id, entry.is_ext, entry.payload)

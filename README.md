@@ -31,7 +31,7 @@ CANino App is a Windows desktop application (Python + Qt) to transmit, receive a
 
 - Transmit periodic CAN frames with 11-bit or 29-bit IDs, classic CAN or CAN FD, with constant, scripted or slider-controlled payloads.
 - Receive CAN traffic and see, per ID, the payload, count and period statistics (average, min, max, standard deviation), and log it to CSV or record a standard trace (`.trc` PCAN-View, `.asc` / `.blf` Vector, `.log` candump) of every frame on the wire, received and transmitted.
-- Load DBC files for message names, signal sliders and live gauges (XMetro).
+- Load DBC files for message names, signal sliders, live gauges (XMetro) and live time plots (Signal Plot).
 - Watch the bus state (OK, error warning, error passive, bus-off) while connected, and connect in listen-only mode to sniff a network without ever driving it.
 - Save and load complete workspaces (TX table, scripts, sliders, DBC) as JSON files.
 - Flash up to 8 Arduino Uno nodes from the VAGILETTA window (the generated sketch is still a placeholder).
@@ -256,6 +256,15 @@ def get_payload(dlc: int, id: int) -> bytes | None:
 **Attack marker.** The random and read-from-file templates set byte 1 of every frame to `0xA7`, to label injected frames. Frames with DLC 1 carry no marker. Set `ATTACK_MARKER = None` at the top of the template to send the bytes unmarked, for example for an exact replay of a benign sequence.
 
 **Replay files.** The read-from-file templates read `payload_sequence_ID_<hex ID>.csv` (e.g. `payload_sequence_ID_130.csv`) from the `tmp` folder next to the templates' folder (`resources/tmp`), whatever the working directory. Format: a header `Index,B7,B6,B5,B4,B3,B2,B1,B0`, then one frame per row, last column = byte 0. Bytes are **decimal** (0–255); write `0x..` for hex. The sequence repeats when it ends. An ID without a file gets its manual payload.
+
+# Signal Views
+
+With a DBC loaded, two menu windows show decoded signals live, fed by received and transmitted frames alike:
+
+- **XMetro** — up to 4×5 draggable semicircular gauges, one DBC signal each.
+- **Signal Plot** — a scrolling time chart: pick a message and signal, press `Add`, and the value is plotted over time. Add several signals to one chart, set how many seconds of history to keep, and remove a signal from the list on the right.
+
+Both follow `Load` / `Load DBC`: changing the DBC updates their available signals.
 
 # Workspace Files
 

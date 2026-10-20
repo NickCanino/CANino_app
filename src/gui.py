@@ -44,6 +44,7 @@ import can
 from src.can_interface import CANInterface
 from src.exceptions_logger import log_exception, __version__, log_dir as LOG_DIR
 from src.xmetro_class import XMetroWindow
+from src.signal_plot_class import SignalPlotWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
 from src.utils import resource_path
@@ -195,6 +196,10 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         action_xmetro.triggered.connect(self.open_xmetro_window)
         menubar.addAction(action_xmetro)
 
+        action_plot = QAction("Signal Plot", self)
+        action_plot.triggered.connect(self.open_signal_plot_window)
+        menubar.addAction(action_plot)
+
         menubar.addMenu(help_menu)
         self.setMenuBar(menubar)
 
@@ -317,6 +322,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         # The RX window drains the RX queue in the GUI thread and hands the
         # latest payload of each frame to the XMetro gauges
         self.xmetro_windows = []
+        self.signal_plot_windows = []
         self.rx_window.frames_received.connect(self._feed_latest)
         rx_group = QGroupBox()
         rx_group.setStyleSheet(
@@ -564,13 +570,16 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
     def _feed_latest(self, latest):
         """GUI thread, after each RX drain: the newest payload of each frame (TODO 7.1)."""
-        if self.xmetro_windows:
+        if self.xmetro_windows or self.signal_plot_windows:
             for (frame_id, is_ext), data in latest.items():
                 self._feed_gauges(frame_id, is_ext, data)
 
     def _feed_gauges(self, frame_id, is_ext, data):
-        """GUI thread: update every XMetro gauge showing this frame."""
+        """GUI thread: update every XMetro gauge and signal plot showing this frame."""
         for window in self.xmetro_windows:
+            if shiboken6.isValid(window):
+                window.feed(frame_id, is_ext, data)
+        for window in self.signal_plot_windows:
             if shiboken6.isValid(window):
                 window.feed(frame_id, is_ext, data)
 
@@ -579,13 +588,19 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         open XMetro window (TODO 7.8). Callers stop setting self.dbc themselves."""
         self.dbc = dbc
         self.rx_window.set_dbc(dbc)
-        for window in self.xmetro_windows:
+        for window in self.xmetro_windows + self.signal_plot_windows:
             if shiboken6.isValid(window):
                 window.set_dbc(dbc)
 
     def _forget_xmetro(self, window_id):
         """A closed XMetro window leaves the list, so RX stops feeding it (TODO 7.5)."""
         self.xmetro_windows[:] = [w for w in self.xmetro_windows if id(w) != window_id]
+
+    def _forget_plot(self, window_id):
+        """A closed Signal Plot window leaves the list (as for XMetro, TODO 7.5)."""
+        self.signal_plot_windows[:] = [
+            w for w in self.signal_plot_windows if id(w) != window_id
+        ]
 
     def closeEvent(self, event):
         """Release TX, the PCAN channel, the log file and XMetro windows (TODO 1.9)."""
@@ -597,10 +612,11 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             self.can_if = None
         if self.rx_window.log_open:
             self.rx_window.stop_log()
-        for window in self.xmetro_windows:
+        for window in self.xmetro_windows + self.signal_plot_windows:
             if shiboken6.isValid(window):
                 window.close()
         self.xmetro_windows.clear()
+        self.signal_plot_windows.clear()
         super().closeEvent(event)
 
     def open_xmetro_window(self):
@@ -621,6 +637,25 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             xmetro.show()
         except Exception as e:
             QMessageBox.critical(self, "XMetro", f"Cannot open XMetro: {e}")
+            log_exception(e)
+
+    def open_signal_plot_window(self):
+        if self.dbc is None:
+            QMessageBox.warning(self, "DBC", "Load a DBC file first!")
+            return
+        if not any(m.signals for m in self.dbc.messages):
+            QMessageBox.warning(
+                self, "Signal Plot", "No messages with signals in DBC file."
+            )
+            return
+        try:
+            plot = SignalPlotWindow(self.dbc)
+            plot.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+            plot.destroyed.connect(lambda _=None, wid=id(plot): self._forget_plot(wid))
+            self.signal_plot_windows.append(plot)
+            plot.show()
+        except Exception as e:
+            QMessageBox.critical(self, "Signal Plot", f"Cannot open Signal Plot: {e}")
             log_exception(e)
 
     def timer_busload_elapsed(self):
