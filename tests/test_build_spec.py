@@ -119,12 +119,19 @@ class QtTrimTests(unittest.TestCase):
     GIT = {"rev-parse": "abc1234", "status": "", "ls-files": TEMPLATES}
 
     def test_unused_qt_parts_are_dropped(self):
-        """10.11: OpenGL/QML/PDF/network Qt parts out, what CANino uses stays."""
+        """10.11: QML/PDF/network Qt parts out, what CANino uses stays.
+
+        OpenGL is kept since 1.7: QtCharts (Signal Plot, 7.7) links Qt6OpenGL /
+        Qt6OpenGLWidgets, so dropping them crashed the exe at startup.
+        """
         keep = [
             "PySide6/Qt6Core.dll",
             "PySide6/Qt6Gui.dll",
             "PySide6/Qt6Widgets.dll",
             "PySide6/Qt6Svg.dll",
+            "PySide6/Qt6Charts.dll",
+            "PySide6/Qt6OpenGL.dll",
+            "PySide6/Qt6OpenGLWidgets.dll",
             "PySide6/plugins/platforms/qwindows.dll",
             "PySide6/plugins/imageformats/qico.dll",
             "PySide6/plugins/styles/qmodernwindowsstyle.dll",
@@ -138,7 +145,6 @@ class QtTrimTests(unittest.TestCase):
             "PySide6/Qt6Pdf.dll",
             "PySide6/Qt6Network.dll",
             "PySide6/QtNetwork.pyd",
-            "PySide6/Qt6OpenGL.dll",
             "PySide6/Qt6VirtualKeyboard.dll",
             "libssl-3-x64.dll",
             "PySide6/plugins/tls/qopensslbackend.dll",

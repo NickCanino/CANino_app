@@ -22,7 +22,7 @@ QT_UNUSED = (
     "Qt6Qml",
     "Qt6Pdf",
     "Qt6VirtualKeyboard",
-    "Qt6OpenGL",
+    # Qt6OpenGL / Qt6OpenGLWidgets are kept: QtCharts (Signal Plot, 7.7) needs them
     "Qt6Network",
     "QtNetwork.pyd",
     "libcrypto-3-x64.dll",  # Qt's own OpenSSL, for QtNetwork's TLS backend
