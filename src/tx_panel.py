@@ -346,7 +346,7 @@ class TxPanelMixin:
         group_send.addWidget(QLabel("Burst:"), 0, 0)
         group_send.addWidget(self.sp_burst, 0, 1)
         group_send.addWidget(self.btn_send_now, 0, 2)
-        group_send.addWidget(self.btn_replay, 1, 0, 1, 3)
+        group_send.addWidget(self.btn_replay, 1, 0, 1, 3, Qt.AlignmentFlag.AlignHCenter)
         group_script = QHBoxLayout()
         group_script.addWidget(self.btn_link_global_script)
         group_script.addWidget(self.btn_remove_global_script)
