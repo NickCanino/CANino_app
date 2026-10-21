@@ -398,12 +398,20 @@ class TxPanelMixin:
             (TX_COL_4_name, 100),
             (TX_COL_5_period, 80),
             (TX_COL_6_payload, 200),
-            (TX_COL_7_script, 150),
         ):
             self.tx_view.setColumnWidth(col, width)
+        # Payload takes the spare width; the script column is only as wide as the
+        # longest linked script name (TODO 9.10)
         self.tx_view.horizontalHeader().setSectionResizeMode(
-            TX_COL_7_script, QHeaderView.ResizeMode.Stretch
+            TX_COL_6_payload, QHeaderView.ResizeMode.Stretch
         )
+        self._fit_script_column()
+        for sig in (
+            self.tx_model.rowsInserted,
+            self.tx_model.rowsRemoved,
+            self.tx_model.modelReset,
+        ):
+            sig.connect(self._fit_script_column)
         self.tx_view.setSortingEnabled(True)
         self.tx_view.sortByColumn(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
         # Payloads and errors written by the TX engine reach the screen at ~10 Hz
@@ -728,6 +736,21 @@ class TxPanelMixin:
     def _set_script_link(self, entry, script_path):
         """Link (path) or unlink (None) a row's script."""
         self.tx_model.set_script(entry, script_path)
+        self._fit_script_column()
+
+    def _fit_script_column(self, *_):
+        """Size the script column to "Link Script" or the longest linked name."""
+        self.tx_view.setColumnWidth(
+            TX_COL_7_script,
+            self.tx_buttons.script_column_width(
+                self.tx_view.fontMetrics(),
+                [
+                    os.path.basename(e.script_path)
+                    for e in self._tx_entries()
+                    if e.script_path
+                ],
+            ),
+        )
 
     def modify_payload_script(self, entry):
         file_path, _ = QFileDialog.getOpenFileName(

@@ -263,3 +263,34 @@ class ViewTests(Base):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ColumnLayoutTests(Base):
+    def width(self):
+        return self.mw.tx_view.columnWidth(tx_model.TX_COL_7_script)
+
+    def test_payload_stretches(self):
+        """9.10: the payload column takes the spare width."""
+        mode = self.mw.tx_view.horizontalHeader().sectionResizeMode(
+            tx_model.TX_COL_6_payload
+        )
+        self.assertEqual(mode, tx_panel.QHeaderView.ResizeMode.Stretch)
+
+    def test_script_column_fits_the_linked_names(self):
+        """9.10: slim column, but a linked name is never cut until the cap."""
+        empty = self.width()
+        name = "GLO_TPS_sawtooth.py"
+        entry = self.items[0x100]
+        self.mw._set_script_link(entry, f"C:/scripts/{name}")
+        fm = self.mw.tx_view.fontMetrics()
+        self.assertGreater(self.width(), empty)
+        self.assertGreaterEqual(
+            self.width(),
+            fm.horizontalAdvance(name) + 8 + tx_model.TxButtonDelegate.UNLINK_WIDTH,
+        )
+        self.mw._set_script_link(entry, None)
+        self.assertEqual(self.width(), empty)
+        self.mw._set_script_link(entry, "C:/scripts/" + "x" * 300 + ".py")
+        self.assertEqual(self.width(), tx_model.TxButtonDelegate.SCRIPT_MAX_WIDTH)
+        self.mw.tx_model.remove(entry)  # deleting the row shrinks it back
+        self.assertEqual(self.width(), empty)

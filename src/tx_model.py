@@ -419,6 +419,20 @@ class TxButtonDelegate(QStyledItemDelegate):
     unlink_clicked = Signal(object)
 
     UNLINK_WIDTH = 28
+    SCRIPT_WIDTH_FACTOR = 1.3
+    # Longer names are elided in the middle (full path in the tooltip)
+    SCRIPT_MAX_WIDTH = round(320 * SCRIPT_WIDTH_FACTOR)
+
+    def script_column_width(self, metrics, names):
+        """Width of the script column: the "Link Script" button or the longest name."""
+        text = max(
+            [metrics.horizontalAdvance("Link Script") + 16 + 6]  # + icon and gap
+            + [metrics.horizontalAdvance(n) for n in names]
+        )
+        # + link-button text margins (8), button padding (4), gap + unlink button
+        width = text + 8 + 4 + 16 + 3 + self.UNLINK_WIDTH
+        # 30 % of air around the name (asked 2026-10-21)
+        return min(round(width * self.SCRIPT_WIDTH_FACTOR), self.SCRIPT_MAX_WIDTH)
 
     def _rects(self, rect):
         rect = rect.adjusted(2, 2, -2, -2)
