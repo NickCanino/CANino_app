@@ -50,6 +50,7 @@ from src.xmetro_class import XMetroWindow
 from src.signal_plot_class import SignalPlotWindow
 from src.vagiletta_programmer_class import VagilettaWindow
 from src.received_frames_class import ReceivedFramesWindow
+from src.trace_replay import MAX_GAP_S
 from src.utils import resource_path
 from src.tx_panel import TxPanelMixin
 from src.slider_panel import SliderPanelMixin
@@ -216,6 +217,15 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         action_plot = QAction("Signal Plot", self)
         action_plot.triggered.connect(self.open_signal_plot_window)
         tools_menu.addAction(action_plot)
+        tools_menu.addSeparator()
+        # Replay preference, read when a replay starts (QSettings)
+        action_gaps = QAction(
+            f"Replay: Compress Idle Gaps > {MAX_GAP_S:g} s", self, checkable=True
+        )
+        action_gaps.setChecked(self.replay_compress_gaps())
+        action_gaps.toggled.connect(self.set_replay_compress_gaps)
+        tools_menu.addAction(action_gaps)
+        self.action_replay_gaps = action_gaps
         tools_menu.addSeparator()
         action_vagiletta = QAction("VAGILETTA", self)
         action_vagiletta.triggered.connect(self.open_vagiletta_window)
@@ -808,7 +818,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             busy_s = (nominal_bits + data_bits) / timing.bitrate
         fps = round((rx + tx) / elapsed)
         self.lbl_busload.setText(
-            f"BusLoad: {100 * busy_s / elapsed:3.1f}% | {fps} fr/s"
+            f"BusLoad: {100 * busy_s / elapsed:3.1f}% [{fps} fr/s]"
         )
         self.lbl_busload.setToolTip(
             f"{BUSLOAD_TOOLTIP}\nFrames on the wire since the last update: "

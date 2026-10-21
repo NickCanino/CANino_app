@@ -21,19 +21,23 @@
 
 A trace (`.trc`/`.asc`/`.blf`/`.log`) is read once with `can.LogReader`, then a
 background thread sends the frames spaced by their recorded timestamps
-(`can.MessageSync`). Nothing here touches Qt: the GUI starts/stops the thread
+(the `can.MessageSync` algorithm, with waits that stop() interrupts). Nothing here touches Qt: the GUI starts/stops the thread
 and reads `sent`/`total`/`error`/`running` from its 100 ms refresh.
 """
 
 import threading
+import time
 
 import can
 
 from src.trace_log import TRACE_FORMATS
 
-# Cap a single inter-frame wait so stop() is noticed within this long, and a
-# long idle gap in the recording does not freeze the replay (MessageSync `skip`)
-MAX_GAP_S = 1.0
+# Default cap on a single inter-frame wait: a longer idle gap in the recording
+# is replayed as this long (MessageSync `skip`); None = recorded timing
+MAX_GAP_S = 10.0
+# Waits longer than this sleep on the stop event first (Event.wait oversleeps
+# up to ~4 ms on Windows), then finish with time.sleep for precision
+_COARSE_WAIT_S = 0.05
 
 
 def load_trace(path):
@@ -45,11 +49,12 @@ def load_trace(path):
 class TraceReplayer:
     """One replay run of a trace file. Start once; poll the attributes."""
 
-    def __init__(self, messages, send, loop=False):
+    def __init__(self, messages, send, loop=False, max_gap=MAX_GAP_S):
         # send(can.Message) -> bool; called in the replay thread
         self._messages = messages
         self._send = send
         self._loop = loop
+        self._max_gap = max_gap
         self._stop = threading.Event()
         self._thread = None
         self.total = len(messages)
@@ -82,17 +87,33 @@ class TraceReplayer:
     def _run(self):
         try:
             while not self._stop.is_set():
-                sync = can.MessageSync(
-                    self._messages, timestamps=True, gap=0.0, skip=MAX_GAP_S
-                )
-                for msg in sync:
-                    if self._stop.is_set():
-                        break
-                    self._send(msg)
-                    self.sent += 1
+                self._play_once()
                 if not self._loop:
                     break
         except Exception as e:  # report to the GUI, never crash the thread
             self.error = f"{type(e).__name__}: {e}"
         finally:
             self.running = False
+
+    def _play_once(self):
+        """Send every message at its recorded offset; gaps > max_gap shrink."""
+        start = time.perf_counter()
+        t0 = None
+        skipped = 0.0
+        for msg in self._messages:
+            if t0 is None:
+                t0 = msg.timestamp
+            wait = start + (msg.timestamp - t0 - skipped) - time.perf_counter()
+            if self._max_gap and wait > self._max_gap:
+                skipped += wait - self._max_gap
+                wait = self._max_gap
+            if wait > _COARSE_WAIT_S:
+                if self._stop.wait(wait - _COARSE_WAIT_S):
+                    return
+                wait = start + (msg.timestamp - t0 - skipped) - time.perf_counter()
+            if wait > 1e-4:
+                time.sleep(wait)
+            if self._stop.is_set():
+                return
+            self._send(msg)
+            self.sent += 1

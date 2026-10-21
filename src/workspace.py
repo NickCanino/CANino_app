@@ -398,7 +398,7 @@ class WorkspaceMixin:
         self._set_global_script(None)
         self.script_instances.clear()
         self._apply_dbc(None)
-        self.btn_disable_all_ids.setText("Disable All")
+        self.btn_disable_all_ids.setText("Mute All")
         self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
         self.btn_disable_all_ids.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)

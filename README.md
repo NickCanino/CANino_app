@@ -174,7 +174,7 @@ Use the `Interface` selector to pick **PCAN-USB** (a PEAK adapter) or **Virtual*
 
 **Remote frames (RTR).** Tick `Remote frame (RTR)` in `Add ID` for a row that carries no data, only the requested DLC — a request for the owning node to transmit. RTR is classic CAN only (mutually exclusive with CAN FD); the payload cell shows `(RTR, DLC n)` and is not editable.
 
-**Replay a trace.** `Replay Trace` reads a `.trc`/`.asc`/`.blf`/`.log` file and transmits its frames onto the bus in their recorded timing (received and transmitted frames alike). Press it again to stop. The bus must be connected and not in listen-only mode.
+**Replay a trace.** `Replay Trace` reads a `.trc`/`.asc`/`.blf`/`.log` file and transmits its frames onto the bus in their recorded timing (received and transmitted frames alike). Press it again to stop. The bus must be connected and not in listen-only mode. By default an idle gap longer than 10 s in the recording is replayed as 10 s; untick **Tools → Replay: Compress Idle Gaps > 10 s** to keep every gap at its recorded length (the choice is remembered).
 
 ## Receiving CAN Traffic
 

@@ -47,7 +47,8 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
 )
-from PySide6.QtCore import Qt, QTimer, QSortFilterProxyModel
+from PySide6.QtCore import Qt, QRectF, QTimer, QSettings, QSortFilterProxyModel
+from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPainterPath, QPixmap
 import importlib.util
 import glob
 import logging
@@ -61,7 +62,7 @@ from src.dbc_loader import (
 from src.exceptions_logger import log_exception
 from src.utils import format_can_id, resource_path
 from src.trace_log import TRACE_FORMATS
-from src.trace_replay import TraceReplayer, load_trace
+from src.trace_replay import MAX_GAP_S, TraceReplayer, load_trace
 from src.tx_scheduler import TxScheduler
 from src.tx_model import (
     TxEntry,
@@ -83,6 +84,71 @@ from src.tx_model import (
     CAN_FD_LENGTHS,
     valid_dlc,
 )
+
+# QSettings key of the Tools-menu replay choice (on = shrink long idle gaps)
+REPLAY_GAPS_KEY = "replay_compress_gaps"
+
+# Button look while an activity runs: TX red, replay amber
+TX_RUNNING_STYLE = (
+    "QPushButton { background-color: #C62828; color: white; font-weight: bold;"
+    " border: 1px solid #8E0000; border-radius: 4px; }"
+    "QPushButton:hover { background-color: #D32F2F; }"
+)
+REPLAY_RUNNING_STYLE = (
+    "QPushButton { background-color: #EF6C00; color: white; font-weight: bold;"
+    " border: 1px solid #BF360C; border-radius: 4px; }"
+    "QPushButton:hover { background-color: #F57C00; }"
+)
+
+
+def plus_icon(style):
+    """A '+' in the look of the style's SP_ArrowForward (QStyle has no 'add').
+
+    The arrow is erased by refilling its pixels from the button colour on the
+    same row, then a white '+' of the arrow's stroke weight is painted on top.
+    """
+    arrow = style.standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
+    icon = QIcon()
+    for size in arrow.availableSizes():
+        img = arrow.pixmap(size).toImage().convertToFormat(QImage.Format.Format_ARGB32)
+        img.setDevicePixelRatio(1)
+        n = img.width()
+
+        def light(c):  # the white arrow and its antialiased edge
+            return c.alpha() > 0 and c.blue() > 80
+
+        def body(c):
+            return c.alpha() > 200 and not light(c)
+
+        for y in range(n):
+            row = [img.pixelColor(x, y) for x in range(n)]
+            for x in (x for x in range(n) if light(row[x])):
+                left = next((row[i] for i in range(x, -1, -1) if body(row[i])), None)
+                right = next((row[i] for i in range(x, n) if body(row[i])), None)
+                left, right = left or right, right or left
+                if left is None:
+                    continue
+                img.setPixelColor(
+                    x,
+                    y,
+                    QColor(
+                        (left.red() + right.red()) // 2,
+                        (left.green() + right.green()) // 2,
+                        (left.blue() + right.blue()) // 2,
+                        row[x].alpha(),
+                    ),
+                )
+        c, t, a = n / 2, n * 0.13, n * 0.27  # centre, stroke, half length
+        plus = QPainterPath()
+        plus.addRoundedRect(QRectF(c - a, c - t / 2, 2 * a, t), t * 0.3, t * 0.3)
+        plus.addRoundedRect(QRectF(c - t / 2, c - a, t, 2 * a), t * 0.3, t * 0.3)
+        plus.setFillRule(Qt.FillRule.WindingFill)
+        p = QPainter(img)
+        p.setRenderHint(QPainter.RenderHint.Antialiasing)
+        p.fillPath(plus.simplified(), QColor("white"))
+        p.end()
+        icon.addPixmap(QPixmap.fromImage(img))
+    return icon if not icon.isNull() else arrow
 
 
 # The TX engine repaints the rows it changed this often (TODO 2.12)
@@ -241,10 +307,8 @@ class TxPanelMixin:
         # Button to ADD IDs in TX
         self.btn_add_id = QPushButton("Add ID")
         self.btn_add_id.setToolTip("Add a new CAN ID manually to the TX list.")
-        self.btn_add_id.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowDown)
-        )
-        self.btn_add_id.setFixedSize(100, 30)
+        self.btn_add_id.setIcon(plus_icon(self.style()))
+        self.btn_add_id.setFixedSize(78, 30)
         self.btn_add_id.clicked.connect(self.add_manual_id)
 
         # Button to start TX
@@ -253,9 +317,9 @@ class TxPanelMixin:
             "Start the transmission of enabled CAN frames from the TX table."
         )
         self.btn_start_tx.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
-        self.btn_start_tx.setFixedSize(100, 30)
+        self.btn_start_tx.setFixedSize(92, 30)
         self.btn_start_tx.clicked.connect(self.start_stop_transmission)
         self.btn_start_tx.setEnabled(False)  # Disabled until connected
 
@@ -275,7 +339,7 @@ class TxPanelMixin:
         self.btn_send_now.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_ArrowForward)
         )
-        self.btn_send_now.setFixedSize(110, 30)
+        self.btn_send_now.setFixedSize(100, 30)
         self.btn_send_now.clicked.connect(self.send_selected_now)
 
         # Replay a recorded trace onto the bus, in recorded time (TODO 5.10)
@@ -284,29 +348,27 @@ class TxPanelMixin:
         self.btn_replay.setToolTip(
             "Replay a .trc/.asc/.blf/.log trace onto the bus, in recorded time."
         )
-        self.btn_replay.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaSeekForward)
-        )
-        self.btn_replay.setFixedSize(130, 30)
+        self.btn_replay.setFixedSize(112, 30)
         self.btn_replay.clicked.connect(self.replay_trace)
+        self._set_replay_button(False)
 
         # Button to disable all ID in TX
-        self.btn_disable_all_ids = QPushButton("Disable All")
+        self.btn_disable_all_ids = QPushButton("Mute All")
         self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
         self.btn_disable_all_ids.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
         )
-        self.btn_disable_all_ids.setFixedSize(100, 30)
+        self.btn_disable_all_ids.setFixedSize(92, 30)
         self.btn_disable_all_ids.clicked.connect(self.disable_all_ids_tx)
         self.btn_disable_all_ids.setEnabled(False)  # Disabled until there are rows
 
         # Button to delete all IDs in TX
-        self.btn_delete_all_ids = QPushButton("Delete All")
+        self.btn_delete_all_ids = QPushButton("All")
         self.btn_delete_all_ids.setToolTip("Delete all CAN IDs from the TX list.")
         self.btn_delete_all_ids.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_TrashIcon)
         )
-        self.btn_delete_all_ids.setFixedSize(100, 30)
+        self.btn_delete_all_ids.setFixedSize(56, 30)
         self.btn_delete_all_ids.clicked.connect(self.delete_all_ids_tx)
         self.btn_delete_all_ids.setEnabled(False)  # Disabled until there are rows
 
@@ -318,7 +380,7 @@ class TxPanelMixin:
         self.btn_link_global_script.setIcon(
             self.style().standardIcon(QStyle.StandardPixmap.SP_FileDialogDetailedView)
         )
-        self.btn_link_global_script.setFixedSize(200, 30)
+        self.btn_link_global_script.setFixedSize(170, 30)
         self.btn_link_global_script.clicked.connect(self.select_global_payload_script)
 
         # Button to REMOVE a global Payload Script
@@ -438,11 +500,11 @@ class TxPanelMixin:
     def disable_all_ids_tx(self):
         self._mark_dirty()
         if (
-            self.btn_disable_all_ids.text() == "Enable All"
+            self.btn_disable_all_ids.text() == "Unmute All"
         ):  # Currently disabled: enable all
             self._set_all_enabled(True)
 
-            self.btn_disable_all_ids.setText("Disable All")
+            self.btn_disable_all_ids.setText("Mute All")
             self.btn_disable_all_ids.setToolTip("Disable all CAN IDs in the TX list.")
             self.btn_disable_all_ids.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolumeMuted)
@@ -450,7 +512,7 @@ class TxPanelMixin:
         else:  # Currently enabled: disable all
             self._set_all_enabled(False)
 
-            self.btn_disable_all_ids.setText("Enable All")
+            self.btn_disable_all_ids.setText("Unmute All")
             self.btn_disable_all_ids.setToolTip("Enable all CAN IDs in the TX list.")
             self.btn_disable_all_ids.setIcon(
                 self.style().standardIcon(QStyle.StandardPixmap.SP_MediaVolume)
@@ -604,9 +666,20 @@ class TxPanelMixin:
         if not messages:
             QMessageBox.warning(self, "Replay", "The trace holds no frames.")
             return
-        self._replayer = TraceReplayer(messages, self._replay_send)
+        max_gap = MAX_GAP_S if self.replay_compress_gaps() else None
+        self._replayer = TraceReplayer(messages, self._replay_send, max_gap=max_gap)
         self._replayer.start()
-        self.btn_replay.setText("Stop Replay")
+        self._set_replay_button(True)
+
+    @staticmethod
+    def replay_compress_gaps():
+        """Replay preference (QSettings): shrink idle gaps > MAX_GAP_S."""
+        value = QSettings("CANinoApp", "CANinoApp").value(REPLAY_GAPS_KEY, True)
+        return value in (True, "true", 1, "1")
+
+    @staticmethod
+    def set_replay_compress_gaps(on):
+        QSettings("CANinoApp", "CANinoApp").setValue(REPLAY_GAPS_KEY, bool(on))
 
     def _replay_send(self, msg):
         """Replay thread: send one recorded frame (bus.send is lock-guarded)."""
@@ -626,7 +699,18 @@ class TxPanelMixin:
         if self._replayer is not None:
             self._replayer.stop()
         self._replayer = None
-        self.btn_replay.setText("Replay Trace")
+        self._set_replay_button(False)
+
+    def _set_replay_button(self, running):
+        """Amber with a stop icon while replaying; the plain button otherwise."""
+        icon = (
+            QStyle.StandardPixmap.SP_MediaStop
+            if running
+            else QStyle.StandardPixmap.SP_MediaSeekForward
+        )
+        self.btn_replay.setText("Stop Replay" if running else "Replay Trace")
+        self.btn_replay.setIcon(self.style().standardIcon(icon))
+        self.btn_replay.setStyleSheet(REPLAY_RUNNING_STYLE if running else "")
 
     def _poll_replay(self):
         """GUI refresh: detect a finished replay, reset the button, report errors."""
@@ -635,7 +719,7 @@ class TxPanelMixin:
             return
         error = r.error
         self._replayer = None
-        self.btn_replay.setText("Replay Trace")
+        self._set_replay_button(False)
         if error:
             QMessageBox.critical(self, "Replay", f"Replay failed:\n{error}")
 
@@ -870,8 +954,9 @@ class TxPanelMixin:
             "Stop the transmission of enabled CAN frames from the TX table."
         )
         self.btn_start_tx.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogNoButton)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaStop)
         )
+        self.btn_start_tx.setStyleSheet(TX_RUNNING_STYLE)
         return self.tx_skipped_fd
 
     def _sync_tx(self):
@@ -1059,8 +1144,9 @@ class TxPanelMixin:
             "Start the transmission of enabled CAN frames from the TX table."
         )
         self.btn_start_tx.setIcon(
-            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogYesButton)
+            self.style().standardIcon(QStyle.StandardPixmap.SP_MediaPlay)
         )
+        self.btn_start_tx.setStyleSheet("")
 
     def send_can_message(
         self, frame_id, data, dlc=None, is_fd=False, is_ext=False, is_rtr=False

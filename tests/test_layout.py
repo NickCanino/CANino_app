@@ -42,7 +42,7 @@ class LayoutTests(unittest.TestCase):
         tools = self.mw.menuBar().actions()[2].menu()
         self.assertEqual(
             [a.text() for a in tools.actions() if not a.isSeparator()],
-            ["XMetro", "Signal Plot", "VAGILETTA"],
+            ["XMetro", "Signal Plot", "Replay: Compress Idle Gaps > 10 s", "VAGILETTA"],
         )
 
     def test_sliders_dock_toggles_from_view_menu(self):
@@ -123,6 +123,34 @@ class LayoutTests(unittest.TestCase):
         self.mw.slider_dock.show()
         self.settle()
         self.assert_sliders_on_top()
+
+    def test_tx_buttons_short_labels(self):
+        self.assertEqual(self.mw.btn_delete_all_ids.text(), "All")
+        self.assertEqual(self.mw.btn_disable_all_ids.text(), "Mute All")
+        self.assertFalse(self.mw.btn_add_id.icon().isNull())
+        self.assertLess(self.mw.btn_delete_all_ids.width(), 92)
+        self.assertLess(self.mw.btn_add_id.width(), 92)
+
+    def test_mute_all_toggles_to_unmute_all(self):
+        self.mw.disable_all_ids_tx()
+        self.assertEqual(self.mw.btn_disable_all_ids.text(), "Unmute All")
+        self.mw.disable_all_ids_tx()
+        self.assertEqual(self.mw.btn_disable_all_ids.text(), "Mute All")
+
+    def test_start_tx_colours_the_button_until_stop(self):
+        self.mw.start_tx()
+        self.assertEqual(self.mw.btn_start_tx.text(), "Stop TX")
+        self.assertIn("background-color", self.mw.btn_start_tx.styleSheet())
+        self.mw.stop_tx()
+        self.assertEqual(self.mw.btn_start_tx.styleSheet(), "")
+
+    def test_replay_button_colour_and_text_follow_state(self):
+        self.mw._set_replay_button(True)
+        self.assertEqual(self.mw.btn_replay.text(), "Stop Replay")
+        self.assertIn("background-color", self.mw.btn_replay.styleSheet())
+        self.mw._set_replay_button(False)
+        self.assertEqual(self.mw.btn_replay.text(), "Replay Trace")
+        self.assertEqual(self.mw.btn_replay.styleSheet(), "")
 
 
 if __name__ == "__main__":

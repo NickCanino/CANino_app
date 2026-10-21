@@ -12,9 +12,10 @@ import qt_harness as h  # noqa: F401  (must come before src imports)
 
 import src.can_interface as ci  # noqa: E402
 import src.gui as gui  # noqa: E402
+import src.tx_panel as tx_panel  # noqa: E402
 from src.tx_model import TX_COL_3_fd, TX_COL_6_payload, TxEntry  # noqa: E402
 from src.trace_log import TraceLog  # noqa: E402
-from src.trace_replay import TraceReplayer, load_trace  # noqa: E402
+from src.trace_replay import MAX_GAP_S, TraceReplayer, load_trace  # noqa: E402
 
 
 class RecordIf:
@@ -119,6 +120,30 @@ class SendNowTests(unittest.TestCase):
         self.assertFalse(flags & Qt.ItemFlag.ItemIsEditable)
 
 
+class FakeSettings:
+    """In-memory stand-in for QSettings, so tests never touch the registry."""
+
+    _store = {}
+
+    def __init__(self, *a):
+        pass
+
+    def value(self, key, default=None):
+        return FakeSettings._store.get(key, default)
+
+    def setValue(self, key, val):
+        FakeSettings._store[key] = val
+
+
+def run_to_end(r, tries=200):
+    r.start()
+    for _ in range(tries):
+        if not r.running:
+            break
+        time.sleep(0.02)
+    r.stop()
+
+
 class ReplayTests(unittest.TestCase):
     def make_trace(self, ext=".asc"):
         path = os.path.join(h.WORKDIR, "rec" + ext)
@@ -179,6 +204,56 @@ class ReplayTests(unittest.TestCase):
         r.stop()
         self.assertFalse(r.running)
 
+    def gap_trace(self, gap_s):
+        path = os.path.join(h.WORKDIR, "gap.asc")
+        log = TraceLog(path)
+        log.write(0x10, b"\x00", False, 7000.0, False, False, False)
+        log.write(0x11, b"\x00", False, 7000.0 + gap_s, False, False, False)
+        log.close()
+        return load_trace(path)
+
+    def test_default_max_gap_is_ten_seconds(self):
+        self.assertEqual(MAX_GAP_S, 10.0)
+
+    def test_long_gap_is_compressed_to_max_gap(self):
+        stamps = []
+        r = TraceReplayer(
+            self.gap_trace(0.5),
+            lambda m: stamps.append(time.perf_counter()),
+            max_gap=0.1,
+        )
+        run_to_end(r)
+        self.assertEqual(len(stamps), 2)
+        self.assertGreater(stamps[1] - stamps[0], 0.08)
+        self.assertLess(stamps[1] - stamps[0], 0.3)
+
+    def test_max_gap_none_keeps_recorded_gap(self):
+        stamps = []
+        r = TraceReplayer(
+            self.gap_trace(0.5),
+            lambda m: stamps.append(time.perf_counter()),
+            max_gap=None,
+        )
+        run_to_end(r)
+        self.assertEqual(len(stamps), 2)
+        self.assertGreater(stamps[1] - stamps[0], 0.45)
+
+    def test_stop_interrupts_a_long_gap(self):
+        # A 30 s uncapped gap must not delay stop(), and nothing is sent after it
+        sent = []
+        r = TraceReplayer(
+            self.gap_trace(30.0),
+            lambda m: sent.append(m.arbitration_id),
+            max_gap=None,
+        )
+        r.start()
+        time.sleep(0.1)
+        t = time.perf_counter()
+        r.stop()
+        self.assertLess(time.perf_counter() - t, 0.5)
+        time.sleep(0.1)
+        self.assertEqual(sent, [0x10])
+
     def test_is_trace_extension(self):
         self.assertTrue(TraceReplayer.is_trace("x.blf"))
         self.assertFalse(TraceReplayer.is_trace("x.csv"))
@@ -188,11 +263,44 @@ class ReplayGuiTests(unittest.TestCase):
     def setUp(self):
         self._orig = ci.CANInterface.get_available_channels
         ci.CANInterface.get_available_channels = staticmethod(lambda: [])
+        self._orig_settings = tx_panel.QSettings
+        tx_panel.QSettings = FakeSettings
+        FakeSettings._store.clear()
         self.mw = gui.MainWindow()
 
     def tearDown(self):
         ci.CANInterface.get_available_channels = self._orig
+        tx_panel.QSettings = self._orig_settings
         h.dispose(self.mw)
+
+    def start_replay(self, path):
+        from PySide6.QtWidgets import QFileDialog
+
+        orig = QFileDialog.getOpenFileName
+        try:
+            QFileDialog.getOpenFileName = staticmethod(lambda *a, **k: (path, ""))
+            self.mw.replay_trace()
+        finally:
+            QFileDialog.getOpenFileName = orig
+
+    def test_gap_menu_defaults_on_and_reaches_the_replayer(self):
+        path = os.path.join(h.WORKDIR, "menu.asc")
+        log = TraceLog(path)
+        log.write(0x10, b"\x00", False, 1.0, False, False, False)
+        log.write(0x11, b"\x00", False, 31.0, False, False, False)
+        log.close()
+        self.mw.can_if = RecordIf()
+        action = self.mw.action_replay_gaps
+        self.assertTrue(action.isChecked())
+        self.start_replay(path)
+        self.assertEqual(self.mw._replayer._max_gap, MAX_GAP_S)
+        self.mw.stop_replay()
+
+        action.setChecked(False)
+        self.assertFalse(self.mw.replay_compress_gaps())
+        self.start_replay(path)
+        self.assertIsNone(self.mw._replayer._max_gap)
+        self.mw.stop_replay()
 
     def test_replay_puts_recorded_frames_on_the_bus(self):
         # Record a trace, then replay it through the GUI onto a fake interface
