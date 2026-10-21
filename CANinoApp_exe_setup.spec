@@ -79,8 +79,15 @@ _version_file = os.path.join(tempfile.gettempdir(), "canino_version_info.txt")
 with open(_version_file, "w", encoding="utf-8") as _vf:
     _vf.write(_version_text)
 
-# Payload scripts (resources/script_templates) are never shipped (decided
-# 2026-10-20): they stay in the repo; the exe links the user's own files.
+# Payload-script templates for Scripts -> New script from template: only this
+# list is shipped (decided 2026-10-21); the other local templates stay out.
+SHIPPED_TEMPLATES = [
+    "GLO_TPS_random.py",
+    "GLO_TPS_sawtooth.py",
+    "TPS_random.py",
+    "TPS_sawtooth.py",
+    "TPS_sine.py",
+]
 
 a = Analysis(
     ['main.py'],
@@ -98,6 +105,10 @@ a = Analysis(
         ('resources/figures/app_logo.ico', 'resources/figures'),
         ('resources/figures/CANinoApp_banner_background.png', 'resources/figures'),
         ('resources/figures/arduino_uno.png', 'resources/figures'),
+    ]
+    + [
+        (f'resources/script_templates/{t}', 'resources/script_templates')
+        for t in SHIPPED_TEMPLATES
     ],
     hiddenimports=['can.interfaces.pcan'],
     hookspath=[],

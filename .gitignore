@@ -36,8 +36,14 @@ Thumbs.db
 tmp/
 arduino_build/
 
-# Payload scripts
+# Payload scripts: only the shipped templates are tracked (2026-10-21)
 ATTK*.py
+resources/script_templates/*.py
+!resources/script_templates/GLO_TPS_random.py
+!resources/script_templates/GLO_TPS_sawtooth.py
+!resources/script_templates/TPS_random.py
+!resources/script_templates/TPS_sawtooth.py
+!resources/script_templates/TPS_sine.py
 
 # Claude Code working files (local only)
 CLAUDE.md

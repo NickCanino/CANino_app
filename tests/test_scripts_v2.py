@@ -129,7 +129,7 @@ class TemplateTests(unittest.TestCase):
         self.assertTrue(all(os.path.isfile(p) for _, p in tx_panel.list_templates()))
 
     def test_copy_template_adds_py_and_copies(self):
-        src = dict(tx_panel.list_templates())["TPS_constant_0.py"]
+        src = dict(tx_panel.list_templates())["TPS_sawtooth.py"]
         dest = os.path.join(h.WORKDIR, "my_script")  # no extension
         out = tx_panel.copy_template(src, dest)
         self.assertEqual(out, dest + ".py")
@@ -155,7 +155,7 @@ class NewFromTemplateDialogTests(unittest.TestCase):
         orig_save = QFileDialog.getSaveFileName
         try:
             QInputDialog.getItem = staticmethod(
-                lambda *a, **k: ("TPS_constant_0.py", True)
+                lambda *a, **k: ("TPS_sawtooth.py", True)
             )
             QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (dest, ""))
             self.mw.new_script_from_template()

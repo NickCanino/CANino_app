@@ -71,17 +71,30 @@ def run_spec(git_outputs, analysis=None, onedir=False):
 
 TEMPLATES = "resources/script_templates/TPS_sawtooth.py\nresources/script_templates/GLO_TPS_random.py"
 
+SHIPPED = sorted(
+    f"resources/script_templates/{t}"
+    for t in (
+        "GLO_TPS_random.py",
+        "GLO_TPS_sawtooth.py",
+        "TPS_random.py",
+        "TPS_sawtooth.py",
+        "TPS_sine.py",
+    )
+)
+
 
 class SpecTests(unittest.TestCase):
     def test_clean_tree_name_and_bundle(self):
-        """10.3: no src/*.py data copies; no payload scripts shipped."""
+        """10.3: no src/*.py data copies; only the chosen templates shipped."""
         calls = run_spec({"rev-parse": "abc1234", "status": "", "ls-files": TEMPLATES})
         with open(os.path.join(REPO, "VERSION"), encoding="utf-8") as f:
             version = f.read().strip()
         self.assertEqual(calls["EXE"][1]["name"], f"CANinoApp_v{version}_habc1234")
         datas = calls["Analysis"][1]["datas"]
         self.assertFalse([d for d in datas if d[0].startswith("src/")], datas)
-        self.assertFalse([d for d in datas if "script_templates" in d[0]], datas)
+        self.assertEqual(
+            sorted(d[0] for d in datas if "script_templates" in d[0]), SHIPPED
+        )
         for src, _ in datas:
             self.assertTrue(os.path.exists(os.path.join(REPO, src)), src)
 
@@ -92,8 +105,8 @@ class SpecTests(unittest.TestCase):
         )
         self.assertTrue(calls["EXE"][1]["name"].endswith("_habc1234-dirty"))
 
-    def test_no_template_shipped_without_git(self):
-        """Payload scripts stay out of the exe, with or without git (2026-10-20)."""
+    def test_same_templates_shipped_without_git(self):
+        """The template list does not depend on git (2026-10-21)."""
         calls = run_spec(
             {
                 "rev-parse": OSError("no git"),
@@ -105,7 +118,7 @@ class SpecTests(unittest.TestCase):
         shipped = [
             d[0] for d in calls["Analysis"][1]["datas"] if "script_templates" in d[0]
         ]
-        self.assertEqual(shipped, [])
+        self.assertEqual(sorted(shipped), SHIPPED)
 
 
 class QtTrimTests(unittest.TestCase):

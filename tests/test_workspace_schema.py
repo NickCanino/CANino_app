@@ -224,7 +224,7 @@ class LoadSaveTests(unittest.TestCase):
         """6.7: pre-1.5 paths are CWD-relative; the rename applies there too."""
         os.makedirs(os.path.join(self.dir, "res"))
         shutil.copy(
-            resource_path("resources/script_templates/TPS_blink.py"),
+            resource_path("resources/script_templates/TPS_random.py"),
             os.path.join(self.dir, "res", "TPS_blink.py"),
         )
         elsewhere = tempfile.mkdtemp()

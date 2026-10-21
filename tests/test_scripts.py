@@ -24,13 +24,14 @@ from test_tx_engine import FakeIf  # noqa: E402
 
 TEMPLATES = resource_path("resources/script_templates")
 LENGTHS = list(range(1, 9)) + [12, 16, 20, 24, 32, 48, 64]
-MARKED = (
-    "TPS_random.py",
-    "GLO_TPS_random.py",
-    "TPS_read_from_file.py",
-    "GLO_TPS_read_from_file.py",
+# The read-from-file templates are local-only since 2026-10-21 (not tracked,
+# not shipped): their tests run only where the files exist.
+REPLAY = tuple(
+    n
+    for n in ("TPS_read_from_file.py", "GLO_TPS_read_from_file.py")
+    if os.path.isfile(os.path.join(TEMPLATES, n))
 )
-REPLAY = ("TPS_read_from_file.py", "GLO_TPS_read_from_file.py")
+MARKED = ("TPS_random.py", "GLO_TPS_random.py") + REPLAY
 
 
 def template_names():
