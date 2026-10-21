@@ -29,7 +29,6 @@ Thumbs.db
 *.tmp
 *.log
 *.json
-*.dbc
 # Synthetic test fixtures only - never research data (TODO 11.2)
 !tests/fixtures/*.json
 !tests/fixtures/*.dbc
@@ -51,3 +50,4 @@ TODO.md
 PLAN.md
 # Local RX logs / traces
 resources/csv_logs/
+resources/dbc_files/
