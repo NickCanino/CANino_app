@@ -49,3 +49,5 @@ resources/script_templates/*.py
 CLAUDE.md
 TODO.md
 PLAN.md
+# Local RX logs / traces
+resources/csv_logs/
