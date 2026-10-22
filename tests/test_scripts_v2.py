@@ -88,7 +88,7 @@ class HotReloadTests(unittest.TestCase):
         h.dispose(self.mw)
 
     def payload_for(self, entry):
-        return self.mw._script_payload(entry)
+        return self.mw._script_payload(entry)[0]
 
     def test_linked_script_reloads_when_the_file_changes(self):
         write(self.path, CONST_SCRIPT.format(v=1))

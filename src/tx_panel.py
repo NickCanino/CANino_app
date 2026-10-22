@@ -196,6 +196,27 @@ def load_payload_function(path: str, module_name: str):
     return get_payload_fn
 
 
+def split_script_result(result):
+    """get_payload() result -> (payload, label) (TODO 3.17).
+
+    A script returns the payload bytes, None (= the manual payload), or a pair
+    (payload, label): a non-empty str label marks the frame as anomalous for
+    the Signal Plot; None or "" = a normal frame.
+    """
+    if not isinstance(result, tuple):
+        return result, None
+    if len(result) != 2:
+        raise ValueError(
+            f"get_payload() returned a {len(result)}-tuple, expected (payload, label)"
+        )
+    payload, label = result
+    if label is not None and not isinstance(label, str):
+        raise ValueError(
+            f"get_payload() label is {type(label).__name__}, expected str or None"
+        )
+    return payload, label or None
+
+
 class AddIdDialog(QDialog):
     """One form for a manual TX row, validated before it closes (TODO 2.3)."""
 
@@ -309,7 +330,7 @@ class TxPanelMixin:
         # script path -> mtime at load: a changed file is hot-reloaded (TODO 3.10)
         self._script_mtimes = {}
         # Every frame sent from the rows a Signal Plot shows (TODO 7.10): the TX
-        # and replay threads append (frame_id, is_ext, payload, time.time()),
+        # and replay threads append (frame_id, is_ext, payload, time.time(), label),
         # _tx_refresh hands them to the plots. Keys set by MainWindow.
         self._plot_tx_keys = frozenset()
         self._tx_samples = deque(maxlen=TX_SAMPLES_MAX)
@@ -707,7 +728,7 @@ class TxPanelMixin:
         )
         key = (msg.arbitration_id, bool(msg.is_extended_id))
         if not msg.is_remote_frame and key in self._plot_tx_keys:  # TODO 7.10
-            self._tx_samples.append((key[0], key[1], data, time.time()))
+            self._tx_samples.append((key[0], key[1], data, time.time(), None))
 
     def stop_replay(self):
         if self._replayer is not None:
@@ -1005,10 +1026,12 @@ class TxPanelMixin:
         self.tx_scheduler.retime(entry)
 
     def _script_payload(self, entry):
-        """Payload from the row's script or the global one; None = manual payload.
+        """(payload, label) from the row's script or the global one.
 
-        A linked script that is missing or fails raises: the frame is not sent
-        rather than silently sent with the manual payload (TODO 3.4).
+        payload None = manual payload; label = the script's anomaly label for
+        this frame, None when it gives none (TODO 3.17). A linked script that is
+        missing or fails raises: the frame is not sent rather than silently sent
+        with the manual payload (TODO 3.4).
         """
         frame_id, is_ext, dlc = entry.frame_id, entry.is_ext, entry.dlc
         script_path = entry.script_path
@@ -1038,11 +1061,11 @@ class TxPanelMixin:
                 self.global_script_cache[self.global_script_path] = get_payload_fn
                 self._remember_script_mtime(self.global_script_path)
         else:
-            return None
+            return None, None
 
-        payload = get_payload_fn(dlc, frame_id)
+        payload, label = split_script_result(get_payload_fn(dlc, frame_id))
         if payload is None:  # the script leaves this frame to the manual payload
-            return None
+            return None, label
         if not isinstance(payload, (bytes, bytearray)) or len(payload) != dlc:
             got = (
                 f"{len(payload)} bytes"
@@ -1050,7 +1073,7 @@ class TxPanelMixin:
                 else type(payload).__name__
             )
             raise ValueError(f"get_payload() returned {got}, the DLC is {dlc}")
-        return bytes(payload)
+        return bytes(payload), label
 
     def _send_row(self, entry):
         """TX thread: one frame of a row — script > global script > manual payload,
@@ -1066,7 +1089,7 @@ class TxPanelMixin:
             self.tx_model.set_error(entry, None)
             return
         try:
-            payload = self._script_payload(entry)
+            payload, label = self._script_payload(entry)
             if payload is None:  # 3. Manual payload
                 payload = entry.payload
             for signal, value in self._slider_overrides.get(entry.key, ()):
@@ -1079,7 +1102,9 @@ class TxPanelMixin:
         # The row shows it (and XMetro gets it) at the next refresh (TODO 2.12)
         self.send_can_message(frame_id, final_payload, dlc, entry.is_fd, is_ext)
         if entry.key in self._plot_tx_keys:  # every value to the plots (TODO 7.10)
-            self._tx_samples.append((frame_id, is_ext, final_payload, time.time()))
+            self._tx_samples.append(
+                (frame_id, is_ext, final_payload, time.time(), label)
+            )
         self.tx_model.set_error(entry, None)
         self.tx_model.set_payload(entry, final_payload)
 

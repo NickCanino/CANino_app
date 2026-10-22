@@ -287,9 +287,9 @@ class SignalPlotWindow(QWidget):
     def feed_samples(self, samples):
         """Append every sample of a plotted frame (TODO 7.10).
 
-        `samples` = [(frame_id, is_ext, data, timestamp)], timestamp in seconds
-        on the time.time() scale (PCAN hardware time is a constant offset from
-        it). Each value is placed at its own time, so none is lost between two
+        `samples` = [(frame_id, is_ext, data, timestamp[, label])], timestamp
+        in seconds on the time.time() scale (PCAN hardware time is a constant
+        offset from it); `label` = the TX script's anomaly label (TODO 3.17). Each value is placed at its own time, so none is lost between two
         refreshes; the axes are rescaled once per batch.
         """
         if not self.plots:
@@ -299,7 +299,7 @@ class SignalPlotWindow(QWidget):
             by_key.setdefault(plot.key(), []).append(plot)
         new = {}  # id(plot) -> [(t, value)] of this batch
         t_last = None
-        for frame_id, is_ext, data, ts in samples:
+        for frame_id, is_ext, data, ts, *_label in samples:
             matched = by_key.get((frame_id, bool(is_ext)))
             if not matched:
                 continue

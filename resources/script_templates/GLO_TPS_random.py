@@ -23,6 +23,8 @@
 #     get_payload(dlc: int, id: int) -> bytes | None
 # returning exactly `dlc` bytes (1-8 classic CAN, up to 64 CAN FD), or None to
 # send the row's manual payload instead. DBC sliders are applied afterwards.
+# It may also return (payload, label): a non-empty str label marks the frame as
+# anomalous and the Signal Plot highlights it (payload None = manual payload).
 
 import random
 

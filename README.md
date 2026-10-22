@@ -237,6 +237,11 @@ def get_payload(dlc: int, id: int) -> bytes | None:
 ```
 
 - Return exactly `dlc` bytes (`bytes` or `bytearray`), or `None` to send the row's manual payload.
+- **Anomaly label (1.7.2):** return `(payload, label)` instead to tag that frame — e.g.
+  `return payload, "spike"` while an injected anomaly lasts. A non-empty `str` marks the
+  frame as anomalous and the **Signal Plot** highlights it; `None` or `""` is a normal
+  frame, and `payload` may be `None` (the manual payload, labelled). Any other label type
+  is an error: the frame is not sent. Plain `bytes` / `None` returns work as before.
 - Every row linked to a script gets **its own instance** of it, even when several rows link the same file. Module-level variables (counters, file positions) therefore advance only when that row transmits.
 - The global script is a single instance shared by all rows: keep its state keyed by `id`.
 - `Start TX` starts every script from scratch. Enabling, disabling, adding or deleting other rows does not reset it.
