@@ -3,6 +3,33 @@
 All notable changes to CANino App. Versions from 1.4.0 on are PySide6 builds;
 1.3.x and earlier were PyQt6.
 
+## 1.7.2 — Signal Plot: every value, anomaly intervals
+
+Added
+- **Signal Plot shows every value**: every received and transmitted frame of a
+  plotted signal is drawn at its own frame time (before: the newest value per
+  frame every 100 ms, so a 10 ms signal showed 1 sample in 10 and a one-frame
+  spike could be missing). At high rates each pixel column draws its first,
+  lowest, highest and last value: no spike is lost and redraw cost stays flat
+  (≈ 25 ms per refresh for 4 signals at 1 ms).
+- **Anomaly labels in payload scripts**: `get_payload` may return
+  `(payload, label)`; a non-empty `str` marks that frame as anomalous. Plain
+  `bytes` / `None` returns work as before.
+- **Anomaly intervals in the Signal Plot**: each run of equally labelled TX
+  frames gets a red band (first to last labelled frame), a red onset line and
+  the label; one-frame anomalies show as a line.
+
+Changed
+- **Replay**: idle gaps longer than 10 s (was 1 s) are compressed, and
+  Tools → "Replay: Compress Idle Gaps > 10 s" turns it off (recorded timing);
+  Stop interrupts a long gap.
+- **TX buttons**: Start TX with a play icon, Stop TX red, Replay amber while
+  running, Mute/Unmute All; the status bar reads "BusLoad: x% [n fr/s]".
+- **TX table**: the payload column stretches; the script column fits the
+  linked names.
+- **Templates**: only five payload templates are tracked and shipped in the
+  exe (GLO_TPS_random/sawtooth, TPS_random/sawtooth/sine).
+
 ## 1.7.1 — UI polish
 
 Changed
