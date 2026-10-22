@@ -29,6 +29,11 @@ PLOT_BUCKETS slots and each slot draws its first, lowest, highest and last
 sample. A polyline through those covers the same pixels as one through every
 sample, so no spike is lost, while Qt holds at most ~4 points per slot at any
 frame rate (redrawing every point of a 1 ms signal costs tens of ms a refresh).
+
+Anomaly intervals (TODO 7.11): a TX script may label its frames (TODO 3.17);
+each run of equally labelled frames of a plotted frame ID is an interval, from
+its first to its last labelled sample, painted over the plot area as a red band
+with a line at the onset and the label at the top.
 """
 
 import os
@@ -36,8 +41,8 @@ import time
 from bisect import bisect_left
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import QPointF, Qt, Signal
-from PySide6.QtGui import QIcon, QPainter
+from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -56,6 +61,11 @@ from src.utils import format_can_id, resource_path
 PLOT_BUCKETS = 1500
 # Raw samples kept per series, to re-bucket when the window changes: a memory cap
 MAX_SAMPLES = 200_000
+
+# Anomaly bands (TODO 7.11): fill, onset line + label, narrowest band (px)
+ANOMALY_FILL = QColor(229, 57, 53, 70)
+ANOMALY_LINE = QColor(239, 83, 80)
+ANOMALY_MIN_PX = 2.0
 
 
 class Bucket:
@@ -81,6 +91,77 @@ class Bucket:
             QPointF(x, y)
             for x, y in sorted({self.first, self.low, self.high, self.last})
         ]
+
+
+class Anomaly:
+    """One labelled interval of a frame: its first..last labelled sample (plot s)."""
+
+    __slots__ = ("start", "end", "label", "open")
+
+    def __init__(self, t, label):
+        self.start = self.end = t
+        self.label = label
+        self.open = True  # the latest sample of the frame carried this label
+
+
+class AnomalyChartView(QChartView):
+    """A QChartView that paints the anomaly intervals over the plot area.
+
+    Painted by the view rather than as chart series: no legend entries, no
+    effect on the axes, and the bands scroll with the X axis for free. Band
+    and onset line go in drawBackground, under the curves (a one-frame spike
+    sits exactly on its onset line); the chart's own background is moved to
+    the view so it does not cover them. The label goes on top.
+    """
+
+    def __init__(self, chart, axis_x, bands):
+        super().__init__(chart)
+        self._axis_x = axis_x
+        self._bands = bands  # () -> [(start, end, text)] in plot seconds
+        self.setBackgroundBrush(chart.backgroundBrush())
+        chart.setBackgroundVisible(False)
+
+    def _layout(self):
+        """(bands, plot area in scene coordinates, px per second) or None."""
+        bands = self._bands()
+        if not bands:
+            return None
+        chart = self.chart()
+        area = chart.mapRectToScene(chart.plotArea())
+        lo, hi = self._axis_x.min(), self._axis_x.max()
+        if hi <= lo or area.width() <= 0:
+            return None
+        return bands, area, lo, area.width() / (hi - lo)
+
+    def drawBackground(self, painter, rect):
+        super().drawBackground(painter, rect)
+        layout = self._layout()
+        if layout is None:
+            return
+        bands, area, lo, scale = layout
+        painter.save()
+        painter.setClipRect(area)
+        painter.setPen(QPen(ANOMALY_LINE, 1.5))
+        for start, end, _ in bands:
+            x0 = area.left() + (start - lo) * scale
+            width = max((end - start) * scale, ANOMALY_MIN_PX)
+            painter.fillRect(QRectF(x0, area.top(), width, area.height()), ANOMALY_FILL)
+            painter.drawLine(QPointF(x0, area.top()), QPointF(x0, area.bottom()))
+        painter.restore()
+
+    def drawForeground(self, painter, rect):
+        super().drawForeground(painter, rect)
+        layout = self._layout()
+        if layout is None:
+            return
+        bands, area, lo, scale = layout
+        painter.save()
+        painter.setClipRect(area)
+        painter.setPen(ANOMALY_LINE)
+        for start, _, text in bands:
+            x0 = area.left() + (start - lo) * scale
+            painter.drawText(QPointF(x0 + 4, area.top() + 14), text)
+        painter.restore()
 
 
 class PlotSeries:
@@ -134,6 +215,8 @@ class SignalPlotWindow(QWidget):
         self.plots = []  # list[PlotSeries]
         self._t0 = None  # frame time of the first fed sample: X = 0
         self._t_last = 0.0  # X of the newest sample: the axis ends there
+        # (frame_id, is_ext) -> [Anomaly] in time order (TODO 7.11)
+        self.anomalies = {}
 
         layout = QVBoxLayout(self)
 
@@ -190,9 +273,9 @@ class SignalPlotWindow(QWidget):
         self.chart.addAxis(self.axis_y, Qt.AlignmentFlag.AlignLeft)
         self.axis_x.setRange(0, self.sp_window.value())
         self.axis_y.setRange(0, 1)
-        view = QChartView(self.chart)
-        view.setRenderHint(QPainter.RenderHint.Antialiasing)
-        layout.addWidget(view)
+        self.view = AnomalyChartView(self.chart, self.axis_x, self.anomaly_bands)
+        self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
+        layout.addWidget(self.view)
 
         self._fill_messages()
         self.cb_messages.currentIndexChanged.connect(self._fill_signals)
@@ -255,6 +338,9 @@ class SignalPlotWindow(QWidget):
         self.chart.removeSeries(plot.series)
         self.plots.remove(plot)
         self.cb_active.removeItem(self.cb_active.currentIndex())
+        keys = self.keys()
+        self.anomalies = {k: v for k, v in self.anomalies.items() if k in keys}
+        self.view.viewport().update()
         self.keys_changed.emit()
 
     def clear(self):
@@ -262,6 +348,8 @@ class SignalPlotWindow(QWidget):
             self.chart.removeSeries(plot.series)
         self.plots.clear()
         self.cb_active.clear()
+        self.anomalies = {}
+        self.view.viewport().update()
         self.keys_changed.emit()
 
     def keys(self):
@@ -289,8 +377,10 @@ class SignalPlotWindow(QWidget):
 
         `samples` = [(frame_id, is_ext, data, timestamp[, label])], timestamp
         in seconds on the time.time() scale (PCAN hardware time is a constant
-        offset from it); `label` = the TX script's anomaly label (TODO 3.17). Each value is placed at its own time, so none is lost between two
-        refreshes; the axes are rescaled once per batch.
+        offset from it). Each value is placed at its own time, so none is lost
+        between two refreshes; the axes are rescaled once per batch. `label`
+        (TX samples only) = the script's anomaly label or None: it opens,
+        extends or closes the frame's anomaly interval (TODO 7.11).
         """
         if not self.plots:
             return
@@ -299,14 +389,17 @@ class SignalPlotWindow(QWidget):
             by_key.setdefault(plot.key(), []).append(plot)
         new = {}  # id(plot) -> [(t, value)] of this batch
         t_last = None
-        for frame_id, is_ext, data, ts, *_label in samples:
-            matched = by_key.get((frame_id, bool(is_ext)))
+        for frame_id, is_ext, data, ts, *label in samples:
+            key = (frame_id, bool(is_ext))
+            matched = by_key.get(key)
             if not matched:
                 continue
             if self._t0 is None:
                 self._t0 = ts
             t = ts - self._t0
             t_last = t if t_last is None else max(t_last, t)
+            if label:
+                self._mark(key, t, label[0])
             payload = bytes(data)
             for plot in matched:
                 try:
@@ -331,6 +424,33 @@ class SignalPlotWindow(QWidget):
             changed.add(id(plot))
         self._t_last = max(self._t_last, t_last)
         self._rescale(self._t_last, changed)
+        if self.anomalies:
+            self.view.viewport().update()  # bands are not part of the scene
+
+    def _mark(self, key, t, label):
+        """One TX sample of a frame: extend, close or open its anomaly interval."""
+        intervals = self.anomalies.get(key)
+        cur = intervals[-1] if intervals and intervals[-1].open else None
+        if cur is not None and label == cur.label:
+            cur.end = t
+            return
+        if cur is not None:
+            cur.open = False  # ends at its last labelled sample
+        if label:
+            self.anomalies.setdefault(key, []).append(Anomaly(t, label))
+
+    def anomaly_bands(self):
+        """[(start, end, text)] of the intervals still in view. The text names
+        the frame when more than one frame is plotted."""
+        lo = self.axis_x.min()
+        many = len(self.keys()) > 1
+        bands = []
+        for (frame_id, is_ext), intervals in self.anomalies.items():
+            name = f" @ {format_can_id(frame_id, is_ext)}" if many else ""
+            bands.extend(
+                (a.start, a.end, a.label + name) for a in intervals if a.end >= lo
+            )
+        return bands
 
     def _bucket(self, plot, samples):
         """Fold samples (time order) into the plot's slots and replace, silently,
@@ -392,7 +512,14 @@ class SignalPlotWindow(QWidget):
         changed = set(changed)
         window = self.sp_window.value()
         x_lo = max(0.0, t - window)
-        # Trim samples and whole slots older than the window, find the Y extent
+        # Trim samples, slots and anomaly intervals older than the window, find
+        # the Y extent
+        for key, intervals in list(self.anomalies.items()):
+            keep = [a for a in intervals if a.end >= x_lo]
+            if keep:
+                self.anomalies[key] = keep
+            else:
+                del self.anomalies[key]
         lo = hi = None
         for plot in self.plots:
             drop = bisect_left(plot.xs, x_lo)
