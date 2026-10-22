@@ -30,6 +30,12 @@ Changed
 - **Templates**: only five payload templates are tracked and shipped in the
   exe (GLO_TPS_random/sawtooth, TPS_random/sawtooth/sine).
 
+Fixed
+- **TPS_sine template** keeps the script contract: exactly `dlc` bytes at any
+  DLC (zeros when the signal does not fit, instead of `None`), the
+  `get_payload` signature in its header, English comments. Its output at the
+  DLCs that fit is unchanged.
+
 ## 1.7.1 — UI polish
 
 Changed
