@@ -38,6 +38,7 @@ arduino_build/
 # Payload scripts: only the shipped templates are tracked (2026-10-21)
 ATTK*.py
 resources/script_templates/*.py
+resources/script_templates/with_Ettore/
 !resources/script_templates/GLO_TPS_random.py
 !resources/script_templates/GLO_TPS_sawtooth.py
 !resources/script_templates/TPS_random.py
