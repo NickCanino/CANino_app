@@ -20,16 +20,23 @@
 """Signal time plots (TODO 7.7): a scrolling line chart of DBC signals.
 
 A separate window, like XMetro. Each added signal is a QtCharts line series fed
-from the same received and transmitted frames XMetro uses; the X axis is time
-in seconds, kept to the last `window` seconds. QtCharts ships with PySide6, so
-no extra dependency is added.
+with every received and transmitted frame that carries it (TODO 7.10), each
+value at its own frame time; the X axis is time in seconds, kept to the last
+`window` seconds. QtCharts ships with PySide6, so no extra dependency is added.
+
+The line is drawn from time buckets (M4 decimation): the window is split into
+PLOT_BUCKETS slots and each slot draws its first, lowest, highest and last
+sample. A polyline through those covers the same pixels as one through every
+sample, so no spike is lost, while Qt holds at most ~4 points per slot at any
+frame rate (redrawing every point of a 1 ms signal costs tens of ms a refresh).
 """
 
 import os
 import time
+from bisect import bisect_left
 
 from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QPointF, Qt, Signal
 from PySide6.QtGui import QIcon, QPainter
 from PySide6.QtWidgets import (
     QComboBox,
@@ -45,13 +52,56 @@ from PySide6.QtWidgets import (
 from src.dbc_loader import decode_signal
 from src.utils import format_can_id, resource_path
 
-MAX_POINTS = 4000  # per series, a hard cap on memory
+# Time slots across the window (about one per pixel of a full-HD plot)
+PLOT_BUCKETS = 1500
+# Raw samples kept per series, to re-bucket when the window changes: a memory cap
+MAX_SAMPLES = 200_000
+
+
+class Bucket:
+    """One time slot of a series, reduced to the samples that draw it."""
+
+    __slots__ = ("idx", "first", "low", "high", "last", "n_pts")
+
+    def __init__(self, idx, x, y):
+        self.idx = idx  # slot number: int(x // slot width)
+        self.first = self.low = self.high = self.last = (x, y)
+        self.n_pts = 0  # points of this slot now in the QLineSeries
+
+    def add(self, x, y):
+        self.last = (x, y)
+        if y < self.low[1]:
+            self.low = (x, y)
+        elif y > self.high[1]:
+            self.high = (x, y)
+
+    def points(self):
+        """First, lowest, highest and last sample in time order, each once."""
+        return [
+            QPointF(x, y)
+            for x, y in sorted({self.first, self.low, self.high, self.last})
+        ]
 
 
 class PlotSeries:
-    """One plotted signal: its QLineSeries and the (frame_id, is_ext) it reads."""
+    """One plotted signal: its QLineSeries and the (frame_id, is_ext) it reads.
 
-    __slots__ = ("series", "frame_id", "is_ext", "signal", "label")
+    `xs`/`ys` hold every sample in the window (raw, up to MAX_SAMPLES); the
+    series holds the points of `buckets`, `count` of them, so trimming and the
+    Y range never read the points back from Qt.
+    """
+
+    __slots__ = (
+        "series",
+        "frame_id",
+        "is_ext",
+        "signal",
+        "label",
+        "xs",
+        "ys",
+        "buckets",
+        "count",
+    )
 
     def __init__(self, series, frame_id, is_ext, signal, label):
         self.series = series
@@ -59,12 +109,20 @@ class PlotSeries:
         self.is_ext = is_ext
         self.signal = signal
         self.label = label
+        self.xs = []
+        self.ys = []
+        self.buckets = []
+        self.count = 0
 
     def key(self):
         return (self.frame_id, self.is_ext)
 
 
 class SignalPlotWindow(QWidget):
+    # The set of plotted frames changed: the RX drain and the TX thread collect
+    # every sample of these frames only (keys())
+    keys_changed = Signal()
+
     def __init__(self, dbc_loader):
         super().__init__()
         name = os.path.basename(getattr(dbc_loader, "dbc_filename", "") or "")
@@ -74,7 +132,8 @@ class SignalPlotWindow(QWidget):
 
         self.dbc = dbc_loader
         self.plots = []  # list[PlotSeries]
-        self._t0 = None  # time.monotonic() of the first fed point
+        self._t0 = None  # frame time of the first fed sample: X = 0
+        self._t_last = 0.0  # X of the newest sample: the axis ends there
 
         layout = QVBoxLayout(self)
 
@@ -138,6 +197,8 @@ class SignalPlotWindow(QWidget):
         self._fill_messages()
         self.cb_messages.currentIndexChanged.connect(self._fill_signals)
         self._fill_signals()
+        self._bucket_w = self.sp_window.value() / PLOT_BUCKETS  # slot width (s)
+        self.sp_window.valueChanged.connect(self._window_changed)
 
     # --- DBC combos ---
 
@@ -184,6 +245,7 @@ class SignalPlotWindow(QWidget):
         plot = PlotSeries(series, msg.frame_id, bool(msg.is_extended_frame), sig, label)
         self.plots.append(plot)
         self.cb_active.addItem(label)
+        self.keys_changed.emit()
 
     def remove_selected(self):
         label = self.cb_active.currentText()
@@ -193,12 +255,18 @@ class SignalPlotWindow(QWidget):
         self.chart.removeSeries(plot.series)
         self.plots.remove(plot)
         self.cb_active.removeItem(self.cb_active.currentIndex())
+        self.keys_changed.emit()
 
     def clear(self):
         for plot in self.plots:
             self.chart.removeSeries(plot.series)
         self.plots.clear()
         self.cb_active.clear()
+        self.keys_changed.emit()
+
+    def keys(self):
+        """The (frame_id, is_ext) of every plotted signal."""
+        return {p.key() for p in self.plots}
 
     def set_dbc(self, dbc_loader):
         """Follow a DBC change (TODO 7.8 parallel): drop series, refill combos."""
@@ -211,49 +279,160 @@ class SignalPlotWindow(QWidget):
 
     # --- feed (GUI thread) ---
 
-    def feed(self, frame_id, is_ext, data):
-        """Append the decoded value of every series reading this frame."""
-        key = (frame_id, bool(is_ext))
-        matched = [p for p in self.plots if p.key() == key]
-        if not matched:
-            return
-        now = time.monotonic()
-        if self._t0 is None:
-            self._t0 = now
-        t = now - self._t0
-        for plot in matched:
-            try:
-                value = decode_signal(bytes(data), plot.signal)
-            except Exception:
-                continue
-            plot.series.append(t, float(value))
-            if plot.series.count() > MAX_POINTS:
-                plot.series.removePoints(0, plot.series.count() - MAX_POINTS)
-        self._rescale(t)
+    def feed(self, frame_id, is_ext, data, timestamp=None):
+        """One frame (now, unless `timestamp` is given); see feed_samples."""
+        ts = time.time() if timestamp is None else timestamp
+        self.feed_samples([(frame_id, is_ext, data, ts)])
 
-    def _rescale(self, t):
+    def feed_samples(self, samples):
+        """Append every sample of a plotted frame (TODO 7.10).
+
+        `samples` = [(frame_id, is_ext, data, timestamp)], timestamp in seconds
+        on the time.time() scale (PCAN hardware time is a constant offset from
+        it). Each value is placed at its own time, so none is lost between two
+        refreshes; the axes are rescaled once per batch.
+        """
+        if not self.plots:
+            return
+        by_key = {}
+        for plot in self.plots:
+            by_key.setdefault(plot.key(), []).append(plot)
+        new = {}  # id(plot) -> [(t, value)] of this batch
+        t_last = None
+        for frame_id, is_ext, data, ts in samples:
+            matched = by_key.get((frame_id, bool(is_ext)))
+            if not matched:
+                continue
+            if self._t0 is None:
+                self._t0 = ts
+            t = ts - self._t0
+            t_last = t if t_last is None else max(t_last, t)
+            payload = bytes(data)
+            for plot in matched:
+                try:
+                    value = float(decode_signal(payload, plot.signal))
+                except Exception:
+                    continue
+                new.setdefault(id(plot), []).append((t, value))
+        if t_last is None:
+            return
+        changed = set()
+        for plot in self.plots:
+            batch = new.get(id(plot))
+            if not batch:
+                continue
+            plot.xs.extend(t for t, _ in batch)
+            plot.ys.extend(v for _, v in batch)
+            excess = len(plot.xs) - MAX_SAMPLES
+            if excess > 0:
+                del plot.xs[:excess]
+                del plot.ys[:excess]
+            self._bucket(plot, batch)
+            changed.add(id(plot))
+        self._t_last = max(self._t_last, t_last)
+        self._rescale(self._t_last, changed)
+
+    def _bucket(self, plot, samples):
+        """Fold samples (time order) into the plot's slots and replace, silently,
+        the series points of every slot they touched (the last one and new ones).
+
+        QtCharts rebuilds the whole line on every point signal, so the points
+        change with signals blocked and _rescale redraws once per batch.
+        """
+        w = self._bucket_w
+        buckets = plot.buckets
+        last = buckets[-1] if buckets else None
+        first = len(buckets)  # first slot whose points change
+        if last is not None and int(samples[0][0] // w) <= last.idx:
+            first -= 1
+        for x, y in samples:
+            idx = int(x // w)
+            if last is not None and idx <= last.idx:  # same slot (or late sample)
+                last.add(x, y)
+            else:
+                last = Bucket(idx, x, y)
+                buckets.append(last)
+        old = 0
+        points = []
+        for b in buckets[first:]:
+            old += b.n_pts
+            pts = b.points()
+            b.n_pts = len(pts)
+            points.extend(pts)
+        series = plot.series
+        series.blockSignals(True)
+        if old:
+            series.removePoints(plot.count - old, old)
+        series.append(points)
+        series.blockSignals(False)
+        plot.count += len(points) - old
+
+    def _rebuild(self, plot):
+        """Re-slot every kept sample: the slot width changed with the window."""
+        plot.buckets = []
+        plot.count = 0
+        plot.series.blockSignals(True)
+        plot.series.clear()
+        plot.series.blockSignals(False)
+        if plot.xs:
+            self._bucket(plot, list(zip(plot.xs, plot.ys)))
+
+    def _window_changed(self):
+        self._bucket_w = self.sp_window.value() / PLOT_BUCKETS
+        for plot in self.plots:
+            self._rebuild(plot)
+        self._rescale(self._t_last, {id(p) for p in self.plots})
+
+    def _rescale(self, t, changed=()):
+        """Scroll X to end at `t`, trim what left the window, fit Y.
+
+        `changed` = ids of the plots whose points were changed silently: an
+        axis change redraws every series, otherwise they are redrawn here.
+        """
+        changed = set(changed)
         window = self.sp_window.value()
         x_lo = max(0.0, t - window)
-        self.axis_x.setRange(x_lo, max(window, t))
-        # Trim points older than the window and find the Y extent of what's shown
+        # Trim samples and whole slots older than the window, find the Y extent
         lo = hi = None
         for plot in self.plots:
-            points = plot.series.points()
-            drop = 0
-            for p in points:
-                if p.x() < x_lo:
-                    drop += 1
-                else:
-                    break
+            drop = bisect_left(plot.xs, x_lo)
             if drop:
-                plot.series.removePoints(0, drop)
-                points = points[drop:]
-            for p in points:
-                lo = p.y() if lo is None else min(lo, p.y())
-                hi = p.y() if hi is None else max(hi, p.y())
-        if lo is None:
-            return
-        if lo == hi:
-            lo, hi = lo - 1, hi + 1
-        margin = (hi - lo) * 0.05
-        self.axis_y.setRange(lo - margin, hi + margin)
+                del plot.xs[:drop]
+                del plot.ys[:drop]
+            n = pts = 0
+            for b in plot.buckets:
+                if b.last[0] >= x_lo:
+                    break
+                n += 1
+                pts += b.n_pts
+            if n:
+                del plot.buckets[:n]
+                plot.series.blockSignals(True)
+                plot.series.removePoints(0, pts)
+                plot.series.blockSignals(False)
+                plot.count -= pts
+                changed.add(id(plot))
+            if plot.buckets:
+                p_lo = min(b.low[1] for b in plot.buckets)
+                p_hi = max(b.high[1] for b in plot.buckets)
+                lo = p_lo if lo is None else min(lo, p_lo)
+                hi = p_hi if hi is None else max(hi, p_hi)
+        before = self._ranges()
+        self.axis_x.setRange(x_lo, max(window, t))
+        if lo is not None:
+            if lo == hi:
+                lo, hi = lo - 1, hi + 1
+            margin = (hi - lo) * 0.05
+            self.axis_y.setRange(lo - margin, hi + margin)
+        if changed and self._ranges() == before:
+            for plot in self.plots:
+                if id(plot) in changed:
+                    plot.series.pointsReplaced.emit()  # one redraw from all points
+
+    def _ranges(self):
+        return (
+            self.axis_x.min(),
+            self.axis_x.max(),
+            self.axis_y.min(),
+            self.axis_y.max(),
+        )

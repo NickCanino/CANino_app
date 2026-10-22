@@ -367,10 +367,12 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         # RX controls
         self.rx_window = ReceivedFramesWindow(self.dbc)
         # The RX window drains the RX queue in the GUI thread and hands the
-        # latest payload of each frame to the XMetro gauges
+        # latest payload of each frame to the XMetro gauges, every sample of
+        # the plotted frames to the Signal Plots (TODO 7.10)
         self.xmetro_windows = []
         self.signal_plot_windows = []
         self.rx_window.frames_received.connect(self._feed_latest)
+        self.rx_window.samples_received.connect(self._feed_plots)
         rx_group = QGroupBox()
         rx_group.setStyleSheet(
             "QGroupBox { border: 2px solid #2196F3; border-radius: 5px; }"
@@ -651,18 +653,33 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
 
     def _feed_latest(self, latest):
         """GUI thread, after each RX drain: the newest payload of each frame (TODO 7.1)."""
-        if self.xmetro_windows or self.signal_plot_windows:
+        if self.xmetro_windows:
             for (frame_id, is_ext), data in latest.items():
                 self._feed_gauges(frame_id, is_ext, data)
 
     def _feed_gauges(self, frame_id, is_ext, data):
-        """GUI thread: update every XMetro gauge and signal plot showing this frame."""
+        """GUI thread: update every XMetro gauge showing this frame."""
         for window in self.xmetro_windows:
             if shiboken6.isValid(window):
                 window.feed(frame_id, is_ext, data)
+
+    def _feed_plots(self, samples):
+        """GUI thread: every RX or TX sample of the plotted frames (TODO 7.10)."""
         for window in self.signal_plot_windows:
             if shiboken6.isValid(window):
-                window.feed(frame_id, is_ext, data)
+                window.feed_samples(samples)
+
+    def _update_plot_keys(self):
+        """The frames any open Signal Plot shows: only these are collected, in
+        full, by the RX drain and the TX thread (TODO 7.10)."""
+        keys = frozenset(
+            key
+            for window in self.signal_plot_windows
+            if shiboken6.isValid(window)
+            for key in window.keys()
+        )
+        self.rx_window.sample_keys = keys
+        self._plot_tx_keys = keys
 
     def _apply_dbc(self, dbc):
         """Set the DBC everywhere it is used: RX names + decoded panel, and any
@@ -737,6 +754,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
         self.signal_plot_windows[:] = [
             w for w in self.signal_plot_windows if id(w) != window_id
         ]
+        self._update_plot_keys()
 
     def closeEvent(self, event):
         """Release TX, the PCAN channel, the log file and XMetro windows (TODO 1.9)."""
@@ -791,6 +809,7 @@ class MainWindow(TxPanelMixin, SliderPanelMixin, WorkspaceMixin, QMainWindow):
             plot = SignalPlotWindow(self.dbc)
             plot.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
             plot.destroyed.connect(lambda _=None, wid=id(plot): self._forget_plot(wid))
+            plot.keys_changed.connect(self._update_plot_keys)
             self.signal_plot_windows.append(plot)
             plot.show()
         except Exception as e:

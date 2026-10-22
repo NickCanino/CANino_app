@@ -54,6 +54,8 @@ import glob
 import logging
 import os
 import shutil
+import time
+from collections import deque
 
 from src.dbc_loader import (
     load_dbc,
@@ -87,6 +89,9 @@ from src.tx_model import (
 
 # QSettings key of the Tools-menu replay choice (on = shrink long idle gaps)
 REPLAY_GAPS_KEY = "replay_compress_gaps"
+
+# Sent samples waiting for the Signal Plots: a cap if the GUI stalls (TODO 7.10)
+TX_SAMPLES_MAX = 100_000
 
 # Button look while an activity runs: TX red, replay amber
 TX_RUNNING_STYLE = (
@@ -303,6 +308,11 @@ class TxPanelMixin:
         self.script_instances = {}
         # script path -> mtime at load: a changed file is hot-reloaded (TODO 3.10)
         self._script_mtimes = {}
+        # Every frame sent from the rows a Signal Plot shows (TODO 7.10): the TX
+        # and replay threads append (frame_id, is_ext, payload, time.time()),
+        # _tx_refresh hands them to the plots. Keys set by MainWindow.
+        self._plot_tx_keys = frozenset()
+        self._tx_samples = deque(maxlen=TX_SAMPLES_MAX)
 
         # Button to ADD IDs in TX
         self.btn_add_id = QPushButton("Add ID")
@@ -686,14 +696,18 @@ class TxPanelMixin:
         can_if = self.can_if
         if can_if is None:
             return
+        data = bytes(msg.data)
         can_if.send_frame(
             msg.arbitration_id,
-            bytes(msg.data),
+            data,
             msg.dlc,
             msg.is_fd,
             is_ext=msg.is_extended_id,
             is_rtr=msg.is_remote_frame,
         )
+        key = (msg.arbitration_id, bool(msg.is_extended_id))
+        if not msg.is_remote_frame and key in self._plot_tx_keys:  # TODO 7.10
+            self._tx_samples.append((key[0], key[1], data, time.time()))
 
     def stop_replay(self):
         if self._replayer is not None:
@@ -1064,6 +1078,8 @@ class TxPanelMixin:
 
         # The row shows it (and XMetro gets it) at the next refresh (TODO 2.12)
         self.send_can_message(frame_id, final_payload, dlc, entry.is_fd, is_ext)
+        if entry.key in self._plot_tx_keys:  # every value to the plots (TODO 7.10)
+            self._tx_samples.append((frame_id, is_ext, final_payload, time.time()))
         self.tx_model.set_error(entry, None)
         self.tx_model.set_payload(entry, final_payload)
 
@@ -1103,17 +1119,22 @@ class TxPanelMixin:
             }
 
     def _tx_refresh(self):
-        """GUI thread, ~10 Hz: repaint the rows sent since the last refresh and
-        feed their payloads to the XMetro gauges (TODO 7.2)."""
+        """GUI thread, ~10 Hz: repaint the rows sent since the last refresh,
+        feed their payloads to the XMetro gauges (TODO 7.2) and every sent
+        sample of the plotted frames to the Signal Plots (TODO 7.10)."""
         if self._script_mtimes:
             self._check_script_reloads()
         if self._replayer is not None:
             self._poll_replay()
         sent = self.tx_model.flush()
-        if self.xmetro_windows or self.signal_plot_windows:
+        if self.xmetro_windows:
             for entry in sent:
                 if entry.error is None:
                     self._feed_gauges(entry.frame_id, entry.is_ext, entry.payload)
+        queue = self._tx_samples
+        if queue:
+            # Only what is queued now: the TX thread keeps appending meanwhile
+            self._feed_plots([queue.popleft() for _ in range(len(queue))])
 
     def _row_failed(self, entry, e):
         """Frame not sent: show it on the row, log each distinct error once (TODO 3.3)."""

@@ -75,6 +75,9 @@ LOG_FILTERS = ["RX statistics CSV (*.csv)"] + [
 class ReceivedFramesWindow(QWidget):
     # After each drain: {(frame_id, is_ext): latest payload} for the XMetro gauges
     frames_received = Signal(object)
+    # After each drain: [(frame_id, is_ext, data, timestamp)], every received
+    # frame of `sample_keys`, in arrival order, for the Signal Plots (TODO 7.10)
+    samples_received = Signal(object)
 
     def __init__(self, dbc=None):
         super().__init__()
@@ -96,6 +99,8 @@ class ReceivedFramesWindow(QWidget):
         # Frames seen since the last take_frame_counts(): received, own echoes
         self.frames_rx = 0
         self.frames_tx = 0
+        # (frame_id, is_ext) of the frames a Signal Plot shows (set by MainWindow)
+        self.sample_keys = frozenset()
 
         layout = QVBoxLayout()
 
@@ -358,6 +363,8 @@ class ReceivedFramesWindow(QWidget):
         writer = self.csv_writer if logging_on else None
         trace = self.trace if logging_on else None
         latest = {}
+        sample_keys = self.sample_keys
+        samples = []
         nominal_bits = data_bits = 0
         frames_rx = frames_tx = 0
         for _ in range(n):
@@ -380,7 +387,10 @@ class ReceivedFramesWindow(QWidget):
             dlc = max(0, min(int(len(data) if dlc is None else dlc), 64))
             row = model.row_for(frame_id, is_ext)
             row.add(data, dlc, timestamp)
-            latest[(frame_id, is_ext)] = data
+            key = (frame_id, is_ext)
+            latest[key] = data
+            if sample_keys and key in sample_keys:
+                samples.append((frame_id, is_ext, data, timestamp))
             if writer is not None:
                 self._log_row(writer, row, timestamp)
         self.busload_nominal_bits += nominal_bits
@@ -398,6 +408,8 @@ class ReceivedFramesWindow(QWidget):
                 trace.flush()
             except Exception as e:
                 log_throttled("Trace", e)
+        if samples:
+            self.samples_received.emit(samples)
         self.frames_received.emit(latest)
         # Refresh the decoded panel if the selected row just got a new payload
         if self._dbc_messages and self.decoded.rowCount():

@@ -265,7 +265,7 @@ def get_payload(dlc: int, id: int) -> bytes | None:
 With a DBC loaded, two menu windows show decoded signals live, fed by received and transmitted frames alike:
 
 - **XMetro** — up to 4×5 draggable semicircular gauges, one DBC signal each.
-- **Signal Plot** — a scrolling time chart: pick a message and signal, press `Add`, and the value is plotted over time. Add several signals to one chart, set how many seconds of history to keep, and remove a signal from the list on the right.
+- **Signal Plot** — a scrolling time chart: pick a message and signal, press `Add`, and the value is plotted over time. Add several signals to one chart, set how many seconds of history to keep, and remove a signal from the list on the right. Every received and transmitted frame of a plotted signal is drawn at its own time, so even a one-frame spike shows up; at high frame rates each pixel column draws the first, lowest, highest and last value it holds.
 
 Both follow `Load` / `Load DBC`: changing the DBC updates their available signals.
 
