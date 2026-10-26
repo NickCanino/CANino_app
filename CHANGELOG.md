@@ -27,6 +27,10 @@ Changed
   running, Mute/Unmute All; the status bar reads "BusLoad: x% [n fr/s]".
 - **TX table**: the payload column stretches; the script column fits the
   linked names.
+- **DBC Decoded Signals panel**: every column can be resized by dragging,
+  and the columns always fill the panel (an inner edge moves like a splitter,
+  the right wall stays put). Defaults: Unit as wide as its header, Value
+  80 px, Signal the rest.
 - **Templates**: only five payload templates are tracked and shipped in the
   exe (GLO_TPS_random/sawtooth, TPS_random/sawtooth/sine).
 
