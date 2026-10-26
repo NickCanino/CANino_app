@@ -35,7 +35,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QHeaderView,
 )
-from PySide6.QtCore import Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, Qt, QTimer, Signal
 import os
 import time
 import csv
@@ -65,6 +65,8 @@ from src.trace_log import TRACE_FORMATS, TraceLog
 RX_DRAIN_MS = 100
 # Width of the filter box (px)
 FILTER_WIDTH = 200
+# Default width of the decoded panel's Value column (px)
+DECODED_VALUE_WIDTH = 80
 
 # File-dialog filters of Link Log: CANino's CSV first, then the traces (TODO 5.9)
 LOG_FILTERS = ["RX statistics CSV (*.csv)"] + [
@@ -265,9 +267,27 @@ class ReceivedFramesWindow(QWidget):
         self.decoded.setHorizontalHeaderLabels(["Signal", "Value", "Unit"])
         self.decoded.verticalHeader().setVisible(False)
         self.decoded.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.decoded.horizontalHeader().setSectionResizeMode(
-            0, QHeaderView.ResizeMode.Stretch
+        # Every column is user-resizable, but together they always fill the
+        # panel exactly (no blank space, no scrolling): an inner edge moves like
+        # a splitter, the right wall is fixed, Signal absorbs a panel resize.
+        # Defaults: Unit fits its header text, Value is DECODED_VALUE_WIDTH
+        header = self.decoded.horizontalHeader()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(False)
+        margin = self.style().pixelMetric(QStyle.PixelMetric.PM_HeaderMargin)
+        self._decoded_unit_width = (
+            header.fontMetrics().horizontalAdvance("Unit") + 2 * margin
         )
+        header.setMinimumSectionSize(
+            min(header.minimumSectionSize(), self._decoded_unit_width)
+        )
+        self.decoded.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._decoded_fitting = False
+        self.decoded.setColumnWidth(1, DECODED_VALUE_WIDTH)
+        self.decoded.setColumnWidth(2, self._decoded_unit_width)
+        header.sectionResized.connect(self._decoded_section_resized)
+        self.decoded.viewport().installEventFilter(self)
+        self._fit_decoded_columns()
         self.decoded.setToolTip(
             "DBC signals of the selected RX row, decoded from its latest payload. "
             "Load a DBC to populate it."
@@ -475,6 +495,52 @@ class ReceivedFramesWindow(QWidget):
             )
             for col, text in enumerate((sig.name, shown, sig.unit or "")):
                 self.decoded.setItem(i, col, QTableWidgetItem(text))
+
+    def _set_decoded_widths(self, widths):
+        """Apply decoded-panel column widths without re-entering the drag handler."""
+        self._decoded_fitting = True
+        try:
+            for col, width in enumerate(widths):
+                self.decoded.setColumnWidth(col, width)
+        finally:
+            self._decoded_fitting = False
+
+    def _fit_decoded_columns(self):
+        """Make the decoded-panel columns fill the viewport exactly: Signal takes
+        the slack; a deficit beyond its minimum goes to Value, then Unit."""
+        minimum = self.decoded.horizontalHeader().minimumSectionSize()
+        widths = [self.decoded.columnWidth(col) for col in range(3)]
+        slack = self.decoded.viewport().width() - sum(widths)
+        for col in range(3):
+            widths[col] = max(widths[col] + slack, minimum)
+            slack = self.decoded.viewport().width() - sum(widths)
+            if slack >= 0:
+                break
+        self._set_decoded_widths(widths)
+
+    def _decoded_section_resized(self, col, old, new):
+        """A column edge dragged by the user: the column to its right gives or
+        takes the difference (splitter-like); the right wall does not move."""
+        if self._decoded_fitting:
+            return
+        minimum = self.decoded.horizontalHeader().minimumSectionSize()
+        widths = [self.decoded.columnWidth(c) for c in range(3)]
+        if col < 2:
+            # Do not squeeze the neighbour below the minimum
+            room = widths[col + 1] - minimum
+            grow = min(new - old, room)
+            widths[col] = old + grow
+            widths[col + 1] -= grow
+        else:
+            widths[col] = old
+        self._set_decoded_widths(widths)
+        self._fit_decoded_columns()
+
+    def eventFilter(self, obj, event):
+        """Keep the decoded-panel columns filling the panel while it is resized."""
+        if obj is self.decoded.viewport() and event.type() == QEvent.Type.Resize:
+            self._fit_decoded_columns()
+        return super().eventFilter(obj, event)
 
     def _show_log_name(self, path):
         """Link Log button: the linked file's name (green), like a linked script."""
