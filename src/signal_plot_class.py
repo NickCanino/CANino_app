@@ -26,8 +26,10 @@ value at its own frame time; the X axis is time in seconds, kept to the last
 
 The X axis is labelled with the computer's local clock (hh:mm:ss): it starts at
 the first sample's time and has a label on every multiple of 5 s of the clock
-(a wider multiple when 5 s labels would overlap). Internally X stays in seconds
-since that first sample, so the values keep their precision.
+(a wider multiple when 5 s labels would overlap), drawn as a solid grid line.
+Between them a thin dashed line marks every second (a wider sub-step when 1 s
+lines would crowd), the same dashed pen as the Y grid. Internally X stays in
+seconds since that first sample, so the values keep their precision.
 
 The line is drawn from time buckets (M4 decimation): the window is split into
 PLOT_BUCKETS slots and each slot draws its first, lowest, highest and last
@@ -85,6 +87,20 @@ ANOMALY_MIN_PX = 2.0
 TICK_STEPS_S = (5, 10, 15, 30, 60, 120, 300, 600)
 TICK_MIN_GAP_PX = 16
 TIME_TITLE = "Time (hh:mm:ss)"
+# Dashed sub-grid between the clock labels (every second, or the first wider
+# sub-step that divides the label step and keeps the lines MINOR_MIN_PX apart);
+# the Y grid lines use the same pen
+MINOR_STEPS_S = (1, 2, 5, 10, 30, 60, 120)
+MINOR_MIN_PX = 20
+MINOR_GRID_COLOR = QColor(134, 135, 140, 110)  # the dark theme's grid, dimmed
+MINOR_GRID_DASH = [3, 4]  # dash, gap (in pen widths)
+
+
+def minor_grid_pen():
+    pen = QPen(MINOR_GRID_COLOR, 1)
+    pen.setCosmetic(True)
+    pen.setDashPattern(MINOR_GRID_DASH)
+    return pen
 
 
 def tick_times(t_lo, t_hi, step):
@@ -139,7 +155,8 @@ class Anomaly:
 
 
 class AnomalyChartView(QChartView):
-    """A QChartView that paints the anomaly intervals over the plot area.
+    """A QChartView that paints the anomaly intervals over the plot area, and
+    the dashed sub-grid between the clock labels under everything else.
 
     Painted by the view rather than as chart series: no legend entries, no
     effect on the axes, and the bands scroll with the X axis for free. Band
@@ -148,33 +165,44 @@ class AnomalyChartView(QChartView):
     the view so it does not cover them. The label goes on top.
     """
 
-    def __init__(self, chart, axis_x, bands):
+    def __init__(self, chart, axis_x, bands, minor_xs=lambda: []):
         super().__init__(chart)
         self._axis_x = axis_x
         self._bands = bands  # () -> [(start, end, text)] in plot seconds
+        self._minor_xs = minor_xs  # () -> [x] of the dashed sub-grid lines
+        self._minor_pen = minor_grid_pen()
         self.setBackgroundBrush(chart.backgroundBrush())
         chart.setBackgroundVisible(False)
 
-    def _layout(self):
-        """(bands, plot area in scene coordinates, px per second) or None."""
-        bands = self._bands()
-        if not bands:
-            return None
+    def _plot_frame(self):
+        """(plot area in scene coordinates, X at its left edge, px per second)
+        or None while the chart is not laid out."""
         chart = self.chart()
         area = chart.mapRectToScene(chart.plotArea())
         lo, hi = self._axis_x.min(), self._axis_x.max()
         if hi <= lo or area.width() <= 0:
             return None
-        return bands, area, lo, area.width() / (hi - lo)
+        return area, lo, area.width() / (hi - lo)
+
+    def _layout(self):
+        """(bands, plot area, X at its left edge, px per second) or None."""
+        bands = self._bands()
+        frame = self._plot_frame() if bands else None
+        return None if frame is None else (bands, *frame)
 
     def drawBackground(self, painter, rect):
         super().drawBackground(painter, rect)
-        layout = self._layout()
-        if layout is None:
+        frame = self._plot_frame()
+        if frame is None:
             return
-        bands, area, lo, scale = layout
+        area, lo, scale = frame
         painter.save()
         painter.setClipRect(area)
+        painter.setPen(self._minor_pen)
+        for x in self._minor_xs():
+            px = area.left() + (x - lo) * scale
+            painter.drawLine(QPointF(px, area.top()), QPointF(px, area.bottom()))
+        bands = self._bands()
         painter.setPen(QPen(ANOMALY_LINE, 1.5))
         for start, end, _ in bands:
             x0 = area.left() + (start - lo) * scale
@@ -249,6 +277,7 @@ class SignalPlotWindow(QWidget):
         self.plots = []  # list[PlotSeries]
         self._t0 = None  # frame time of the first fed sample: X = 0
         self._ticks = None  # (step, tick times) now on the X axis
+        self._minor_step = None  # s between the dashed sub-grid lines, or None
         self._t_last = 0.0  # X of the newest sample: the axis ends there
         # (frame_id, is_ext) -> [Anomaly] in time order (TODO 7.11)
         self.anomalies = {}
@@ -310,9 +339,12 @@ class SignalPlotWindow(QWidget):
         self.axis_y.setTitleText("Value")
         self.chart.addAxis(self.axis_x, Qt.AlignmentFlag.AlignBottom)
         self.chart.addAxis(self.axis_y, Qt.AlignmentFlag.AlignLeft)
+        self.axis_y.setGridLinePen(minor_grid_pen())  # after addAxis: the theme
         self.axis_x.setRange(0, self.sp_window.value())
         self.axis_y.setRange(0, 1)
-        self.view = AnomalyChartView(self.chart, self.axis_x, self.anomaly_bands)
+        self.view = AnomalyChartView(
+            self.chart, self.axis_x, self.anomaly_bands, self.minor_grid_xs
+        )
         # The clock-label step depends on the plot width
         self.chart.plotAreaChanged.connect(self._update_ticks)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -593,7 +625,9 @@ class SignalPlotWindow(QWidget):
                 lo, hi = lo - 1, hi + 1
             margin = (hi - lo) * 0.05
             self.axis_y.setRange(lo - margin, hi + margin)
-        if changed and self._ranges() == before:
+        if self._ranges() != before:
+            self.view.viewport().update()  # the sub-grid is not part of the scene
+        elif changed:
             for plot in self.plots:
                 if id(plot) in changed:
                     plot.series.pointsReplaced.emit()  # one redraw from all points
@@ -616,6 +650,15 @@ class SignalPlotWindow(QWidget):
             if (hi - lo) / s * (label_px + TICK_MIN_GAP_PX) <= width:
                 step = s
                 break
+        span_px = width / (hi - lo) if width > 0 else 0.0  # px per second
+        self._minor_step = next(
+            (
+                m
+                for m in MINOR_STEPS_S
+                if m < step and step % m == 0 and m * span_px >= MINOR_MIN_PX
+            ),
+            None,
+        )
         ticks = tick_times(lo, hi, step)
         if self._ticks == (step, ticks):
             return
@@ -627,6 +670,15 @@ class SignalPlotWindow(QWidget):
             axis.append(clock_label(t), t - self._t0)
         start = datetime.fromtimestamp(self._t0).strftime("%H:%M:%S.%f")[:-3]
         axis.setTitleText(f"{TIME_TITLE} - first sample {start}")
+
+    def minor_grid_xs(self):
+        """X (plot s) of the dashed sub-grid lines in view: every multiple of
+        the sub-step of the clock that is not a labelled tick."""
+        if self._t0 is None or self._ticks is None or self._minor_step is None:
+            return []
+        step = self._ticks[0]
+        lo, hi = self._t0 + self.axis_x.min(), self._t0 + self.axis_x.max()
+        return [t - self._t0 for t in tick_times(lo, hi, self._minor_step) if t % step]
 
     def _ranges(self):
         return (

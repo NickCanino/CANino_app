@@ -170,6 +170,25 @@ class PlotWindowTests(unittest.TestCase):
         self.assertGreater(step, 5)
         self.assertEqual(len(self.w.axis_x.categoriesLabels()), len(ticks))
 
+    def test_dashed_sub_grid_every_second(self):
+        """7.13: a dashed line every 1 s between the 5 s labels; dashed Y grid."""
+        self.w.resize(1100, 500)
+        self.w.show()
+        h.app.processEvents()  # lay the chart out: the sub-step needs its width
+        self.add("MSG_A", "SIG_X")
+        t0 = 1_800_000_002.4
+        self.w.feed_samples([(0x100, False, frame(1), t0 + i) for i in range(41)])
+        self.assertEqual(self.w._minor_step, 1)
+        minor = [round(x + t0) for x in self.w.minor_grid_xs()]
+        self.assertEqual(len(minor), 24)  # 30 s, minus the 6 labelled ticks
+        self.assertTrue(all(t % 5 for t in minor))  # never on a label
+        self.assertEqual(
+            self.w.axis_y.gridLinePen().style(),
+            signal_plot_class.Qt.PenStyle.CustomDashLine,
+        )
+        self.w.sp_window.setValue(600)  # 1 s lines would crowd: wider sub-step
+        self.assertNotEqual(self.w._minor_step, 1)
+
     def assert_consistent(self, p):
         """The series holds exactly the points of the plot's slots, in time order."""
         self.assertEqual(p.series.count(), p.count)
