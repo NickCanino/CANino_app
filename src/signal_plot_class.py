@@ -24,6 +24,11 @@ with every received and transmitted frame that carries it (TODO 7.10), each
 value at its own frame time; the X axis is time in seconds, kept to the last
 `window` seconds. QtCharts ships with PySide6, so no extra dependency is added.
 
+The X axis is labelled with the computer's local clock (hh:mm:ss): it starts at
+the first sample's time and has a label on every multiple of 5 s of the clock
+(a wider multiple when 5 s labels would overlap). Internally X stays in seconds
+since that first sample, so the values keep their precision.
+
 The line is drawn from time buckets (M4 decimation): the window is split into
 PLOT_BUCKETS slots and each slot draws its first, lowest, highest and last
 sample. A polyline through those covers the same pixels as one through every
@@ -36,13 +41,21 @@ its first to its last labelled sample, painted over the plot area as a red band
 with a line at the onset and the label at the top.
 """
 
+import math
 import os
 import time
 from bisect import bisect_left
+from datetime import datetime
 
-from PySide6.QtCharts import QChart, QChartView, QLineSeries, QValueAxis
+from PySide6.QtCharts import (
+    QCategoryAxis,
+    QChart,
+    QChartView,
+    QLineSeries,
+    QValueAxis,
+)
 from PySide6.QtCore import QPointF, QRectF, Qt, Signal
-from PySide6.QtGui import QColor, QIcon, QPainter, QPen
+from PySide6.QtGui import QColor, QFontMetrics, QIcon, QPainter, QPen
 from PySide6.QtWidgets import (
     QComboBox,
     QHBoxLayout,
@@ -66,6 +79,27 @@ MAX_SAMPLES = 200_000
 ANOMALY_FILL = QColor(229, 57, 53, 70)
 ANOMALY_LINE = QColor(239, 83, 80)
 ANOMALY_MIN_PX = 2.0
+
+# Clock labels on the X axis: every 5 s, or the first wider step whose labels
+# are at least TICK_MIN_GAP_PX apart beyond their own width
+TICK_STEPS_S = (5, 10, 15, 30, 60, 120, 300, 600)
+TICK_MIN_GAP_PX = 16
+TIME_TITLE = "Time (hh:mm:ss)"
+
+
+def tick_times(t_lo, t_hi, step):
+    """Clock times (epoch s) of the multiples of `step` in [t_lo, t_hi]."""
+    k = math.ceil(t_lo / step)
+    ticks = []
+    while k * step <= t_hi:
+        ticks.append(k * step)
+        k += 1
+    return ticks
+
+
+def clock_label(t):
+    """Local time of an epoch timestamp as hh:mm:ss."""
+    return datetime.fromtimestamp(t).strftime("%H:%M:%S")
 
 
 class Bucket:
@@ -214,6 +248,7 @@ class SignalPlotWindow(QWidget):
         self.dbc = dbc_loader
         self.plots = []  # list[PlotSeries]
         self._t0 = None  # frame time of the first fed sample: X = 0
+        self._ticks = None  # (step, tick times) now on the X axis
         self._t_last = 0.0  # X of the newest sample: the axis ends there
         # (frame_id, is_ext) -> [Anomaly] in time order (TODO 7.11)
         self.anomalies = {}
@@ -265,8 +300,12 @@ class SignalPlotWindow(QWidget):
         self.chart = QChart()
         self.chart.setTheme(QChart.ChartTheme.ChartThemeDark)
         self.chart.legend().setVisible(True)
-        self.axis_x = QValueAxis()
-        self.axis_x.setTitleText("Time (s)")
+        # A category axis = labels at chosen values: the clock ticks
+        self.axis_x = QCategoryAxis()
+        self.axis_x.setLabelsPosition(
+            QCategoryAxis.AxisLabelsPosition.AxisLabelsPositionOnValue
+        )
+        self.axis_x.setTitleText(TIME_TITLE)
         self.axis_y = QValueAxis()
         self.axis_y.setTitleText("Value")
         self.chart.addAxis(self.axis_x, Qt.AlignmentFlag.AlignBottom)
@@ -274,6 +313,8 @@ class SignalPlotWindow(QWidget):
         self.axis_x.setRange(0, self.sp_window.value())
         self.axis_y.setRange(0, 1)
         self.view = AnomalyChartView(self.chart, self.axis_x, self.anomaly_bands)
+        # The clock-label step depends on the plot width
+        self.chart.plotAreaChanged.connect(self._update_ticks)
         self.view.setRenderHint(QPainter.RenderHint.Antialiasing)
         layout.addWidget(self.view)
 
@@ -546,6 +587,7 @@ class SignalPlotWindow(QWidget):
                 hi = p_hi if hi is None else max(hi, p_hi)
         before = self._ranges()
         self.axis_x.setRange(x_lo, max(window, t))
+        self._update_ticks()
         if lo is not None:
             if lo == hi:
                 lo, hi = lo - 1, hi + 1
@@ -555,6 +597,36 @@ class SignalPlotWindow(QWidget):
             for plot in self.plots:
                 if id(plot) in changed:
                     plot.series.pointsReplaced.emit()  # one redraw from all points
+
+    def _update_ticks(self, *_):
+        """Put a clock label on every step-multiple of the local time in view.
+
+        Rebuilt only when the step or the set of ticks in view changes (a tick
+        entered or left the window), not on every scroll: the category values
+        are in plot seconds, so they move with the axis by themselves.
+        """
+        axis = self.axis_x
+        if self._t0 is None:
+            return
+        lo, hi = self._t0 + axis.min(), self._t0 + axis.max()
+        width = self.chart.plotArea().width()  # 0 until the chart is laid out
+        label_px = QFontMetrics(axis.labelsFont()).horizontalAdvance("00:00:00")
+        step = TICK_STEPS_S[0] if width <= 0 else TICK_STEPS_S[-1]
+        for s in TICK_STEPS_S if width > 0 else ():
+            if (hi - lo) / s * (label_px + TICK_MIN_GAP_PX) <= width:
+                step = s
+                break
+        ticks = tick_times(lo, hi, step)
+        if self._ticks == (step, ticks):
+            return
+        self._ticks = (step, ticks)
+        for label in axis.categoriesLabels():
+            axis.remove(label)
+        axis.setStartValue(axis.min() - 1.0)  # below every tick, out of view
+        for t in ticks:
+            axis.append(clock_label(t), t - self._t0)
+        start = datetime.fromtimestamp(self._t0).strftime("%H:%M:%S.%f")[:-3]
+        axis.setTitleText(f"{TIME_TITLE} - first sample {start}")
 
     def _ranges(self):
         return (

@@ -136,6 +136,40 @@ class PlotWindowTests(unittest.TestCase):
         self.assertAlmostEqual(self.w.axis_x.max(), 30.0)  # window not yet full
         self.assert_consistent(p)
 
+    def test_x_axis_shows_the_clock_every_5_s(self):
+        """7.12: X labels = local hh:mm:ss on every multiple of 5 s of the clock."""
+        self.w.resize(1100, 500)
+        self.add("MSG_A", "SIG_X")
+        t0 = 1_800_000_002.4  # epoch s, not on a 5 s boundary
+        self.w.feed_samples([(0x100, False, frame(1), t0 + i) for i in range(41)])
+        lo, hi = t0 + self.w.axis_x.min(), t0 + self.w.axis_x.max()  # last 30 s
+        want = signal_plot_class.tick_times(lo, hi, 5)
+        self.assertEqual(len(want), 6)
+        self.assertTrue(all(t % 5 == 0 for t in want))
+        self.assertEqual(
+            self.w.axis_x.categoriesLabels(),
+            [signal_plot_class.clock_label(t) for t in want],
+        )
+        for label, t in zip(self.w.axis_x.categoriesLabels(), want):
+            self.assertAlmostEqual(self.w.axis_x.endValue(label), t - t0)
+        self.assertRegex(self.w.axis_x.categoriesLabels()[0], r"^\d\d:\d\d:\d\d$")
+        self.assertIn(
+            signal_plot_class.clock_label(t0), self.w.axis_x.titleText()
+        )  # the first sample's time
+
+    def test_x_axis_wider_step_when_5_s_labels_overlap(self):
+        self.w.resize(1100, 500)
+        self.w.show()
+        h.app.processEvents()  # lay the chart out: the step needs its width
+        self.add("MSG_A", "SIG_X")
+        self.w.sp_window.setValue(600)
+        self.w.feed_samples(
+            [(0x100, False, frame(1), 1_800_000_000.0 + i) for i in range(700)]
+        )
+        step, ticks = self.w._ticks
+        self.assertGreater(step, 5)
+        self.assertEqual(len(self.w.axis_x.categoriesLabels()), len(ticks))
+
     def assert_consistent(self, p):
         """The series holds exactly the points of the plot's slots, in time order."""
         self.assertEqual(p.series.count(), p.count)
