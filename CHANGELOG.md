@@ -3,6 +3,15 @@
 All notable changes to CANino App. Versions from 1.4.0 on are PySide6 builds;
 1.3.x and earlier were PyQt6.
 
+## 1.7.3 — App tweaks
+
+Changed
+- **Signal Plot time axis** shows the computer's clock (hh:mm:ss) instead of
+  seconds from the first sample: it starts at the first sample's time (shown
+  with milliseconds in the axis title) and has a label on every multiple of
+  5 s of the clock (10 s, 15 s, 30 s, … when 5 s labels would overlap, e.g.
+  a 600 s window).
+
 ## 1.7.2 — Signal Plot: every value, anomaly intervals
 
 Added
