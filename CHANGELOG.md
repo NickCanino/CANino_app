@@ -11,6 +11,9 @@ Changed
   with milliseconds in the axis title) and has a label on every multiple of
   5 s of the clock (10 s, 15 s, 30 s, … when 5 s labels would overlap, e.g.
   a 600 s window).
+- **Signal Plot grid**: a thin dashed line every second between the 5 s
+  labels (every 2, 5, … s when 1 s lines would crowd a long window); the
+  horizontal Y grid lines use the same dashed style.
 
 ## 1.7.2 — Signal Plot: every value, anomaly intervals
 
