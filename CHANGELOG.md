@@ -5,6 +5,13 @@ All notable changes to CANino App. Versions from 1.4.0 on are PySide6 builds;
 
 ## 1.7.3 — App tweaks
 
+Added
+- **TX row menu**: right-click a TX row for Edit Properties, Disable/Enable,
+  Send Now, Link/Unlink Script and Delete.
+- **Edit Properties** opens the Add ID form filled in with the row: ID,
+  29-bit, CAN FD, RTR, DLC, period and name can change without deleting the
+  row; it keeps its place, enable state, script and payload bytes.
+
 Changed
 - **Signal Plot time axis** shows the computer's clock (hh:mm:ss) instead of
   seconds from the first sample: it starts at the first sample's time (shown
