@@ -223,6 +223,22 @@ class TxTableModel(QAbstractTableModel):
         entry.script_path = path or None
         self._changed_entry(entry, TX_COL_7_script, TX_COL_7_script)
 
+    def set_properties(self, entry, name, period):
+        """Edit Properties, same frame: only the name and the period change."""
+        entry.name = name
+        entry.period = clamp_period(period)
+        self._changed_entry(entry, TX_COL_4_name, TX_COL_5_period)
+
+    def replace(self, old, new):
+        """Edit Properties, another frame: `new` takes `old`'s row; None if gone."""
+        row = self._rows.get(id(old))
+        if row is None:
+            return None
+        self._entries[row] = new
+        self._reindex()
+        self._changed(row, row, 0, len(HEADERS) - 1)
+        return new
+
     def set_payload(self, entry, payload):
         """Any thread: the payload just sent; repainted at the next flush()."""
         with self._dirty_lock:

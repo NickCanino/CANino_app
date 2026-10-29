@@ -46,9 +46,11 @@ from PySide6.QtWidgets import (
     QTableView,
     QAbstractItemView,
     QHeaderView,
+    QMenu,
 )
 from PySide6.QtCore import Qt, QRectF, QTimer, QSettings, QSortFilterProxyModel
 from PySide6.QtGui import QColor, QIcon, QImage, QPainter, QPainterPath, QPixmap
+import dataclasses
 import importlib.util
 import glob
 import logging
@@ -218,12 +220,23 @@ def split_script_result(result):
 
 
 class AddIdDialog(QDialog):
-    """One form for a manual TX row, validated before it closes (TODO 2.3)."""
+    """One form for a manual TX row, validated before it closes (TODO 2.3).
 
-    def __init__(self, parent=None, existing_keys=()):
+    With `entry` it is that row's Edit Properties form (TODO 14.3): filled in
+    with the row, and the row's own ID does not count as taken.
+    """
+
+    def __init__(self, parent=None, existing_keys=(), entry=None):
         super().__init__(parent)
-        self.setWindowTitle("Add Manual ID")
+        self.entry = entry
+        self.setWindowTitle(
+            "Add Manual ID"
+            if entry is None
+            else f"Edit Properties - {entry.id_text} {entry.name}"
+        )
         self.existing_keys = set(existing_keys)
+        if entry is not None:
+            self.existing_keys.discard(entry.key)
         self.result_values = None
 
         self.ed_id = QLineEdit()
@@ -264,6 +277,14 @@ class AddIdDialog(QDialog):
         self.cb_fd.toggled.connect(lambda on: on and self.cb_rtr.setChecked(False))
         self.cb_rtr.toggled.connect(lambda on: on and self.cb_fd.setChecked(False))
         self._fill_dlc(False)
+        if entry is not None:
+            self.ed_id.setText(entry.id_text)
+            self.cb_ext.setChecked(entry.is_ext)
+            self.cb_fd.setChecked(entry.is_fd)  # refills the DLC choices
+            self.cb_rtr.setChecked(entry.is_rtr)
+            self.cb_dlc.setCurrentIndex(max(0, self.cb_dlc.findData(entry.dlc)))
+            self.sp_period.setValue(entry.period)
+            self.ed_name.setText(entry.name)
 
     def _fill_dlc(self, is_fd):
         current = self.cb_dlc.currentData() or 8
@@ -293,7 +314,10 @@ class AddIdDialog(QDialog):
                 None,
                 f"{format_can_id(frame_id, is_ext)} is already in the TX table.",
             )
-        name = self.ed_name.text().strip() or f"ID_{frame_id:X}"
+        name = self.ed_name.text().strip()
+        # The automatic name follows a new ID, as if the row were added again
+        if not name or (self.entry and name == f"ID_{self.entry.frame_id:X}"):
+            name = f"ID_{frame_id:X}"
         return {
             "frame_id": frame_id,
             "name": name,
@@ -507,6 +531,9 @@ class TxPanelMixin:
             sig.connect(self._fit_script_column)
         self.tx_view.setSortingEnabled(True)
         self.tx_view.sortByColumn(TX_COL_2_id, Qt.SortOrder.AscendingOrder)
+        # Right-click on a row: its actions, Edit Properties first (TODO 14.1)
+        self.tx_view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tx_view.customContextMenuRequested.connect(self._tx_context_menu)
         # Payloads and errors written by the TX engine reach the screen at ~10 Hz
         self.tx_refresh_timer = QTimer(self)
         self.tx_refresh_timer.timeout.connect(self._tx_refresh)
@@ -647,8 +674,102 @@ class TxPanelMixin:
             return None
         return self.tx_proxy.mapToSource(indexes[0]).data(ENTRY_ROLE)
 
+    def _tx_context_menu(self, pos):
+        """Right-click on a TX row: the menu of that row only (TODO 14.1)."""
+        index = self.tx_view.indexAt(pos)
+        if not index.isValid():
+            return
+        self.tx_view.selectRow(index.row())  # the menu acts on the row it shows
+        menu = self._tx_row_menu(index.data(ENTRY_ROLE))
+        menu.exec(self.tx_view.viewport().mapToGlobal(pos))
+        menu.deleteLater()
+
+    def _tx_row_menu(self, entry):
+        """The QMenu of one TX row (built apart from exec(), for the tests)."""
+        menu = QMenu(self.tx_view)
+        px = QStyle.StandardPixmap
+
+        def add(text, slot, pixmap=None):
+            action = menu.addAction(text)
+            if pixmap is not None:
+                action.setIcon(self.style().standardIcon(pixmap))
+            action.triggered.connect(lambda *_: slot(entry))
+            return action
+
+        add("Edit Properties...", self.edit_tx_row, px.SP_FileDialogContentsView)
+        menu.addSeparator()
+        add("Disable" if entry.enabled else "Enable", self._toggle_tx_row)
+        add("Send Now", self._send_now, px.SP_ArrowForward)
+        menu.addSeparator()
+        add("Link Script...", self.modify_payload_script, px.SP_FileDialogDetailedView)
+        unlink = add(
+            "Unlink Script", self.remove_local_payload_script, px.SP_DialogResetButton
+        )
+        unlink.setEnabled(bool(entry.script_path))
+        menu.addSeparator()
+        add("Delete", self.delete_signal_row, px.SP_TrashIcon)
+        return menu
+
+    def _toggle_tx_row(self, entry):
+        """Menu Enable/Disable: the same path as ticking the row's En box."""
+        index = self.tx_model.index(self.tx_model.row_of(entry), TX_COL_1_enable)
+        state = Qt.CheckState.Unchecked if entry.enabled else Qt.CheckState.Checked
+        self.tx_model.setData(index, state, Qt.ItemDataRole.CheckStateRole)
+
+    def edit_tx_row(self, entry):
+        """Edit Properties: the Add ID form filled in with this row (TODO 14.3).
+
+        Same frame (only name / period changed): edited in place, the row keeps
+        its TX phase. Another frame (ID, 29-bit, FD, RTR, DLC): a new TxEntry
+        takes the row - the TX thread may still be sending the old one, whose
+        flags never change under it - and keeps the row's place, enable, script
+        link and as much of its payload as the new DLC holds (zero-padded).
+        """
+        others = {e.key for e in self._tx_entries() if e is not entry}
+        dlg = AddIdDialog(self, others, entry=entry)
+        if dlg.exec() != QDialog.DialogCode.Accepted or dlg.result_values is None:
+            return
+        values = dlg.result_values
+        same_frame = all(
+            values[k] == getattr(entry, k)
+            for k in ("frame_id", "is_ext", "is_fd", "is_rtr", "dlc")
+        )
+        if same_frame:
+            if (values["name"], values["period"]) == (entry.name, entry.period):
+                return  # nothing changed: the workspace stays clean
+            retime = values["period"] != entry.period
+            self.tx_model.set_properties(entry, values["name"], values["period"])
+            if retime:
+                self.tx_scheduler.retime(entry)
+            self._mark_dirty()
+            return
+
+        dlc = values["dlc"]
+        new = dataclasses.replace(
+            entry,
+            **values,
+            payload=entry.payload[:dlc].ljust(dlc, b"\0"),
+            error=None,
+        )
+        if self.tx_model.replace(entry, new) is None:
+            return
+        self._mark_dirty()
+        self._update_slider_enabled(new)
+        skipped = self._sync_tx()  # drops the old entry's job, starts the new one
+        if f"{new.id_text} {new.name}" in skipped:
+            QMessageBox.warning(
+                self,
+                "CAN FD",
+                "The bus is connected as classic CAN: this row is not transmitted:\n"
+                f"{new.id_text} {new.name}",
+            )
+
     def send_selected_now(self):
         """Send the selected row once or as a burst, off the schedule (TODO 2.15)."""
+        self._send_now(self._selected_tx_entry())
+
+    def _send_now(self, entry):
+        """Send Now of one row (button: the selected one; menu: the clicked one)."""
         if not self.can_if:
             QMessageBox.warning(
                 self, "Send Now", "Connect to the CAN bus before sending."
@@ -659,7 +780,6 @@ class TxPanelMixin:
                 self, "Send Now", "The channel is connected in listen-only mode."
             )
             return
-        entry = self._selected_tx_entry()
         if entry is None:
             QMessageBox.warning(self, "Send Now", "Select a row in the TX table first.")
             return

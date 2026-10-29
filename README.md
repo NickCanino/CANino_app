@@ -172,6 +172,8 @@ Use the `Interface` selector to pick **PCAN-USB** (a PEAK adapter) or **Virtual*
 
 **Send Now / burst.** Select a row and press `Send Now` to transmit its frame once, outside the periodic schedule. Set the `Burst` count above 1 to send that many frames back-to-back (useful for flooding or triggering). It works whether or not periodic TX is running.
 
+**Row menu / Edit Properties.** Right-click a row for its menu: `Edit Properties...`, `Disable`/`Enable`, `Send Now`, `Link Script...`, `Unlink Script` and `Delete`. `Edit Properties...` opens the `Add ID` form filled in with the row, so ID, 29-bit flag, CAN FD, RTR, DLC, period and name can be changed without deleting and re-adding the row. The row keeps its place, its enable state, its linked script and its payload (cut to a shorter DLC, zero-padded to a longer one). Changing only the name or the period leaves the row's TX timing untouched; a new frame (other ID, flags or DLC) restarts the row, and with a new ID its script starts from its initial state.
+
 **Remote frames (RTR).** Tick `Remote frame (RTR)` in `Add ID` for a row that carries no data, only the requested DLC — a request for the owning node to transmit. RTR is classic CAN only (mutually exclusive with CAN FD); the payload cell shows `(RTR, DLC n)` and is not editable.
 
 **Replay a trace.** `Replay Trace` reads a `.trc`/`.asc`/`.blf`/`.log` file and transmits its frames onto the bus in their recorded timing (received and transmitted frames alike). Press it again to stop. The bus must be connected and not in listen-only mode. By default an idle gap longer than 10 s in the recording is replayed as 10 s; untick **Tools → Replay: Compress Idle Gaps > 10 s** to keep every gap at its recorded length (the choice is remembered).
