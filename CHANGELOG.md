@@ -11,6 +11,8 @@ Added
 - **Edit Properties** opens the Add ID form filled in with the row: ID,
   29-bit, CAN FD, RTR, DLC, period and name can change without deleting the
   row; it keeps its place, enable state, script and payload bytes.
+- **Signal Plot Clear button**: empties the plotted traces and anomaly bands;
+  the selected signals stay, and the time axis restarts at the next sample.
 
 Changed
 - **Signal Plot time axis** shows the computer's clock (hh:mm:ss) instead of
