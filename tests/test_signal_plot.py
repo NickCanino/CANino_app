@@ -1,5 +1,6 @@
 """Phase 3 / sub-task 7 — TODO 7.7: signal time plots (QtCharts).
 v1.7.2 / sub-task 1 — TODO 7.10: every RX/TX value of a plotted signal.
+v1.7.3 — TODO 7.14: Clear button.
 
 Run from the repo root:  python -m unittest discover -s tests -v
 """
@@ -112,6 +113,77 @@ class PlotWindowTests(unittest.TestCase):
         self.w.remove_selected()
         self.assertEqual(len(self.w.plots), 0)
         self.assertEqual(len(self.chart_series()), 0)
+
+    def test_clear_button_keeps_the_signals(self):
+        """7.14: the traces go, the selected signals and the feed stay."""
+        self.add("MSG_A", "SIG_X")
+        self.add("MSG_B", "SIG_Y")
+        keys_changes = []
+        self.w.keys_changed.connect(lambda: keys_changes.append(1))
+        self.w.feed_samples(
+            [
+                (0x100, False, frame(1), 100.0),
+                (0x120, False, frame(2), 101.0),
+            ]
+        )
+        self.w.btn_clear.click()
+        self.assertEqual(len(self.w.plots), 2)
+        self.assertEqual(len(self.chart_series()), 2)
+        self.assertEqual(self.w.cb_active.count(), 2)
+        self.assertEqual(keys_changes, [])  # the RX/TX collection keeps its frames
+        for p in self.w.plots:
+            self.assertEqual(p.series.count(), 0)
+            self.assertEqual(p.xs, [])
+            self.assertEqual(p.ys, [])
+            self.assert_consistent(p)
+
+    def test_clear_restarts_the_time_axis(self):
+        """7.14: the next sample is the new X = 0, as in a new window."""
+        self.add("MSG_A", "SIG_X")
+        self.w.feed_samples([(0x100, False, frame(i), 100.0 + i) for i in range(50)])
+        self.assertGreater(self.w.axis_x.max(), 30.0)
+        self.w.clear_traces()
+        self.assertEqual((self.w.axis_x.min(), self.w.axis_x.max()), (0.0, 30.0))
+        self.assertEqual((self.w.axis_y.min(), self.w.axis_y.max()), (0.0, 1.0))
+        self.assertEqual(self.w.axis_x.categoriesLabels(), [])
+        self.assertEqual(self.w.axis_x.startValue(), 0.0)
+        self.assertFalse(self.w.axis_x.isGridLineVisible())  # no stale line left
+        self.assertEqual(self.w.axis_x.titleText(), signal_plot_class.TIME_TITLE)
+        self.assertEqual(self.w.minor_grid_xs(), [])
+        self.w.feed_samples(
+            [(0x100, False, frame(5), 500.0), (0x100, False, frame(6), 501.0)]
+        )
+        p = self.w.plots[0]
+        self.assertEqual(xs(p), [0.0, 1.0])
+        self.assertEqual(ys(p), [10.0, 12.0])
+        self.assertEqual((self.w.axis_x.min(), self.w.axis_x.max()), (0.0, 30.0))
+        self.assertIn("first sample", self.w.axis_x.titleText())
+        self.assertTrue(self.w.axis_x.isGridLineVisible())
+        self.assertTrue(self.w.axis_x.isLineVisible())
+        self.assert_consistent(p)
+
+    def test_clear_on_an_empty_plot_is_harmless(self):
+        self.w.clear_traces()  # no signals at all
+        self.add("MSG_A", "SIG_X")
+        self.w.clear_traces()  # a signal, no samples
+        self.w.feed_samples([(0x100, False, frame(1), 100.0)])
+        self.assertEqual(ys(self.w.plots[0]), [2.0])
+
+    def test_clear_drops_the_anomaly_bands(self):
+        """7.14: an interval still open at Clear restarts at the next labelled
+        sample, not at its old onset."""
+        self.add("MSG_A", "SIG_X")
+        self.w.feed_samples(
+            [
+                (0x100, False, frame(1), 100.0, "spike"),
+                (0x100, False, frame(2), 101.0, "spike"),
+            ]
+        )
+        self.assertEqual(len(self.w.anomaly_bands()), 1)
+        self.w.clear_traces()
+        self.assertEqual(self.w.anomaly_bands(), [])
+        self.w.feed_samples([(0x100, False, frame(3), 102.0, "spike")])
+        self.assertEqual(self.w.anomaly_bands(), [(0.0, 0.0, "spike")])
 
     def test_window_trims_old_points(self):
         self.add("MSG_A", "SIG_X")

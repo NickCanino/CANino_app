@@ -41,6 +41,9 @@ Anomaly intervals (TODO 7.11): a TX script may label its frames (TODO 3.17);
 each run of equally labelled frames of a plotted frame ID is an interval, from
 its first to its last labelled sample, painted over the plot area as a red band
 with a line at the onset and the label at the top.
+
+The Clear button (TODO 7.14) empties the traces and restarts the time axis at
+the next sample; the plotted signals stay selected.
 """
 
 import math
@@ -308,6 +311,14 @@ class SignalPlotWindow(QWidget):
         )
         self.btn_remove.setToolTip("Stop plotting the selected signal.")
         self.btn_remove.clicked.connect(self.remove_selected)
+        self.btn_clear = QPushButton("Clear")
+        self.btn_clear.setIcon(
+            self.style().standardIcon(QStyle.StandardPixmap.SP_DialogResetButton)
+        )
+        self.btn_clear.setToolTip(
+            "Clear the plotted traces. The selected signals stay in the plot."
+        )
+        self.btn_clear.clicked.connect(self.clear_traces)
         self.sp_window = QSpinBox()
         self.sp_window.setRange(2, 600)
         self.sp_window.setValue(30)
@@ -323,6 +334,7 @@ class SignalPlotWindow(QWidget):
         controls.addWidget(self.sp_window)
         controls.addWidget(self.cb_active)
         controls.addWidget(self.btn_remove)
+        controls.addWidget(self.btn_clear)
         layout.addLayout(controls)
 
         # --- chart ---
@@ -424,6 +436,31 @@ class SignalPlotWindow(QWidget):
         self.anomalies = {}
         self.view.viewport().update()
         self.keys_changed.emit()
+
+    def clear_traces(self):
+        """Empty the traces and anomaly bands, keep the signals (TODO 7.14): the
+        next sample starts the time axis again, as in a new window."""
+        for plot in self.plots:
+            plot.xs = []
+            plot.ys = []
+            plot.buckets = []
+            plot.count = 0
+            plot.series.clear()
+        self.anomalies = {}
+        self._t0 = None
+        self._t_last = 0.0
+        self._ticks = None
+        self._minor_step = None
+        for label in self.axis_x.categoriesLabels():
+            self.axis_x.remove(label)
+        self.axis_x.setStartValue(0)
+        # A category axis without categories keeps its last lines on screen
+        self.axis_x.setLineVisible(False)
+        self.axis_x.setGridLineVisible(False)
+        self.axis_x.setTitleText(TIME_TITLE)
+        self.axis_x.setRange(0, self.sp_window.value())
+        self.axis_y.setRange(0, 1)
+        self.view.viewport().update()  # bands and sub-grid are not in the scene
 
     def keys(self):
         """The (frame_id, is_ext) of every plotted signal."""
@@ -668,6 +705,8 @@ class SignalPlotWindow(QWidget):
         axis.setStartValue(axis.min() - 1.0)  # below every tick, out of view
         for t in ticks:
             axis.append(clock_label(t), t - self._t0)
+        axis.setLineVisible(True)  # hidden by clear_traces
+        axis.setGridLineVisible(True)
         start = datetime.fromtimestamp(self._t0).strftime("%H:%M:%S.%f")[:-3]
         axis.setTitleText(f"{TIME_TITLE} - first sample {start}")
 
